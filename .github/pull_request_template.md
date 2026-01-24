@@ -23,3 +23,10 @@ Paste the **full output** below (do NOT edit the `== ... ==` markers):
 ### If this PR touches runner/ranker/alerter/replay/live pipeline (REQUIRED when applicable)
 
 * Determinism proof: input fixture sha256 + output RankEvent digest + run#1==run#2 (raw)
+
+### Chat report to reviewer (REQUIRED)
+After opening the PR, run:
+```bash
+./scripts/proof_bundle_chat.sh <PR_NUMBER>
+```
+and paste its output in the reviewer chat (raw).
