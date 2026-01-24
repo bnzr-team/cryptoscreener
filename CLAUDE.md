@@ -611,9 +611,20 @@ Any message that includes additional summary text after `== CHAT PROOF: END ==` 
 1. **FULL VERBATIM**: Complete packet with `diff --git` in body (auto-inserted by CI if size permits)
 2. **CI ARTIFACT**: Reference block with RUN_URL, ARTIFACT_NAME, SHA256, BYTES, CHECK_NAME, HEAD_SHA (for large diffs)
 
+**PENDING marker:**
+- **What it is:** The string `== ACCEPTANCE PACKET: PENDING ==` in PR body
+- **When it appears:** Immediately on PR creation, before CI has updated the body
+- **Proof Guard behavior:** **ALWAYS FAILS** if PENDING marker is present (prevents merge without proof)
+- **What to do:**
+  1. Wait for `Acceptance Packet` workflow to complete and update PR body
+  2. If workflow passed but body still has PENDING → re-run `Acceptance Packet` via workflow_dispatch
+  3. Then re-run `Proof Guard` to re-validate the updated body
+- **STRICT MODE:** If GitHub API fetch fails and PR body has PENDING or no valid proof markers → Proof Guard FAILS (no silent bypass)
+- **Note:** Marker must be on its own line (trailing whitespace allowed). CI writes it correctly.
+
 **Proof Guard validates:**
 - FULL VERBATIM: all markers + `diff --git` present
-- CI ARTIFACT: check-run `Acceptance Packet` passed for HEAD_SHA via GitHub API
+- CI ARTIFACT: check-run `acceptance-packet` (job name) passed for HEAD_SHA via GitHub API
 
 **Exit codes (acceptance_packet.sh):**
 - `0` — All checks passed, ready for ACCEPT
@@ -630,10 +641,17 @@ PR requires replay proof if it touches ANY of:
 **Workflow:**
 1. Create PR (get number)
 2. CI runs automatically, updates PR body
-3. If `Acceptance Packet` check passes → ready for review
+3. If `acceptance-packet` check passes → ready for review
 4. If check fails → fix issues, push, CI re-runs
 
+**Terminology (important for debugging):**
+- **Workflow name:** `Acceptance Packet` (visible in Actions tab)
+- **Job/check name:** `acceptance-packet` (used by Proof Guard to validate via check-runs API)
+- Proof Guard in CI ARTIFACT mode queries GitHub Check-Runs API for HEAD_SHA and looks for `name: "acceptance-packet"` with `conclusion: "success"`
+
 **Manual paste is no longer required — CI handles everything.**
+
+**Never edit proof blocks manually.** CI auto-updates PR body between `<!-- ACCEPTANCE_PACKET_START -->` and `<!-- ACCEPTANCE_PACKET_END -->` markers. Local runs are for diagnostics only; the source of truth is always the CI-generated packet. If you need to re-generate, use workflow_dispatch on `Acceptance Packet` workflow.
 
 ---
 
