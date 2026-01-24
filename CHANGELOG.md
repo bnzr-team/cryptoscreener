@@ -11,14 +11,15 @@
 
 #### GitHub PR#49 — CI Acceptance Packet + Auto PR Body Proof + Proof Guard CI Artifact Mode
 - New workflow `.github/workflows/acceptance_packet.yml`:
-  - Runs on `pull_request` (opened, synchronize, reopened, ready_for_review)
+  - Runs on `pull_request` (opened, synchronize, reopened, ready_for_review) + `workflow_dispatch`
   - Installs dev dependencies (`pip install -e ".[dev]"`)
   - Runs `./scripts/acceptance_packet.sh <PR_NUMBER>`
   - Always uploads artifact `acceptance_packet_pr<N>` with SHA256/size
   - Auto-updates PR body between `<!-- ACCEPTANCE_PACKET_START -->` and `<!-- ACCEPTANCE_PACKET_END -->` markers
-  - Two modes: FULL VERBATIM (packet < 50KB with `diff --git`) or CI ARTIFACT (reference block)
+  - Two modes: FULL VERBATIM (packet < 45KB with `diff --git`) or CI ARTIFACT (reference block)
   - Anti-loop: skips if actor is `github-actions[bot]`, no `edited` trigger
 - Updated `proof_guard.yml` to support CI ARTIFACT mode:
+  - PENDING mode now FAILS (was security hole - prevented merge without proof)
   - FULL VERBATIM: all markers + `diff --git` required
   - CI ARTIFACT: validates via GitHub API that check-run `Acceptance Packet` passed for HEAD_SHA
   - CI ARTIFACT mode does NOT require `diff --git` in body
