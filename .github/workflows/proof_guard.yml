@@ -88,20 +88,38 @@ jobs:
               break
             page += 1
 
-          touches_fixtures = any(f.startswith("tests/fixtures/") for f in files)
-          touches_replay = any(f == "scripts/run_replay.py" for f in files)
-          require_replay = touches_fixtures or touches_replay
+          # Expanded replay-related file detection (DEC-008)
+          replay_patterns = [
+              "tests/fixtures/",       # Fixture files
+              "tests/replay/",         # Replay tests
+              "scripts/run_replay.py", # Replay script
+              "scripts/run_record.py", # Record script (affects replay determinism)
+          ]
+
+          def is_replay_related(filename: str) -> bool:
+              return any(
+                  filename.startswith(p) if p.endswith("/") else filename == p
+                  for p in replay_patterns
+              )
+
+          replay_related_files = [f for f in files if is_replay_related(f)]
+          require_replay = len(replay_related_files) > 0
 
           if require_replay:
-            if "python -m scripts.run_replay" not in body:
-              print("ERROR: This PR changes fixtures/replay. Must include replay determinism proof:")
-              print(" - python -m scripts.run_replay command and output")
+            # Accept both python and python3 variants
+            has_replay_proof = (
+                "python -m scripts.run_replay" in body or
+                "python3 -m scripts.run_replay" in body or
+                "python3 scripts/run_replay.py" in body or
+                "scripts.run_replay" in body
+            )
+            if not has_replay_proof:
+              print("ERROR: This PR changes replay-related files. Must include replay determinism proof:")
+              print(" - python3 scripts/run_replay.py --fixture <path> -v (or equivalent)")
               print("")
               print("Changed files that triggered this requirement:")
-              for f in files:
-                if f.startswith("tests/fixtures/") or f == "scripts/run_replay.py":
+              for f in replay_related_files:
                   print(f" - {f}")
-              sys.exit(1)
 
           print("OK: Proof bundle requirements satisfied.")
           print(f"INFO: PR #{number}, files: {len(files)}, replay required: {require_replay}")

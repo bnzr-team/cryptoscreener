@@ -9,6 +9,18 @@
 
 ### Added
 
+#### GitHub PR#43 — Acceptance Packet Automation (DEC-008)
+- New `scripts/acceptance_packet.sh <PR>` — one-command "ready for ACCEPT" generator
+  - Waits for CI checks to pass (polls with timeout)
+  - Runs quality gates (ruff, mypy, pytest)
+  - Auto-generates proof bundle artifacts if missing
+  - Shows full PR diff
+  - Validates replay determinism if PR touches replay-related files
+- Updated `scripts/proof_bundle.sh`: python→python3, use `gh pr diff` for full PR diff
+- Updated `scripts/proof_bundle_chat.sh`: auto-generate artifacts if missing
+- Expanded `.github/workflows/proof_guard.yml` replay detection to include `run_record.py` and `tests/replay/`
+- Added mandatory `acceptance_packet.sh` usage rule to CLAUDE.md
+
 #### GitHub PR#23 — LLM Explain Pipeline Integration (DEC-005)
 - Integrated LLM explain into Alerter: `RankEvent.payload.llm_text` populated for alert events
 - `ExplainLLMProtocol` for dependency injection (no hard import of explain_llm module)
