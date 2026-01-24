@@ -212,13 +212,15 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 ### Required proof bundle sections (enforced by proof_guard)
 
 Always required:
-- `## 1) Git proof`
-- `## 2) Tool versions`
-- `## 3) Quality gates`
+- `## 0) Header`
+- `## 1) Scope`
+- `## 2) Files Changed`
+- `## 3) Proof Artifacts`
+- `## 4) Quality Gates`
+- `## 9) Git Evidence`
 
 Conditionally required (if PR touches `tests/fixtures/` or `scripts/run_replay.py`):
-- `## 4) Fixtures checksums`
-- `## 5) Replay determinism`
+- `## 5) Replay Determinism`
 
 ### Pre-flight checklist (before running pr_create.sh)
 
