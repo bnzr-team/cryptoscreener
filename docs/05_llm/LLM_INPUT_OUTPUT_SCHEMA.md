@@ -12,7 +12,9 @@ See also `docs/03_architecture/DATA_CONTRACTS.md`.
 - Max chars: config (default 180)
 - Required keys: headline, status_label
 - status_label must be one of allowed labels.
-- No numbers may appear unless they were present in input numeric_summary (exact match).
+- No numbers may appear unless they were present in input numeric_summary.
+  - **Integer/Float equivalence (DEC-001):** Whole-number floats like `5.0` allow both `"5"` and `"5.0"` in output.
+  - Non-whole numbers (e.g., `5.123`) require exact string match.
 
 ## Validation algorithm (step-by-step)
 1. Parse JSON.
