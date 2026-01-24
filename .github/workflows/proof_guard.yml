@@ -24,11 +24,32 @@ jobs:
             event = json.load(f)
 
           pr = event.get("pull_request") or {}
-          body = (pr.get("body") or "").strip()
           number = pr.get("number")
           head_sha = pr.get("head", {}).get("sha", "")
           repo = (event.get("repository") or {}).get("full_name")
           token = os.environ.get("GITHUB_TOKEN", "")
+
+          # Fetch body from API at runtime (not from event payload)
+          # This ensures re-runs see the updated PR body
+          def gh_get(url: str):
+            req = urllib.request.Request(url)
+            req.add_header("Accept", "application/vnd.github+json")
+            if token:
+              req.add_header("Authorization", f"Bearer {token}")
+            with urllib.request.urlopen(req) as r:
+              return json.loads(r.read().decode("utf-8"))
+
+          if number and repo:
+            try:
+              pr_data = gh_get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+              body = (pr_data.get("body") or "").strip()
+              # Also get current HEAD SHA in case PR was updated
+              head_sha = pr_data.get("head", {}).get("sha", head_sha)
+            except Exception as e:
+              print(f"WARNING: Could not fetch PR body from API: {e}")
+              body = (pr.get("body") or "").strip()
+          else:
+            body = (pr.get("body") or "").strip()
 
           if not number or not repo:
             print("ERROR: Cannot determine PR number or repository from event payload.")
@@ -38,15 +59,6 @@ jobs:
             print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
             print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> or wait for CI to auto-populate.")
             sys.exit(1)
-
-          # Helper for GitHub API calls
-          def gh_get(url: str):
-            req = urllib.request.Request(url)
-            req.add_header("Accept", "application/vnd.github+json")
-            if token:
-              req.add_header("Authorization", f"Bearer {token}")
-            with urllib.request.urlopen(req) as r:
-              return json.loads(r.read().decode("utf-8"))
 
           # PR#49: Check if body has PENDING marker (CI hasn't updated it yet)
           # PENDING = NOT DONE. Must FAIL to prevent merge without proof.
