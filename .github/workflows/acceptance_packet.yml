@@ -105,11 +105,20 @@ jobs:
           pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
           base_body = re.sub(pattern, '', current_body, flags=re.DOTALL).strip()
 
-          # Estimate full verbatim size: base + packet + markdown overhead (~100 chars)
-          full_verbatim_size = len(base_body) + len(packet_content) + 100
+          # Estimate full verbatim size: base + packet + markdown overhead (~200 chars for markers/code fence)
+          full_verbatim_size = len(base_body) + len(packet_content) + 200
 
-          # Use FULL VERBATIM only if total < 60000 and packet has diff
-          if full_verbatim_size < 60000 and 'diff --git' in packet_content:
+          # Use FULL VERBATIM only if:
+          # 1. Total body size < 50000 (safe margin below 65K limit)
+          # 2. Packet content itself < 45000 (prevent huge diffs)
+          # 3. Packet has diff content
+          use_full_verbatim = (
+              full_verbatim_size < 50000 and
+              len(packet_content) < 45000 and
+              'diff --git' in packet_content
+          )
+
+          if use_full_verbatim:
               # FULL VERBATIM mode
               new_block = f'''<!-- ACCEPTANCE_PACKET_START -->
           ```

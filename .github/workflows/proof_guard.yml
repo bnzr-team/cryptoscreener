@@ -49,53 +49,14 @@ jobs:
               return json.loads(r.read().decode("utf-8"))
 
           # PR#49: Check if body has PENDING marker (CI hasn't updated it yet)
-          # In this case, we need to check if acceptance-packet check-run passed
+          # PENDING = NOT DONE. Must FAIL to prevent merge without proof.
           is_pending_mode = "== ACCEPTANCE PACKET: PENDING ==" in body
 
           if is_pending_mode:
-            print("INFO: Body has PENDING marker, checking if Acceptance Packet check-run passed...")
-            try:
-              check_runs_url = f"https://api.github.com/repos/{repo}/commits/{head_sha}/check-runs"
-              check_runs_response = gh_get(check_runs_url)
-              check_runs = check_runs_response.get("check_runs", [])
-
-              # Find acceptance-packet check-run
-              acceptance_check = None
-              for cr in check_runs:
-                if cr.get("name") == "acceptance-packet":
-                  acceptance_check = cr
-                  break
-
-              if not acceptance_check:
-                print("INFO: Acceptance Packet check-run not found yet, it may still be running.")
-                print("Proof Guard will pass once Acceptance Packet updates the PR body.")
-                print("If this persists, manually trigger a re-run after Acceptance Packet completes.")
-                # Exit success to allow merge once acceptance-packet passes
-                # The merge protection should require acceptance-packet to pass
-                sys.exit(0)
-
-              conclusion = acceptance_check.get("conclusion")
-              status = acceptance_check.get("status")
-
-              if status != "completed":
-                print(f"INFO: Acceptance Packet check-run is still running (status: {status})")
-                print("Proof Guard will pass once Acceptance Packet completes and updates the PR body.")
-                sys.exit(0)
-
-              if conclusion == "success":
-                print(f"OK: Acceptance Packet check-run passed, body update may be pending.")
-                print("If body wasn't updated, the GitHub token may not trigger edit events.")
-                print("Consider manually re-running Proof Guard after body is updated.")
-                # Pass since acceptance-packet succeeded
-                sys.exit(0)
-              else:
-                print(f"ERROR: Acceptance Packet check-run failed (conclusion: {conclusion})")
-                print("Fix the issues in Acceptance Packet first.")
-                sys.exit(1)
-
-            except Exception as e:
-              print(f"ERROR: Failed to check acceptance-packet status: {e}")
-              sys.exit(1)
+            print("ERROR: PR body still has PENDING marker — no proof yet.")
+            print("Wait for Acceptance Packet workflow to complete and update the PR body.")
+            print("If Acceptance Packet passed but body wasn't updated, re-run Proof Guard manually.")
+            sys.exit(1)
 
           # PR#49: CI ARTIFACT mode detection
           # If body contains CI ARTIFACT block, validate via check-run API
