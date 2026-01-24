@@ -187,3 +187,53 @@ If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
 - `AlerterConfig.llm_enabled` (default True) allows global disable
 - Metrics: `llm_calls`, `llm_cache_hits`, `llm_failures` for observability
 - 8 integration tests verify caching, cooldown, and failure handling
+
+---
+
+## DEC-008: Acceptance Packet Automation (PR#43)
+
+**Date:** 2026-01-24
+
+**Decision:** Implement one-command "ready for ACCEPT" generator that produces complete proof bundle with all required evidence.
+
+**Command:**
+```bash
+./scripts/acceptance_packet.sh <PR_NUMBER>
+```
+
+**What it does:**
+1. **Waits for CI** — polls `gh pr checks` until all pass (fails on timeout/failure)
+2. **Runs quality gates** — ruff, mypy, pytest (fails if any fail)
+3. **Ensures artifacts exist** — auto-generates via `proof_bundle.sh` if missing
+4. **Shows PR diff** — full `gh pr diff` output
+5. **Validates replay** (if required) — generates synthetic fixture, runs replay twice, verifies digest match
+
+**Replay-required detection:**
+PR requires replay proof if it touches any of:
+- `scripts/run_replay.py`
+- `scripts/run_record.py`
+- `tests/replay/*`
+- `tests/fixtures/*`
+
+**Exit codes:**
+- `0` — All checks passed, ready for ACCEPT
+- `1` — Some check failed
+- `2` — Usage error
+
+**Alternatives considered:**
+1. Manual multi-step process — rejected: error-prone, inconsistent evidence
+2. Separate scripts for each check — rejected: fragmented, easy to miss steps
+3. CI-only validation — rejected: doesn't help during development/review
+
+**Rationale:**
+- Single source of truth for "what does ACCEPT require"
+- Eliminates back-and-forth about missing evidence
+- Auto-generates missing artifacts
+- Fails fast on any issue
+
+**Impact:**
+- New `scripts/acceptance_packet.sh` with CLI interface
+- Updated `scripts/proof_bundle.sh` (python→python3, PR diff instead of HEAD)
+- Updated `scripts/proof_bundle_chat.sh` (auto-generate artifacts)
+- Expanded `proof_guard.yml` replay detector
+- CLAUDE.md updated with mandatory acceptance_packet usage

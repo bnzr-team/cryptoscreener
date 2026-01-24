@@ -31,11 +31,12 @@ gh pr checks "${PR_NUMBER}" || true
 echo
 
 echo "== CHANGED FILES =="
-git show --name-only --pretty="" HEAD
+# Use gh pr to get all changed files in PR (not just HEAD commit)
+gh pr view "${PR_NUMBER}" --json files --jq '.files[].path' || git show --name-only --pretty="" HEAD
 echo
 
 echo "== TOOLCHAIN VERSIONS =="
-python --version
+python3 --version
 ruff --version
 mypy --version
 pytest --version
@@ -46,7 +47,9 @@ git show --stat
 echo
 
 echo "== GIT SHOW =="
-git show
+# Show full PR diff instead of just HEAD commit
+echo "--- Full PR diff (gh pr diff ${PR_NUMBER}) ---"
+gh pr diff "${PR_NUMBER}" || git show
 echo
 
 echo "== RUFF CHECK . =="

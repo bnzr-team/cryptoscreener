@@ -7,14 +7,16 @@ if [[ -z "${PR_NUMBER}" ]]; then
   exit 2
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "== CHAT PROOF: IDENTITY =="
 PR_JSON="$(gh pr view "${PR_NUMBER}" --json url,state,mergedAt,mergeCommit,baseRefName,headRefName,title,number)"
 echo "${PR_JSON}"
 echo
 
-PR_URL="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
-STATE="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
-MERGE_COMMIT="$(echo "${PR_JSON}" | python -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc.get("oid","") if isinstance(mc,dict) else "")')"
+PR_URL="$(echo "${PR_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+STATE="$(echo "${PR_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
+MERGE_COMMIT="$(echo "${PR_JSON}" | python3 -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc.get("oid","") if isinstance(mc,dict) else "")')"
 
 if [[ "${STATE}" == "MERGED" && -z "${MERGE_COMMIT}" ]]; then
   echo "ERROR: PR is MERGED but mergeCommit is missing in gh pr view JSON"
@@ -65,10 +67,16 @@ echo
 
 echo "== CHAT PROOF: PROOF FILE =="
 LATEST="$(ls -1t artifacts/proof_bundle_pr${PR_NUMBER}_*.txt 2>/dev/null | head -n 1 || true)"
+if [[ -z "${LATEST}" ]]; then
+  echo "No artifacts found, auto-generating..."
+  "${SCRIPT_DIR}/proof_bundle.sh" "${PR_NUMBER}" > /dev/null 2>&1 || true
+  LATEST="$(ls -1t artifacts/proof_bundle_pr${PR_NUMBER}_*.txt 2>/dev/null | head -n 1 || true)"
+fi
+
 if [[ -n "${LATEST}" ]]; then
   echo "${LATEST}"
 else
-  echo "WARNING: No artifacts file found. Run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate."
+  echo "WARNING: Could not generate artifacts file."
 fi
 
 echo

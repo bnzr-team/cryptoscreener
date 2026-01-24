@@ -583,3 +583,40 @@ Run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output **verbatim
 **Do NOT add any commentary, summary, or extra lines.**
 
 Any message that includes additional summary text after `== CHAT PROOF: END ==` is INVALID.
+
+---
+
+## Acceptance Packet (Mandatory for PR Review)
+
+**Before requesting ACCEPT on any PR, Claude MUST run:**
+
+```bash
+./scripts/acceptance_packet.sh <PR_NUMBER>
+```
+
+**This is NON-NEGOTIABLE.** The script:
+1. Waits for CI checks to pass (polls until PASS or timeout)
+2. Runs quality gates locally (ruff, mypy, pytest)
+3. Auto-generates proof bundle artifacts if missing
+4. Shows full PR diff
+5. Validates replay determinism if PR touches replay-related files
+
+**Exit codes:**
+- `0` — All checks passed, ready for ACCEPT
+- `1` — Some check failed (CI, gates, replay)
+- `2` — Usage error
+
+**Replay-required detection:**
+PR requires replay proof if it touches ANY of:
+- `scripts/run_replay.py`
+- `scripts/run_record.py`
+- `tests/replay/*`
+- `tests/fixtures/*`
+
+**Workflow:**
+1. Create PR (get number)
+2. Run `./scripts/acceptance_packet.sh <PR_NUMBER>`
+3. If exit code is `0`: paste full output as evidence, request ACCEPT
+4. If exit code is `1`: fix issues, repeat
+
+**Never request ACCEPT without running acceptance_packet.sh and confirming exit code 0.**
