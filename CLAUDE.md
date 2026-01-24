@@ -186,21 +186,26 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 ## PR Automation (GitHub)
 
-### Proof Bundle Standard (CRITICAL — enforced by CI)
+### Proof Bundle Standard v2 (CRITICAL — enforced by CI)
 
 **PR не готов без raw proof bundle.** Никаких пересказов ("All passed!") вместо сырого вывода команд.
 
-**Обязательные требования для КАЖДОГО PR:**
+**Для каждого PR:**
 
-1. **Raw output `./scripts/proof_bundle.sh`** — вставить полный вывод в PR body
-2. **Repo-scope only**: `ruff check .`, `mypy .`, `pytest -q` (не `ruff check file.py`)
-3. **Raw `gh pr checks <PR#>`** — в отдельной секции
-4. **5 обязательных маркеров** (CI фейлит без них):
-   - `== GIT SHOW --STAT ==`
-   - `== GIT SHOW ==`
-   - `== RUFF CHECK . ==`
-   - `== MYPY . ==`
-   - `== PYTEST -Q ==`
+1. Создай PR (получи номер)
+2. Запусти `./scripts/proof_bundle.sh <PR_NUMBER>`
+3. Вставь **весь raw output** в PR body (не редактируй маркеры!)
+
+Скрипт включает: PR URL, gh pr checks, git show, ruff/mypy/pytest.
+
+**7 обязательных маркеров** (CI фейлит без них):
+- `== PR URL ==`
+- `== GH PR CHECKS ==`
+- `== GIT SHOW --STAT ==`
+- `== GIT SHOW ==`
+- `== RUFF CHECK . ==`
+- `== MYPY . ==`
+- `== PYTEST -Q ==`
 
 **Conditional требования:**
 
@@ -209,22 +214,11 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 | contracts/events/models | 3 JSON примера + roundtrip/schema proof (raw) |
 | runner/ranker/alerter/replay/run_live | sha256 fixture + digest + determinism proof (run #1 == run #2) |
 
-**Workflow:**
-```bash
-# 1. Запустить proof_bundle.sh
-./scripts/proof_bundle.sh
-
-# 2. Скопировать ВЕСЬ вывод в PR body (не редактировать маркеры!)
-
-# 3. После создания PR — добавить gh pr checks
-gh pr checks <PR_NUMBER>
-```
-
 ### Available scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/proof_bundle.sh` | Prints full proof bundle (git show, ruff, mypy, pytest) — paste into PR body |
+| `scripts/proof_bundle.sh <PR#>` | Prints full proof bundle (PR URL, CI checks, git, ruff, mypy, pytest) — paste into PR body |
 | `scripts/gen_proof_bundle.sh` | Generates proof bundle markdown with git, tools, quality gates, checksums, replay |
 | `scripts/pr_create.sh` | Full PR cycle: branch → commit → push → proof → PR → auto-merge |
 

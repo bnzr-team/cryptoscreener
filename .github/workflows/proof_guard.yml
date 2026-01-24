@@ -34,12 +34,14 @@ jobs:
 
           if not body:
             print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
-            print("TIP: Run ./scripts/proof_bundle.sh and paste the output.")
+            print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
             sys.exit(1)
 
-          # Required markers from proof_bundle.sh output
+          # Required markers from proof_bundle.sh output (v2: 7 markers)
           # These markers indicate raw command output was pasted
           required_markers = [
+            "== PR URL ==",
+            "== GH PR CHECKS ==",
             "== GIT SHOW --STAT ==",
             "== GIT SHOW ==",
             "== RUFF CHECK . ==",
@@ -53,11 +55,11 @@ jobs:
             for m in missing:
               print(f" - {m}")
             print("")
-            print("TIP: Run ./scripts/proof_bundle.sh and paste the FULL output into PR body.")
+            print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the FULL output into PR body.")
             sys.exit(1)
 
-          # Sanity check: must have some actual output after markers
-          if body.count("==") < 10:
+          # Sanity check: must have some actual output after markers (7 markers = 14 "==")
+          if body.count("==") < 14:
             print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
             sys.exit(1)
 
