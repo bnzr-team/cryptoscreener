@@ -88,9 +88,17 @@ Notes:
   "symbol": "BTCUSDT",
   "rank": 3,
   "score": 0.83,
-  "payload": {"prediction": {}, "llm_text": "..."}
+  "payload": {"prediction": {}, "llm_text": ""}
 }
 ```
+
+Notes:
+- `rank`: 0-indexed position in top-K ranking (must be >= 0).
+- `score`: Normalized ranking score in [0, 1]. Formula: `p_inplay * (utility/Umax) * (1 - α*p_toxic)`.
+- `payload.prediction`:
+  - **Ranker events** (SYMBOL_ENTER, SYMBOL_EXIT): Empty dict `{}` — lightweight events for high-frequency updates. Downstream consumers should fetch prediction from the prediction store if needed.
+  - **Alerter events** (ALERT_TRADABLE, ALERT_TRAP, DATA_ISSUE): Full `PredictionSnapshot` dict for self-contained alert payloads.
+- `payload.llm_text`: LLM-generated explanation (empty string if not yet populated).
 
 ---
 

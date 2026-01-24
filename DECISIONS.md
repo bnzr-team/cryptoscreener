@@ -93,3 +93,30 @@ If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
 - Gate thresholds included in `compute_digest()` for replay verification
 - 10 dedicated gate tests verify behavior
 - Clear upgrade path to MLRunner with more sophisticated logic
+
+---
+
+## DEC-003: RankEvent Payload Semantics (Lightweight vs Rich)
+
+**Date:** 2026-01-24
+
+**Decision:** RankEvent `payload.prediction` has different semantics based on event source:
+- **Ranker events** (SYMBOL_ENTER, SYMBOL_EXIT): Empty dict `{}` — lightweight events optimized for high-frequency updates.
+- **Alerter events** (ALERT_TRADABLE, ALERT_TRAP, DATA_ISSUE): Full `PredictionSnapshot` dict — self-contained payloads for downstream consumers.
+
+**Alternatives considered:**
+1. Always include full PredictionSnapshot — rejected: excessive payload size for high-frequency ranker events
+2. Make `payload.prediction` nullable (`None`) — rejected: breaks JSON schema compatibility, `{}` is valid JSON
+3. Separate event types with different schemas — rejected: increases contract complexity
+
+**Rationale:**
+- Ranker emits events at 1Hz rate; full prediction payload would multiply bandwidth unnecessarily
+- Downstream consumers (e.g., UI) can fetch prediction from prediction store using symbol+timestamp
+- Alerter events are lower frequency and benefit from self-contained payloads for notification systems
+- `{}` is a valid dict value that distinguishes "no prediction attached" from "prediction is null"
+
+**Impact:**
+- DATA_CONTRACTS.md updated with explicit payload semantics
+- Downstream consumers must check `payload.prediction != {}` before accessing prediction fields
+- RankEvent contract in `events.py` uses `RankEventPayload(prediction={})` as default
+- Score normalization formula documented: `score = p_inplay * (utility/Umax) * (1 - α*p_toxic)` with score ∈ [0, 1]
