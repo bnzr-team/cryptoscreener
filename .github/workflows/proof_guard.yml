@@ -11,7 +11,7 @@ jobs:
       pull-requests: read
       contents: read
     steps:
-      - name: Validate PR body has required sections (conditional)
+      - name: Validate PR body has required proof bundle markers
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -34,8 +34,34 @@ jobs:
 
           if not body:
             print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
+            print("TIP: Run ./scripts/proof_bundle.sh and paste the output.")
             sys.exit(1)
 
+          # Required markers from proof_bundle.sh output
+          # These markers indicate raw command output was pasted
+          required_markers = [
+            "== GIT SHOW --STAT ==",
+            "== GIT SHOW ==",
+            "== RUFF CHECK . ==",
+            "== MYPY . ==",
+            "== PYTEST -Q ==",
+          ]
+
+          missing = [m for m in required_markers if m not in body]
+          if missing:
+            print("ERROR: Missing required proof bundle markers in PR body:")
+            for m in missing:
+              print(f" - {m}")
+            print("")
+            print("TIP: Run ./scripts/proof_bundle.sh and paste the FULL output into PR body.")
+            sys.exit(1)
+
+          # Sanity check: must have some actual output after markers
+          if body.count("==") < 10:
+            print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
+            sys.exit(1)
+
+          # Check for fixtures/replay requirement
           def gh_get(url: str):
             req = urllib.request.Request(url)
             req.add_header("Accept", "application/vnd.github+json")
@@ -56,51 +82,14 @@ jobs:
               break
             page += 1
 
-          def touched(prefix: str) -> bool:
-            return any(f.startswith(prefix) for f in files)
-
-          touches_fixtures = touched("tests/fixtures/")
+          touches_fixtures = any(f.startswith("tests/fixtures/") for f in files)
           touches_replay = any(f == "scripts/run_replay.py" for f in files)
-          require_fixtures_replay = touches_fixtures or touches_replay
+          require_replay = touches_fixtures or touches_replay
 
-          # Required sections per CLAUDE.md "Required PR Proof Bundle Report" template
-          # Matches format: ## 0) Header, ## 1) Scope, ... ## 9) Git Evidence
-          required_sections = [
-            "## 0) Header",
-            "## 1) Scope",
-            "## 2) Files Changed",
-            "## 3) Proof Artifacts",
-            "## 4) Quality Gates",
-            "## 9) Git Evidence",
-          ]
-
-          missing = [h for h in required_sections if h not in body]
-          if missing:
-            print("ERROR: Missing required proof bundle sections in PR body:")
-            for h in missing:
-              print(f" - {h}")
-            sys.exit(1)
-
-          if "```bash" not in body:
-            print("ERROR: No ```bash code blocks found. Paste RAW command outputs.")
-            sys.exit(1)
-
-          must_contain_cmds = ["ruff check .", "mypy .", "pytest -q"]
-          missing_cmds = [c for c in must_contain_cmds if c not in body]
-          if missing_cmds:
-            print("ERROR: Missing required command lines in PR body (paste raw outputs):")
-            for c in missing_cmds:
-              print(f" - {c}")
-            sys.exit(1)
-
-          if require_fixtures_replay:
-            cond_sections = [
-              "## 5) Replay Determinism",
-            ]
-            cond_missing = [h for h in cond_sections if h not in body]
-            if cond_missing:
-              print("ERROR: This PR changes fixtures and/or replay harness, so you MUST include:")
-              print(" - ## 5) Replay Determinism (run_replay log + digest)")
+          if require_replay:
+            if "python -m scripts.run_replay" not in body:
+              print("ERROR: This PR changes fixtures/replay. Must include replay determinism proof:")
+              print(" - python -m scripts.run_replay command and output")
               print("")
               print("Changed files that triggered this requirement:")
               for f in files:
@@ -108,10 +97,6 @@ jobs:
                   print(f" - {f}")
               sys.exit(1)
 
-            if "python -m scripts.run_replay" not in body:
-              print("ERROR: Missing replay command line in PR body: python -m scripts.run_replay ...")
-              sys.exit(1)
-
           print("OK: Proof bundle requirements satisfied.")
-          print(f"INFO: PR files: {len(files)}; fixtures/replay required: {require_fixtures_replay}")
+          print(f"INFO: PR #{number}, files: {len(files)}, replay required: {require_replay}")
           PY

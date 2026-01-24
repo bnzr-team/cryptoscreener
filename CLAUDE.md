@@ -186,10 +186,27 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 ## PR Automation (GitHub)
 
+### Proof Bundle Requirement (CRITICAL)
+
+**PR не готов без raw proof bundle.** Никаких пересказов вместо вывода команд.
+
+Рекомендуемый путь:
+```bash
+./scripts/proof_bundle.sh
+```
+
+Вставь **полный вывод** в PR body. proof-guard CI автоматически фейлит PR без маркеров:
+- `== GIT SHOW --STAT ==`
+- `== GIT SHOW ==`
+- `== RUFF CHECK . ==`
+- `== MYPY . ==`
+- `== PYTEST -Q ==`
+
 ### Available scripts
 
 | Script | Purpose |
 |--------|---------|
+| `scripts/proof_bundle.sh` | Prints full proof bundle (git show, ruff, mypy, pytest) — paste into PR body |
 | `scripts/gen_proof_bundle.sh` | Generates proof bundle markdown with git, tools, quality gates, checksums, replay |
 | `scripts/pr_create.sh` | Full PR cycle: branch → commit → push → proof → PR → auto-merge |
 
