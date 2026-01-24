@@ -237,3 +237,44 @@ PR requires replay proof if it touches any of:
 - Updated `scripts/proof_bundle_chat.sh` (auto-generate artifacts)
 - Expanded `proof_guard.yml` replay detector
 - CLAUDE.md updated with mandatory acceptance_packet usage
+
+---
+
+## DEC-009: Proof & Reporting Policy (Global)
+
+**Date:** 2026-01-24
+
+**Decision:** Acceptable review evidence is **only** a verbatim proof packet pasted into PR body:
+- Preferred: output of `./scripts/acceptance_packet.sh <PR>`
+- Fallback: full output of `./scripts/proof_bundle.sh <PR>`
+
+Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" applies to all PRs and all DEC scopes.
+
+**Required packet contents (minimum):**
+- PR identity (url/state/base/head/title/number)
+- CI status (no pending; fail if any failed)
+- Quality gates raw output: ruff/mypy/pytest
+- PR diff (full, patch-level)
+- Artifacts/proof bundle file path (or proof markers)
+
+**Conditional requirements:**
+- If PR touches replay-related areas (`scripts/run_replay.py`, `scripts/run_record.py`, `tests/replay/*`, `tests/fixtures/*`) → packet must include replay determinism proof (2 runs + digest match).
+- If PR touches LLM guardrails/contracts → packet must include adversarial tests ("no-new-numbers", enums, max chars, fallback).
+
+**Enforcement:** `proof_guard.yml` validates presence of packet markers in PR body (dual-mode: acceptance_packet or proof_bundle markers).
+
+**Alternatives considered:**
+1. Summary-based reporting — rejected: summaries can omit/hide failures
+2. Manual marker checks — rejected: error-prone, inconsistent
+3. CI-only enforcement — rejected: doesn't catch missing evidence in PR body
+
+**Rationale:**
+- Verbatim output is tamper-evident and complete
+- Reviewer can verify exact command output without re-running
+- Eliminates "it works on my machine" claims
+- Standardizes evidence across all PRs
+
+**Impact:**
+- CLAUDE.md "Формат отчёта" replaced with verbatim-only policy
+- proof_guard.yml updated with dual-mode marker validation
+- All future PRs must include verbatim packet in body

@@ -9,6 +9,15 @@
 
 ### Added
 
+#### GitHub PR#44 — Global Proof & Reporting Policy (DEC-009)
+- Verbatim-only reporting policy: summaries/tables/paraphrasing are NOT valid proof
+- DEC-009: Global proof policy — acceptable evidence is only verbatim packet output
+- `proof_guard.yml` dual-mode marker validation:
+  - Preferred: acceptance_packet markers (`== ACCEPTANCE PACKET: *`)
+  - Fallback: proof_bundle markers (backward compatible)
+- Replay determinism enforcement in acceptance_packet mode requires `ALL DIGESTS MATCH`
+- CLAUDE.md "Формат отчёта" replaced with verbatim-only mandatory format
+
 #### GitHub PR#43 — Acceptance Packet Automation (DEC-008)
 - New `scripts/acceptance_packet.sh <PR>` — one-command "ready for ACCEPT" generator
   - Waits for CI checks to pass (polls with timeout)
