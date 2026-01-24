@@ -2,9 +2,10 @@
 Tests for backoff and circuit breaker implementation.
 
 Per BINANCE_LIMITS.md:
-- On any 429: immediate backoff
-- On repeated 429: open circuit breaker
+- On any 429: immediate circuit OPEN
+- On 418 (IP ban): immediate OPEN with extended cooldown
 - Exponential backoff with jitter
+- Respect Retry-After header
 - Never "fight" the limiter
 """
 
@@ -18,9 +19,10 @@ from cryptoscreener.connectors import (
     CircuitBreaker,
     CircuitState,
     RateLimitError,
+    RateLimitKind,
     compute_backoff_delay,
+    handle_error_response,
 )
-from cryptoscreener.connectors.backoff import handle_error_response
 
 
 class TestBackoffConfig:
@@ -136,6 +138,33 @@ class TestComputeBackoffDelay:
         for delay in delays:
             assert 500 <= delay <= 1500
 
+    def test_retry_after_respected(self) -> None:
+        """Test that Retry-After is respected when provided.
+
+        Per BINANCE_LIMITS.md: server knows best, respect Retry-After.
+        """
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+        state.record_error()  # attempt 1 -> delay would be 1000
+
+        # Without retry_after: normal delay
+        delay_without = compute_backoff_delay(config, state)
+        assert delay_without == 1000
+
+        # With retry_after > computed: use retry_after
+        delay_with = compute_backoff_delay(config, state, retry_after_ms=5000)
+        assert delay_with >= 5000
+
+    def test_retry_after_not_less_than_computed(self) -> None:
+        """Test that delay is max(computed, retry_after)."""
+        config = BackoffConfig(base_delay_ms=10000, jitter_factor=0.0)  # Large base
+        state = BackoffState()
+        state.record_error()
+
+        # Computed would be 10000, retry_after is smaller
+        delay = compute_backoff_delay(config, state, retry_after_ms=1000)
+        assert delay == 10000  # Should use computed, not smaller retry_after
+
 
 class TestCircuitBreaker:
     """Tests for CircuitBreaker."""
@@ -158,18 +187,57 @@ class TestCircuitBreaker:
         assert cb.state == CircuitState.OPEN
         assert not cb.can_execute()
 
-    def test_rate_limit_lower_threshold(self) -> None:
-        """Test rate limit errors have lower threshold.
+    def test_429_immediate_open(self) -> None:
+        """Test 429 immediately opens circuit.
 
-        Per BINANCE_LIMITS.md: rate limits are more serious.
+        Per BINANCE_LIMITS.md: On any 429: immediate circuit OPEN.
         """
-        cb = CircuitBreaker(failure_threshold=6)
+        cb = CircuitBreaker(failure_threshold=10)  # High threshold
 
-        # Rate limit errors should trigger at half threshold (3)
-        for _ in range(3):
-            cb.record_failure(is_rate_limit=True)
-
+        # Single 429 should immediately open
+        cb.record_failure(is_rate_limit=True)
         assert cb.state == CircuitState.OPEN
+
+    def test_418_immediate_open_with_ban_flag(self) -> None:
+        """Test 418 (IP ban) immediately opens circuit with ban flag.
+
+        Per BINANCE_LIMITS.md: 418 is IP ban, requires extended cooldown.
+        """
+        cb = CircuitBreaker(failure_threshold=10)
+
+        # Single 418 should immediately open and set ban flag
+        cb.record_failure(is_ip_ban=True)
+        assert cb.state == CircuitState.OPEN
+        assert cb.is_banned
+
+    def test_ban_uses_extended_recovery_timeout(self) -> None:
+        """Test IP ban uses extended recovery timeout."""
+        cb = CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout_ms=100,
+            ban_recovery_timeout_ms=500,
+        )
+
+        # Open circuit with ban
+        cb.record_failure(is_ip_ban=True)
+        assert cb.state == CircuitState.OPEN
+        assert cb.is_banned
+
+        with patch("time.time") as mock_time:
+            # After normal timeout (100ms) but before ban timeout (500ms)
+            mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.2
+
+            # Should still be blocked (ban needs longer)
+            assert not cb.can_execute()
+            assert cb.state == CircuitState.OPEN
+
+            # After ban timeout
+            mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.6
+
+            # Now should transition to half-open
+            assert cb.can_execute()
+            assert cb.state.value == CircuitState.HALF_OPEN.value
+            assert not cb.is_banned  # Ban flag cleared on transition
 
     def test_success_resets_failure_count(self) -> None:
         """Test successful request resets failure count."""
@@ -246,6 +314,51 @@ class TestCircuitBreaker:
         # Second request blocked
         assert not cb.can_execute()
 
+    def test_half_open_exactly_one_request_on_transition(self) -> None:
+        """Test OPEN->HALF_OPEN transition allows exactly one request.
+
+        Regression test: ensure we don't allow double requests.
+        """
+        cb = CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout_ms=0,  # Immediate transition
+            half_open_max_requests=1,
+        )
+
+        # Open circuit
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.state == CircuitState.OPEN
+
+        # First can_execute() triggers transition and counts as request
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+        assert cb.half_open_requests == 1
+
+        # Second request MUST be blocked
+        assert not cb.can_execute()
+        assert cb.half_open_requests == 1  # Counter unchanged
+
+    def test_force_open(self) -> None:
+        """Test force_open keeps circuit open for duration."""
+        cb = CircuitBreaker(recovery_timeout_ms=100)
+
+        cb.force_open(duration_ms=500, reason="test")
+        assert cb.state == CircuitState.OPEN
+
+        with patch("time.time") as mock_time:
+            # Before duration expires
+            mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.3
+
+            # Should still be blocked
+            assert not cb.can_execute()
+
+            # After duration expires
+            mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.6
+
+            # Now can execute
+            assert cb.can_execute()
+
     def test_get_status(self) -> None:
         """Test status reporting for observability."""
         cb = CircuitBreaker()
@@ -259,13 +372,22 @@ class TestCircuitBreaker:
     def test_reset(self) -> None:
         """Test circuit reset."""
         cb = CircuitBreaker(failure_threshold=2)
-        cb.record_failure()
-        cb.record_failure()
+        cb.record_failure(is_ip_ban=True)
         assert cb.state == CircuitState.OPEN
+        assert cb.is_banned
 
         cb.reset()
         assert cb.state.value == CircuitState.CLOSED.value
         assert cb.failure_count == 0
+        assert not cb.is_banned
+
+    def test_get_status_includes_ban(self) -> None:
+        """Test status includes ban flag."""
+        cb = CircuitBreaker()
+        cb.record_failure(is_ip_ban=True)
+
+        status = cb.get_status()
+        assert status["is_banned"] is True
 
 
 class TestHandleErrorResponse:
@@ -290,6 +412,22 @@ class TestHandleErrorResponse:
         # Should have long retry delay for ban
         assert error.retry_after_ms is not None
         assert error.retry_after_ms >= 300000  # At least 5 minutes
+        # Should have IP_BAN kind
+        assert error.kind == RateLimitKind.IP_BAN
+        assert error.is_ip_ban
+
+    def test_429_has_rate_limit_kind(self) -> None:
+        """Test 429 has RATE_LIMIT kind."""
+        error = handle_error_response(429)
+        assert error is not None
+        assert error.kind == RateLimitKind.RATE_LIMIT
+        assert not error.is_ip_ban
+
+    def test_minus_1003_has_too_many_requests_kind(self) -> None:
+        """Test -1003 has TOO_MANY_REQUESTS kind."""
+        error = handle_error_response(200, error_code=-1003)
+        assert error is not None
+        assert error.kind == RateLimitKind.TOO_MANY_REQUESTS
 
     def test_minus_1003_returns_rate_limit_error(self) -> None:
         """Test -1003 TOO_MANY_REQUESTS is recognized."""
@@ -324,6 +462,7 @@ class TestRateLimitError:
         assert str(error) == "Test error"
         assert error.error_code is None
         assert error.retry_after_ms is None
+        assert error.kind == RateLimitKind.RATE_LIMIT  # Default kind
 
     def test_error_with_details(self) -> None:
         """Test error with all details."""
@@ -331,76 +470,140 @@ class TestRateLimitError:
             "Rate limited",
             error_code=-1003,
             retry_after_ms=60000,
+            kind=RateLimitKind.TOO_MANY_REQUESTS,
         )
         assert error.error_code == -1003
         assert error.retry_after_ms == 60000
+        assert error.kind == RateLimitKind.TOO_MANY_REQUESTS
+
+    def test_is_ip_ban_property(self) -> None:
+        """Test is_ip_ban convenience property."""
+        ban_error = RateLimitError("Banned", kind=RateLimitKind.IP_BAN)
+        assert ban_error.is_ip_ban
+
+        normal_error = RateLimitError("Rate limited", kind=RateLimitKind.RATE_LIMIT)
+        assert not normal_error.is_ip_ban
 
 
 class TestBackoffIntegration:
     """Integration tests for backoff + circuit breaker."""
 
-    def test_429_triggers_backoff_and_circuit(self) -> None:
-        """Test 429 response triggers both backoff and circuit breaker."""
+    def test_429_triggers_immediate_open(self) -> None:
+        """Test single 429 immediately opens circuit.
+
+        Per BINANCE_LIMITS.md: On any 429: immediate circuit OPEN.
+        """
         config = BackoffConfig()
         state = BackoffState()
-        cb = CircuitBreaker(failure_threshold=3)
+        cb = CircuitBreaker(failure_threshold=10)  # High threshold
 
-        # Simulate 429 responses
-        for _ in range(3):
-            error = handle_error_response(429)
-            assert error is not None
+        # Single 429 should immediately open
+        error = handle_error_response(429)
+        assert error is not None
 
-            state.record_error()
-            cb.record_failure(is_rate_limit=True)
+        state.record_error()
+        cb.record_failure(is_rate_limit=True)
+
+        # Circuit should be open after single 429
+        assert cb.state == CircuitState.OPEN
+        assert not cb.can_execute()
 
         # Backoff should have delay
         delay = compute_backoff_delay(config, state)
         assert delay > 0
 
-        # Circuit should be open (rate limit has lower threshold)
-        assert cb.state == CircuitState.OPEN
-        assert not cb.can_execute()
-
-    def test_418_immediate_circuit_open(self) -> None:
-        """Test 418 (ban) immediately opens circuit.
+    def test_418_immediate_open_with_extended_cooldown(self) -> None:
+        """Test 418 (ban) immediately opens circuit with extended cooldown.
 
         Per BINANCE_LIMITS.md: 418 means stop all requests immediately.
         """
-        cb = CircuitBreaker(failure_threshold=10)
+        cb = CircuitBreaker(
+            failure_threshold=10,
+            recovery_timeout_ms=100,
+            ban_recovery_timeout_ms=500,
+        )
 
         error = handle_error_response(418)
         assert error is not None
+        assert error.is_ip_ban
 
-        # A ban should be treated as rate limit (lower threshold)
-        # With threshold 10, rate limit threshold is 5
-        for _ in range(5):
-            cb.record_failure(is_rate_limit=True)
+        # Single 418 should immediately open and set ban
+        cb.record_failure(is_ip_ban=error.is_ip_ban)
 
         assert cb.state == CircuitState.OPEN
+        assert cb.is_banned
+
+    def test_429_with_retry_after_respected(self) -> None:
+        """Test 429 with Retry-After header is respected in backoff.
+
+        Per BINANCE_LIMITS.md: respect server's Retry-After.
+        """
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+
+        # 429 with Retry-After
+        error = handle_error_response(429, retry_after_ms=10000)
+        assert error is not None
+        assert error.retry_after_ms == 10000
+
+        state.record_error()
+
+        # Delay should respect Retry-After
+        delay = compute_backoff_delay(config, state, retry_after_ms=error.retry_after_ms)
+        assert delay >= 10000
 
     def test_recovery_after_backoff(self) -> None:
         """Test system recovers after successful backoff."""
         config = BackoffConfig()
         state = BackoffState()
-        cb = CircuitBreaker(failure_threshold=3, recovery_timeout_ms=0)
+        cb = CircuitBreaker(failure_threshold=10, recovery_timeout_ms=0)
 
-        # Trigger failures
-        for _ in range(3):
-            state.record_error()
-            cb.record_failure(is_rate_limit=True)
+        # Trigger 429
+        state.record_error()
+        cb.record_failure(is_rate_limit=True)
 
         assert cb.state == CircuitState.OPEN
 
-        # Force transition to half-open
-        cb.state = CircuitState.HALF_OPEN
-        cb.half_open_requests = 0
+        # Transition to half-open (recovery_timeout_ms=0)
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
 
         # Simulate successful retry
-        assert cb.can_execute()
         cb.record_success()
         state.reset()
 
         # Should be recovered
-        assert cb.state == CircuitState.CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
         assert state.attempt == 0
         assert compute_backoff_delay(config, state) == 0
+
+    def test_full_418_ban_recovery_flow(self) -> None:
+        """Test complete 418 ban and recovery flow."""
+        cb = CircuitBreaker(
+            failure_threshold=10,
+            recovery_timeout_ms=100,
+            ban_recovery_timeout_ms=300,
+        )
+
+        # Receive 418 ban
+        error = handle_error_response(418)
+        assert error is not None
+        cb.record_failure(is_ip_ban=error.is_ip_ban)
+
+        assert cb.state == CircuitState.OPEN
+        assert cb.is_banned
+
+        with patch("time.time") as mock_time:
+            # After normal timeout but before ban timeout
+            mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.2
+            assert not cb.can_execute()  # Still blocked
+
+            # After ban timeout
+            mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.4
+            assert cb.can_execute()  # Now allowed
+            assert cb.state.value == CircuitState.HALF_OPEN.value
+            assert not cb.is_banned  # Ban cleared
+
+            # Successful recovery
+            cb.record_success()
+            assert cb.state == CircuitState.CLOSED
