@@ -72,75 +72,80 @@ jobs:
           ARTIFACT_NAME="acceptance_packet_pr${PR_NUMBER}"
           CHECK_NAME="Acceptance Packet"
 
-          # Read current PR body
-          CURRENT_BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body' || echo "")
+          # Save current PR body to file
+          gh pr view "$PR_NUMBER" --json body -q '.body' > /tmp/current_body.txt || echo "" > /tmp/current_body.txt
+
+          # Use Python for all the complex string handling
+          python3 << 'PYEOF'
+          import os
+          import re
+
+          pr_number = os.environ['PR_NUMBER']
+          sha256 = os.environ['SHA256']
+          bytes_size = os.environ['BYTES']
+          head_sha = os.environ['HEAD_SHA']
+          run_url = os.environ['RUN_URL']
+          artifact_file = f"artifacts/acceptance_packet_pr{pr_number}.txt"
+          artifact_name = f"acceptance_packet_pr{pr_number}"
+          check_name = "Acceptance Packet"
+
+          # Read current body
+          with open('/tmp/current_body.txt', 'r') as f:
+              current_body = f.read()
 
           # Read packet content
-          PACKET_CONTENT=$(cat "$ARTIFACT_FILE")
+          with open(artifact_file, 'r') as f:
+              packet_content = f.read()
 
           # Determine mode: FULL VERBATIM or CI ARTIFACT
           # GitHub PR body limit is ~65536 chars; use CI ARTIFACT mode if packet > 50000 chars
-          PACKET_LENGTH=${#PACKET_CONTENT}
-
-          if [[ $PACKET_LENGTH -lt 50000 ]] && echo "$PACKET_CONTENT" | grep -q "diff --git"; then
-            # FULL VERBATIM mode
-            NEW_BLOCK="<!-- ACCEPTANCE_PACKET_START -->
-          \`\`\`
-          $PACKET_CONTENT
-          \`\`\`
-          <!-- ACCEPTANCE_PACKET_END -->"
-          else
-            # CI ARTIFACT mode
-            NEW_BLOCK="<!-- ACCEPTANCE_PACKET_START -->
+          if len(packet_content) < 50000 and 'diff --git' in packet_content:
+              # FULL VERBATIM mode
+              new_block = f'''<!-- ACCEPTANCE_PACKET_START -->
+          ```
+          {packet_content}
+          ```
+          <!-- ACCEPTANCE_PACKET_END -->'''
+          else:
+              # CI ARTIFACT mode
+              new_block = f'''<!-- ACCEPTANCE_PACKET_START -->
           == ACCEPTANCE PACKET: CI ARTIFACT ==
-          RUN_URL: $RUN_URL
-          ARTIFACT_NAME: $ARTIFACT_NAME
-          SHA256: $SHA256
-          BYTES: $BYTES
-          CHECK_NAME: $CHECK_NAME
-          HEAD_SHA: $HEAD_SHA
-          <!-- ACCEPTANCE_PACKET_END -->"
-          fi
+          RUN_URL: {run_url}
+          ARTIFACT_NAME: {artifact_name}
+          SHA256: {sha256}
+          BYTES: {bytes_size}
+          CHECK_NAME: {check_name}
+          HEAD_SHA: {head_sha}
+          <!-- ACCEPTANCE_PACKET_END -->'''
 
-          # Check if markers exist in current body
-          if echo "$CURRENT_BODY" | grep -q "<!-- ACCEPTANCE_PACKET_START -->"; then
-            # Replace existing block
-            # Use python for reliable multiline replacement
-            python3 << PYEOF
-          import re
-          import os
+          # Check if markers exist
+          start_marker = '<!-- ACCEPTANCE_PACKET_START -->'
+          end_marker = '<!-- ACCEPTANCE_PACKET_END -->'
 
-          current_body = os.environ.get('CURRENT_BODY', '')
-          new_block = '''$NEW_BLOCK'''
-
-          # Pattern to match the block between markers (including markers)
-          pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
-
-          new_body = re.sub(pattern, new_block.strip(), current_body, flags=re.DOTALL)
+          if start_marker in current_body:
+              # Replace existing block
+              pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
+              new_body = re.sub(pattern, new_block.strip(), current_body, flags=re.DOTALL)
+          else:
+              # Append block
+              new_body = current_body + '\n\n' + new_block.strip()
 
           # Check if body actually changed
           if new_body.strip() == current_body.strip():
               print("Body unchanged, skipping update")
-              exit(0)
-
-          # Write to temp file for gh pr edit
-          with open('/tmp/pr_body.txt', 'w') as f:
-              f.write(new_body)
-
-          print("Body updated, will apply")
+          else:
+              # Write new body to file
+              with open('/tmp/new_body.txt', 'w') as f:
+                  f.write(new_body)
+              print("Body will be updated")
           PYEOF
 
-            if [[ -f /tmp/pr_body.txt ]]; then
-              gh pr edit "$PR_NUMBER" --body-file /tmp/pr_body.txt
-              echo "PR body updated with acceptance packet"
-            fi
+          # Apply update if new body was written
+          if [[ -f /tmp/new_body.txt ]]; then
+            gh pr edit "$PR_NUMBER" --body-file /tmp/new_body.txt
+            echo "PR body updated with acceptance packet"
           else
-            # Append block if markers don't exist
-            echo "$CURRENT_BODY
-
-          $NEW_BLOCK" > /tmp/pr_body.txt
-            gh pr edit "$PR_NUMBER" --body-file /tmp/pr_body.txt
-            echo "PR body updated (appended acceptance packet block)"
+            echo "PR body unchanged, no update needed"
           fi
 
       - name: Fail if packet failed
