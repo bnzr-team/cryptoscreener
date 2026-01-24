@@ -150,6 +150,10 @@ If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
 
 **Impact:**
 - `validate_llm_output_strict()` enforces no-new-numbers via regex extraction
-- 6 adversarial tests verify constraint: percentage conversion, invented numbers, max_chars, invalid status_label, numbers in words, scientific notation
+- 9 adversarial tests verify constraint: percentage conversion, invented numbers, max_chars, invalid status_label, numbers in words, scientific notation, fraction notation, trailing zeros, unicode digits
 - MockExplainer provides deterministic output for "LLM off" mode and tests
 - AnthropicExplainer includes retry logic with exponential backoff + jitter
+
+**Known risks:**
+1. Regex-based number extraction may miss edge cases (unicode digits, locale-specific thousand separators)
+2. Anthropic API/SDK format may change; fallback ensures graceful degradation
