@@ -94,7 +94,7 @@ jobs:
         run: |
           ARTIFACT_FILE="artifacts/acceptance_packet_pr${PR_NUMBER}.txt"
           ARTIFACT_NAME="acceptance_packet_pr${PR_NUMBER}"
-          CHECK_NAME="Acceptance Packet"
+          CHECK_NAME="acceptance-packet"
 
           # Save current PR body to file
           gh pr view "$PR_NUMBER" --json body -q '.body' > /tmp/current_body.txt || echo "" > /tmp/current_body.txt
