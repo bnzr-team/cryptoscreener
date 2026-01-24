@@ -1,130 +1,150 @@
-# STATUS_UPDATE_TEMPLATE.md
-Use this template for every Claude progress update. Keep it factual and reproducible.
+**Обязательное правило:**
+
+* Любое “готово/сделано” без доказательств = **NOT DONE**.
+* Каждый PR обязан включать **patch-level** доказательства и **сырой вывод** команд.
+
+**Требуемый proof bundle для каждого PR**
+
+1. **Git**
+
+* `git status` (должно быть clean)
+* `git show --stat <commit>`
+* `git show <commit>` (полный патч) **или** `git diff <base>..<commit>`
+* (если PR в GitHub/GitLab) ссылка на PR + target branch
+
+2. **Toolchain versions**
+
+* `python --version`
+* `ruff --version`
+* `mypy --version`
+* `pytest --version`
+
+3. **Quality gates (raw output, без сокращений)**
+
+* `ruff check .`
+* `mypy .`
+* `pytest -q`
+
+4. **Contracts**
+
+* 1–2 **реальных** JSON из fixtures (не “пример руками”), пути к файлам
+* доказательство валидации: имя теста/команды + raw output
+* roundtrip тесты: `to_json/from_json` (минимум по одному на контракт)
+
+5. **Determinism / Replay (если затронуто поведение)**
+
+* команда запуска `run_replay`
+* лог целиком
+* sha256 **всех** fixture файлов (market/expected/manifest/…)
+* доказательство сравнения **emitted vs expected** + digest
+
+6. **LLM guardrails (если есть LLM контракты/валидаторы)**
+
+* тесты на “no-new-numbers”
+* тесты на enums (`status_label`)
+* тест на `max_chars`
+* fallback: тест “invalid → fallback”, и тест “fallback always valid”
+* если меняется политика — **обязателен** `DECISIONS.md` + обновление доков
+
+**Формат отчёта**
+
+* Сначала: “Что изменено” (по файлам)
+* Затем: “Что доказано” (артефакты выше)
+* Затем: “Что не покрыто / риски”
+* Затем: “Next PR scope”
 
 ---
 
-## 1) Summary (what you claim is done)
-- [ ] Bullet 1 (link to file(s))
-- [ ] Bullet 2
-- [ ] Bullet 3
+## Как обновить **STATUS_UPDATE_TEMPLATE.md** (чтобы он приносил ровно то, что нужно)
 
-**Scope check:** confirm you did NOT add features outside PRD/SPEC. If you did, list them and reference DECISIONS.md.
+Сделай шаблон жёстким: без этих полей апдейт считается невалидным.
 
----
+### STATUS_UPDATE_TEMPLATE.md (готовый блок)
 
-## 2) Git proof
-- Commit hash: `<hash>`  (or paste `git diff` snippet if uncommitted)
-- Files changed (high level):
-  - `path/to/file.py` — what changed
-  - `docs/...` — what changed
+**PR Title / ID:**
+**Scope vs docs (SPEC/PRD refs):**
+**Commit hash:**
+**Base / target branch:**
 
----
+### 1) Git proof (paste outputs)
 
-## 3) Commands + raw output (paste verbatim)
+```bash
+git status
+git show --stat <commit>
+git show <commit>
+```
 
-### 3.1 Lint
-Command:
+### 2) Tool versions (paste outputs)
+
+```bash
+python --version
+ruff --version
+mypy --version
+pytest --version
+```
+
+### 3) Quality gates (raw output)
+
 ```bash
 ruff check .
-```
-Output:
-```text
-<PASTE RAW OUTPUT>
-```
-
-### 3.2 Types
-Command:
-```bash
 mypy .
-```
-Output:
-```text
-<PASTE RAW OUTPUT>
-```
-
-### 3.3 Tests
-Command:
-```bash
 pytest -q
 ```
-Output:
-```text
-<PASTE RAW OUTPUT>
-```
 
----
+### 4) Files changed (table)
 
-## 4) Contracts proof (required if you touched any contracts/payloads)
-### 4.1 Sample JSON payloads
-Provide at least one example each (matching DATA_CONTRACTS exactly):
-- MarketEvent
-- FeatureSnapshot
-- PredictionSnapshot
-- RankEvent
-- (If LLM) LLM explain input + output
+* path | purpose | contracts/spec touched (yes/no)
 
-Paste as JSON:
-```json
-{}
-```
+### 5) Contracts proof
 
-### 4.2 Schema validation
-- Show how you validated (unit test or schema tool)
-- Paste the validation output
+* Fixtures used (paths):
+* sha256 (ALL files):
 
----
-
-## 5) Replay determinism proof (non-negotiable for pipeline changes)
-
-### 5.1 Command
 ```bash
-python -m scripts.run_replay --fixture tests/fixtures/sample_run/
+sha256sum <list all fixture files>
 ```
 
-### 5.2 Evidence
-- Attach the relevant log excerpt
-- Provide a digest:
-  - number of RankEvents: `<n>`
-  - sha256 of RankEvent stream (or stable summary): `<hash>`
-  - tolerance used: `<tol>`
+* Validation command(s) + raw output:
+* Roundtrip tests: name(s) + raw output:
 
-### 5.3 “Before vs after”
-If behavior changed, provide:
-- before hash + after hash
-- explanation + DECISIONS.md reference (if intentional)
+### 6) Replay determinism (if any behavior / outputs exist)
 
----
+* Command:
+* Full log:
+* Emitted vs expected comparison summary:
+* Digest method (canonical JSON rules):
 
-## 6) Binance safety proof (required when touching connectors/governor)
-- WS sharding summary: connections=<n>, streams/conn=<max>, headroom=<%>
-- Reconnect policy: base/cap/jitter and max reconnect/min
-- 429/418 counters in a short test run
-- Any rate-limit incidents (log excerpt)
+  * sort_keys:
+  * separators:
+  * newline policy:
 
----
+### 7) LLM guardrails (if LLM touched)
 
-## 7) LLM guardrails proof (required when touching LLM)
-- Schema validation tests passing
-- “No-new-numbers” adversarial test cases (list + outcome)
-- Fallback behavior demo (LLM disabled or invalid output)
+* No-new-numbers tests:
+* Enum/status tests:
+* Max length tests:
+* Fallback tests:
+* Any DECISIONS.md changes? (link/summary)
 
----
+### 8) Open issues / risks
 
-## 8) Metrics snapshot (at least once per milestone)
-- e2e latency p50/p95/p99
-- dropped_events_total
-- stale_book_ms distribution summary
-- top-K churn rate (events/min)
+* item | severity | mitigation
+
+### 9) Next steps (next PR scope)
+
+* …
 
 ---
 
-## 9) Open issues / risks / blockers
-- Issue 1 + severity + proposed next step
-- Issue 2
+## Маленький бонус: “stop conditions” (очень экономит время)
+
+Добавь в оба файла коротко:
+
+* Нет `git show <commit>` → **update rejected**
+* Нет raw outputs → **update rejected**
+* Нет sha256 fixture bundle (если есть fixtures) → **update rejected**
+* Любое изменение контрактов/политик без `DECISIONS.md` → **update rejected**
 
 ---
 
-## 10) Next steps (explicit)
-1. …
-2. …
-3. …
+Если хочешь, я могу ещё предложить **мини-чеклист для PR description** (чтобы Claude копипастил прямо в PR body), но уже эти две правки обычно решают проблему на 80–90%.
