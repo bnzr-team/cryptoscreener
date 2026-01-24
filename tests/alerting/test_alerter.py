@@ -470,3 +470,182 @@ class TestDeterminism:
 
         # Metrics should match
         assert alerter1.metrics.alerts_generated == alerter2.metrics.alerts_generated
+
+
+# =============================================================================
+# LLM Integration Tests (PR#24)
+# =============================================================================
+
+
+class MockExplainer:
+    """Mock LLM explainer for testing."""
+
+    def __init__(self, headline: str = "Test headline.") -> None:
+        self.headline = headline
+        self.call_count = 0
+
+    def explain(self, input_data):
+        """Mock explain method."""
+        from cryptoscreener.contracts.events import LLMExplainOutput
+
+        self.call_count += 1
+        return LLMExplainOutput(
+            headline=self.headline,
+            subtext="",
+            status_label="Watch",
+            tooltips={},
+        )
+
+
+class FailingExplainer:
+    """Mock explainer that always fails."""
+
+    def explain(self, input_data):
+        """Always raise an exception."""
+        raise RuntimeError("LLM service unavailable")
+
+
+class TestLLMIntegration:
+    """Tests for LLM explain integration in Alerter."""
+
+    def test_alert_without_explainer_has_empty_llm_text(self) -> None:
+        """Test that alerts without explainer have empty llm_text."""
+        config = AlerterConfig(stable_ms=100)
+        alerter = Alerter(config)  # No explainer
+
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction, ts=1000)
+        events = alerter.process_prediction(prediction, ts=2000)
+
+        assert len(events) == 1
+        assert events[0].payload.llm_text == ""
+
+    def test_alert_with_explainer_has_llm_text(self) -> None:
+        """Test that alerts with explainer have llm_text populated."""
+        config = AlerterConfig(stable_ms=100)
+        explainer = MockExplainer(headline="BTCUSDT: tradeable signal detected.")
+        alerter = Alerter(config, explainer=explainer)
+
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction, ts=1000)
+        events = alerter.process_prediction(prediction, ts=2000)
+
+        assert len(events) == 1
+        assert events[0].payload.llm_text == "BTCUSDT: tradeable signal detected."
+        assert explainer.call_count == 1
+
+    def test_llm_disabled_in_config(self) -> None:
+        """Test that llm_enabled=False prevents LLM calls."""
+        config = AlerterConfig(stable_ms=100, llm_enabled=False)
+        explainer = MockExplainer()
+        alerter = Alerter(config, explainer=explainer)
+
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction, ts=1000)
+        events = alerter.process_prediction(prediction, ts=2000)
+
+        assert len(events) == 1
+        assert events[0].payload.llm_text == ""
+        assert explainer.call_count == 0
+
+    def test_llm_cooldown_caches_result(self) -> None:
+        """Test that LLM cooldown caches and reuses result."""
+        config = AlerterConfig(stable_ms=100, cooldown_ms=1000, llm_cooldown_ms=30000)
+        explainer = MockExplainer(headline="Cached headline.")
+        alerter = Alerter(config, explainer=explainer)
+
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+
+        # First alert
+        alerter.process_prediction(prediction, ts=1000)
+        events1 = alerter.process_prediction(prediction, ts=2000)
+        assert len(events1) == 1
+        assert events1[0].payload.llm_text == "Cached headline."
+        assert explainer.call_count == 1
+
+        # Second alert within cooldown (for different symbol to bypass alert cooldown)
+        prediction2 = make_prediction(symbol="ETHUSDT", status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction2, ts=3000)
+        events2 = alerter.process_prediction(prediction2, ts=4000)
+        assert len(events2) == 1
+        # ETHUSDT has its own cache, so new call
+        assert explainer.call_count == 2
+
+    def test_llm_cooldown_for_same_symbol(self) -> None:
+        """Test LLM cooldown prevents repeated calls for same symbol."""
+        config = AlerterConfig(stable_ms=100, cooldown_ms=100, llm_cooldown_ms=60000)
+        explainer = MockExplainer(headline="Original.")
+        alerter = Alerter(config, explainer=explainer)
+
+        # Generate multiple alerts for same symbol quickly
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction, ts=1000)
+        events1 = alerter.process_prediction(prediction, ts=1200)
+
+        # Change to TRAP then back to TRADEABLE to generate another alert
+        pred_trap = make_prediction(status=PredictionStatus.TRAP, p_toxic=0.8)
+        alerter.process_prediction(pred_trap, ts=1500)
+        events2 = alerter.process_prediction(pred_trap, ts=1700)
+
+        # First call made LLM call, second should use cache
+        assert events1[0].payload.llm_text == "Original."
+        assert events2[0].payload.llm_text == "Original."  # Cached
+        assert explainer.call_count == 1  # Only one LLM call
+        assert alerter.metrics.llm_cache_hits == 1
+
+    def test_llm_failure_returns_empty_text(self) -> None:
+        """Test that LLM failures return empty text, not crash."""
+        config = AlerterConfig(stable_ms=100)
+        explainer = FailingExplainer()
+        alerter = Alerter(config, explainer=explainer)
+
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction, ts=1000)
+        events = alerter.process_prediction(prediction, ts=2000)
+
+        assert len(events) == 1
+        assert events[0].payload.llm_text == ""  # Fallback to empty
+        assert alerter.metrics.llm_failures == 1
+
+    def test_llm_metrics_tracked(self) -> None:
+        """Test that LLM metrics are properly tracked."""
+        config = AlerterConfig(stable_ms=100, llm_cooldown_ms=60000)
+        explainer = MockExplainer()
+        alerter = Alerter(config, explainer=explainer)
+
+        # First symbol - LLM call
+        pred1 = make_prediction(symbol="BTCUSDT", status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(pred1, ts=1000)
+        alerter.process_prediction(pred1, ts=2000)
+
+        # Second symbol - LLM call
+        pred2 = make_prediction(symbol="ETHUSDT", status=PredictionStatus.TRAP, p_toxic=0.8)
+        alerter.process_prediction(pred2, ts=3000)
+        alerter.process_prediction(pred2, ts=4000)
+
+        assert alerter.metrics.llm_calls == 2
+        assert alerter.metrics.llm_failures == 0
+
+    def test_reset_clears_llm_cache(self) -> None:
+        """Test that reset clears LLM cache and state."""
+        config = AlerterConfig(stable_ms=100, llm_cooldown_ms=60000)
+        explainer = MockExplainer()
+        alerter = Alerter(config, explainer=explainer)
+
+        prediction = make_prediction(status=PredictionStatus.TRADEABLE)
+        alerter.process_prediction(prediction, ts=1000)
+        alerter.process_prediction(prediction, ts=2000)
+
+        assert explainer.call_count == 1
+        assert alerter.metrics.llm_calls == 1
+
+        # Reset
+        alerter.reset()
+
+        # After reset, LLM call should happen again
+        alerter.process_prediction(prediction, ts=3000)
+        alerter.process_prediction(prediction, ts=4000)
+
+        assert explainer.call_count == 2
+        # Note: metrics are also reset
+        assert alerter.metrics.llm_calls == 1
