@@ -113,6 +113,65 @@ If model artifacts absent, run in **baseline mode**:
 
 ---
 
+## Progress reporting / Proof bundle
+**Обязательное правило:**
+
+* Любое “готово/сделано” без доказательств = **NOT DONE**.
+* Каждый PR обязан включать **patch-level** доказательства и **сырой вывод** команд.
+
+**Требуемый proof bundle для каждого PR**
+
+1. **Git**
+
+* `git status` (должно быть clean)
+* `git show --stat <commit>`
+* `git show <commit>` (полный патч) **или** `git diff <base>..<commit>`
+* (если PR в GitHub/GitLab) ссылка на PR + target branch
+
+2. **Toolchain versions**
+
+* `python --version`
+* `ruff --version`
+* `mypy --version`
+* `pytest --version`
+
+3. **Quality gates (raw output, без сокращений)**
+
+* `ruff check .`
+* `mypy .`
+* `pytest -q`
+
+4. **Contracts**
+
+* 1–2 **реальных** JSON из fixtures (не “пример руками”), пути к файлам
+* доказательство валидации: имя теста/команды + raw output
+* roundtrip тесты: `to_json/from_json` (минимум по одному на контракт)
+
+5. **Determinism / Replay (если затронуто поведение)**
+
+* команда запуска `run_replay`
+* лог целиком
+* sha256 **всех** fixture файлов (market/expected/manifest/…)
+* доказательство сравнения **emitted vs expected** + digest
+
+6. **LLM guardrails (если есть LLM контракты/валидаторы)**
+
+* тесты на “no-new-numbers”
+* тесты на enums (`status_label`)
+* тест на `max_chars`
+* fallback: тест “invalid → fallback”, и тест “fallback always valid”
+* если меняется политика — **обязателен** `DECISIONS.md` + обновление доков
+
+**Формат отчёта**
+
+* Сначала: “Что изменено” (по файлам)
+* Затем: “Что доказано” (артефакты выше)
+* Затем: “Что не покрыто / риски”
+* Затем: “Next PR scope”
+
+
+---
+
 ## Reporting format (every update)
 
 Use `STATUS_UPDATE_TEMPLATE.md` (required).
