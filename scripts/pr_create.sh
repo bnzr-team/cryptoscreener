@@ -22,8 +22,12 @@ if [ -z "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-# Create branch
-git checkout -b "$BRANCH"
+# Create or switch to branch
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  git checkout "$BRANCH"
+else
+  git checkout -b "$BRANCH"
+fi
 
 # Commit
 git add -A
@@ -33,7 +37,8 @@ git commit -m "$TITLE"
 git push -u origin "$BRANCH"
 
 # Generate proof bundle
-PROOF_FILE="proof_${BRANCH//\//_}.md"
+mkdir -p proof
+PROOF_FILE="proof/proof_${BRANCH//\//_}.md"
 ./scripts/gen_proof_bundle.sh "$FIXTURE_DIR" "$PROOF_FILE"
 
 # Create PR
