@@ -7,6 +7,17 @@ if [[ -z "${PR_NUMBER}" ]]; then
   exit 2
 fi
 
+TS="$(date +%Y%m%d_%H%M%S)"
+OUT="artifacts/proof_bundle_pr${PR_NUMBER}_${TS}.txt"
+mkdir -p artifacts
+
+# tee everything to a persistent file
+exec > >(tee "$OUT") 2>&1
+
+echo "== PROOF_BUNDLE_FILE =="
+echo "$OUT"
+echo
+
 echo "== PR URL =="
 gh pr view "${PR_NUMBER}" --json url | cat
 echo

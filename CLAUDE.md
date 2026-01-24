@@ -198,7 +198,8 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 Скрипт включает: PR identity, PR checks, changed files, toolchain versions, git show, ruff/mypy/pytest.
 
-**10 обязательных маркеров** (CI фейлит без них):
+**11 обязательных маркеров** (CI фейлит без них):
+- `== PROOF_BUNDLE_FILE ==`
 - `== PR URL ==`
 - `== GH PR VIEW ==`
 - `== GH PR CHECKS ==`
@@ -221,7 +222,8 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/proof_bundle.sh <PR#>` | Prints full proof bundle (PR URL, CI checks, git, ruff, mypy, pytest) — paste into PR body |
+| `scripts/proof_bundle.sh <PR#>` | Prints full proof bundle (11 markers) + saves to `artifacts/` — paste into PR body |
+| `scripts/proof_bundle_chat.sh <PR#>` | Prints compact chat report (4 blocks: identity/CI/git/gates) for reviewer message |
 | `scripts/gen_proof_bundle.sh` | Generates proof bundle markdown with git, tools, quality gates, checksums, replay |
 | `scripts/pr_create.sh` | Full PR cycle: branch → commit → push → proof → PR → auto-merge |
 
@@ -550,3 +552,29 @@ PROOF_BUNDLE_SELF_CHECK=FAIL;RULES=A1,B2,...
 - Never write anything after the footer line
 - If any self-lint rule fails, list all failing rules after `RULES=`
 - CI/proof-guard can parse this line to auto-reject malformed reports
+
+---
+
+## Reviewer Message Contract (MANDATORY)
+
+When reporting progress to the reviewer in chat, summary-only messages are INVALID.
+
+Every report MUST include raw evidence in the following 4 blocks (copy/paste output):
+
+1) Identity
+- PR number + URL
+- state (OPEN/MERGED) + merge commit (if merged)
+
+2) CI (raw)
+- `gh pr checks <PR_NUMBER>`
+
+3) Git evidence (raw)
+- `git show <mergeCommit> --stat` (or `git show --stat` if not merged)
+- Link to "Files changed"
+
+4) Gates (raw, repo-scope)
+- `ruff check .`
+- `mypy .`
+- `pytest -q`
+
+Recommended: run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output directly.
