@@ -157,3 +157,35 @@ If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
 **Known risks:**
 1. Regex-based number extraction may miss edge cases (unicode digits, locale-specific thousand separators)
 2. Anthropic API/SDK format may change; fallback ensures graceful degradation
+
+---
+
+## DEC-005: Alerter-LLM Integration (GitHub PR#23)
+
+**Date:** 2026-01-24
+
+**Decision:** Integrate LLM explain into Alerter with the following constraints:
+
+1. **Per-symbol cooldown (60s default):** LLM calls are rate-limited per symbol, not globally. Cached `llm_text` is reused within cooldown window.
+2. **Hardcoded numeric_summary fields:** `spread_bps=0.0`, `impact_bps=0.0` in LLM input — these values are not available in `PredictionSnapshot`. Will be populated when BaselineRunner provides them.
+3. **Optional dependency:** Alerter accepts `explainer: ExplainLLMProtocol | None`. If None, `llm_text` remains empty.
+4. **Failure isolation:** LLM exceptions are caught and logged; alerting continues with empty `llm_text`.
+5. **No digits in llm_text:** LLM prompt instructs model to avoid numeric values in output text. This eliminates risk of number formatting mismatches (trailing zeros, percentages, locale separators). Numbers are visible in `payload.prediction` — no need to repeat in text.
+
+**Alternatives considered:**
+1. Global cooldown across all symbols — rejected: would throttle unrelated symbols
+2. Fetch spread/impact from FeatureSnapshot — deferred: requires pipeline plumbing
+3. Make LLM mandatory — rejected: system must work without LLM
+4. Allow digits if exact string match — rejected: too fragile, LLM may reformat numbers unpredictably
+
+**Rationale:**
+- Per-symbol cooldown matches alert semantics (each symbol's explanation evolves independently)
+- Hardcoded 0.0 is safe: LLM uses these for context, not trading decisions
+- Optional explainer allows gradual rollout and testing
+- Failure isolation per DEC-004: LLM failures must not break core functionality
+
+**Impact:**
+- `AlerterConfig.llm_cooldown_ms` (default 60000) controls rate limiting
+- `AlerterConfig.llm_enabled` (default True) allows global disable
+- Metrics: `llm_calls`, `llm_cache_hits`, `llm_failures` for observability
+- 8 integration tests verify caching, cooldown, and failure handling

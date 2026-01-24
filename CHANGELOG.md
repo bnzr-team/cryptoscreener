@@ -7,7 +7,23 @@
 
 ## Unreleased
 
-### Added (PR#1 — Scaffold + Contracts)
+### Added
+
+#### GitHub PR#23 — LLM Explain Pipeline Integration (DEC-005)
+- Integrated LLM explain into Alerter: `RankEvent.payload.llm_text` populated for alert events
+- `ExplainLLMProtocol` for dependency injection (no hard import of explain_llm module)
+- Per-symbol LLM cooldown (60s default) with caching to reduce API calls
+- `AlerterConfig.llm_enabled` flag for global LLM disable
+- LLM metrics: `llm_calls`, `llm_cache_hits`, `llm_failures`
+- 8 integration tests for LLM functionality in Alerter
+
+#### GitHub PR#22 — LLM Explain Module (DEC-004)
+- `ExplainLLM` interface with `AnthropicExplainer` and `MockExplainer`
+- Strict no-new-numbers validation (`validate_llm_output_strict`)
+- Fallback on any LLM failure (timeout, validation, exception)
+- 9 adversarial tests for LLM guardrails
+
+#### PR#1 — Scaffold + Contracts
 - Project structure with `pyproject.toml`, editable install, dev dependencies
 - Data contract models in `src/cryptoscreener/contracts/`:
   - `MarketEvent` — canonical market data from exchange
