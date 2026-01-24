@@ -137,9 +137,7 @@ class ModelRunner(ABC):
             PredictionSnapshot with prediction and reasons.
         """
 
-    def predict_batch(
-        self, snapshots: list[FeatureSnapshot]
-    ) -> list[PredictionSnapshot]:
+    def predict_batch(self, snapshots: list[FeatureSnapshot]) -> list[PredictionSnapshot]:
         """
         Generate predictions for multiple snapshots.
 

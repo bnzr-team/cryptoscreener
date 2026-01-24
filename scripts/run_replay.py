@@ -164,9 +164,7 @@ class MinimalReplayPipeline:
                     symbol=symbol,
                     rank=self._rank_counter,
                     score=state["score"],
-                    payload=RankEventPayload(
-                        prediction={"status": "WATCH"}, llm_text=""
-                    ),
+                    payload=RankEventPayload(prediction={"status": "WATCH"}, llm_text=""),
                 )
                 self._rank_counter += 1
 
@@ -178,9 +176,7 @@ class MinimalReplayPipeline:
                     symbol=symbol,
                     rank=0,  # Promoted to top
                     score=min(state["score"] + 0.1, 0.95),
-                    payload=RankEventPayload(
-                        prediction={"status": "TRADEABLE"}, llm_text=""
-                    ),
+                    payload=RankEventPayload(prediction={"status": "TRADEABLE"}, llm_text=""),
                 )
 
     def replay(self, events: list[MarketEvent]) -> list[RankEvent]:

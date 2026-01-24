@@ -1,6 +1,5 @@
 """Tests for Binance connector types."""
 
-
 from cryptoscreener.connectors.binance.types import (
     ConnectionState,
     ConnectorConfig,

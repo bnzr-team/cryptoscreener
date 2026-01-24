@@ -103,9 +103,7 @@ class BaselineRunner(ModelRunner):
             return True
         return bool(health.missing_streams)
 
-    def _make_data_issue_prediction(
-        self, snapshot: FeatureSnapshot
-    ) -> PredictionSnapshot:
+    def _make_data_issue_prediction(self, snapshot: FeatureSnapshot) -> PredictionSnapshot:
         """Create prediction for data issue case."""
         self._metrics.record_prediction(snapshot.symbol, "DATA_ISSUE")
 
@@ -155,9 +153,7 @@ class BaselineRunner(ModelRunner):
 
         # Base probability
         p_base = (
-            0.3 * spread_factor
-            + 0.35 * imbalance_strength
-            + 0.35 * flow_strength
+            0.3 * spread_factor + 0.35 * imbalance_strength + 0.35 * flow_strength
         ) * concordance_mult
 
         return min(1.0, max(0.0, p_base))
@@ -216,10 +212,7 @@ class BaselineRunner(ModelRunner):
         expected_loss_bps = features.spread_bps + features.impact_bps_q
 
         # Net expected utility
-        utility = (
-            p_inplay * expected_gain_bps * (1 - p_toxic)
-            - p_toxic * expected_loss_bps
-        )
+        utility = p_inplay * expected_gain_bps * (1 - p_toxic) - p_toxic * expected_loss_bps
 
         return utility
 

@@ -115,9 +115,7 @@ class TestDigestComputation:
         actual_digest = compute_rank_events_digest(events)
 
         assert actual_digest == expected_digest, (
-            f"Digest mismatch!\n"
-            f"Expected: {expected_digest}\n"
-            f"Actual:   {actual_digest}"
+            f"Digest mismatch!\nExpected: {expected_digest}\nActual:   {actual_digest}"
         )
 
     def test_digest_is_deterministic(self) -> None:

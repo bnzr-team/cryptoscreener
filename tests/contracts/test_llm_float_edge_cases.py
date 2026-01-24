@@ -55,9 +55,7 @@ class TestFloatRepresentationEdgeCases:
             style=LLMStyle(tone="friendly", max_chars=180),
         )
 
-    def test_exact_float_string_allowed(
-        self, input_with_float_edge_case: LLMExplainInput
-    ) -> None:
+    def test_exact_float_string_allowed(self, input_with_float_edge_case: LLMExplainInput) -> None:
         """Test that exact float string representation is allowed."""
         # Using exact string representation of 0.3
         output = LLMExplainOutput(
@@ -87,9 +85,7 @@ class TestFloatRepresentationEdgeCases:
         assert len(violations) > 0
         assert "15" in " ".join(violations)
 
-    def test_trailing_zeros_rejected(
-        self, input_with_float_edge_case: LLMExplainInput
-    ) -> None:
+    def test_trailing_zeros_rejected(self, input_with_float_edge_case: LLMExplainInput) -> None:
         """Test that adding trailing zeros is rejected.
 
         0.3 != "0.30" as strings.
@@ -172,9 +168,7 @@ class TestIntegerFloatEquivalence:
         violations = validate_llm_output_no_new_numbers(input_with_whole_numbers, output)
         assert violations == []
 
-    def test_float_form_allowed(
-        self, input_with_whole_numbers: LLMExplainInput
-    ) -> None:
+    def test_float_form_allowed(self, input_with_whole_numbers: LLMExplainInput) -> None:
         """Test that float form is also allowed."""
         output = LLMExplainOutput(
             headline="BTCUSDT: spread is 5.0 bps.",

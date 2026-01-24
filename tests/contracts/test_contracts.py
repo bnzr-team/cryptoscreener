@@ -683,9 +683,7 @@ class TestLLMFallback:
         assert fallback.status_label in ALLOWED_STATUS_LABELS
         assert len(fallback.headline) <= sample_llm_input.style.max_chars
 
-    def test_fallback_contains_no_invented_numbers(
-        self, sample_llm_input: LLMExplainInput
-    ) -> None:
+    def test_fallback_contains_no_invented_numbers(self, sample_llm_input: LLMExplainInput) -> None:
         """Test that fallback contains no numbers not in input."""
         fallback = generate_fallback_output(sample_llm_input)
         violations = validate_llm_output_no_new_numbers(sample_llm_input, fallback)

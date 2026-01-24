@@ -172,10 +172,7 @@ def validate_status_label(status_label: str) -> list[str]:
         List of violation messages (empty if valid).
     """
     if status_label not in ALLOWED_STATUS_LABELS:
-        return [
-            f"Invalid status_label: '{status_label}'. "
-            f"Allowed: {sorted(ALLOWED_STATUS_LABELS)}"
-        ]
+        return [f"Invalid status_label: '{status_label}'. Allowed: {sorted(ALLOWED_STATUS_LABELS)}"]
     return []
 
 
@@ -191,9 +188,7 @@ def validate_max_length(output_data: LLMExplainOutput, max_chars: int = 180) -> 
         List of violation messages (empty if valid).
     """
     if len(output_data.headline) > max_chars:
-        return [
-            f"Headline exceeds max length: {len(output_data.headline)} > {max_chars} chars"
-        ]
+        return [f"Headline exceeds max length: {len(output_data.headline)} > {max_chars} chars"]
     return []
 
 
@@ -270,7 +265,9 @@ def generate_fallback_output(input_data: LLMExplainInput) -> LLMExplainOutput:
     # Add primary reason if available (uses numbers from input)
     if input_data.reasons:
         reason = input_data.reasons[0]
-        headline = f"{input_data.symbol}: {reason.code.replace('RC_', '').replace('_', ' ').lower()}."
+        headline = (
+            f"{input_data.symbol}: {reason.code.replace('RC_', '').replace('_', ' ').lower()}."
+        )
 
     # Ensure within max_chars
     max_chars = input_data.style.max_chars if input_data.style else 180

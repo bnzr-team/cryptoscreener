@@ -360,9 +360,7 @@ class TestSubscriptionManagement:
         mock_shard = MagicMock()
         mock_shard.can_add_streams = True
         mock_shard.shard_id = 0
-        mock_shard.add_subscriptions = AsyncMock(
-            side_effect=lambda subs: subs
-        )
+        mock_shard.add_subscriptions = AsyncMock(side_effect=lambda subs: subs)
 
         with patch.object(
             manager,

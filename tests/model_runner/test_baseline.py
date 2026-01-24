@@ -101,7 +101,9 @@ class TestBaselineRunner:
         assert 0 <= prediction.p_toxic <= 1
         assert prediction.model_version == "baseline-v1.0.0+0000000"
 
-    def test_predict_tradeable(self, runner: BaselineRunner, make_snapshot: SnapshotFactory) -> None:
+    def test_predict_tradeable(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
         """High imbalance + tight spread = TRADEABLE."""
         snapshot = make_snapshot(
             spread_bps=0.5,
@@ -225,9 +227,7 @@ class TestBaselineRunner:
     def test_digest_changes_with_config(self) -> None:
         """Digest changes when config changes."""
         runner1 = BaselineRunner()
-        runner2 = BaselineRunner(
-            ModelRunnerConfig(toxic_threshold=0.8)
-        )
+        runner2 = BaselineRunner(ModelRunnerConfig(toxic_threshold=0.8))
 
         assert runner1.compute_digest() != runner2.compute_digest()
 
@@ -526,9 +526,7 @@ class TestBaselineRunnerCriticalGates:
         codes = [r.code for r in prediction.reasons]
         assert "RC_GATE_IMPACT_FAIL" in codes
 
-    def test_both_gates_fail(
-        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
-    ) -> None:
+    def test_both_gates_fail(self, runner: BaselineRunner, make_snapshot: SnapshotFactory) -> None:
         """Both spread and impact gates fail."""
         snapshot = make_snapshot(
             spread_bps=15.0,  # > 10.0

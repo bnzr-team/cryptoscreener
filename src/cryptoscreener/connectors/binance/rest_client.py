@@ -66,9 +66,7 @@ class BinanceRestClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(
-                total=self._config.request_timeout_ms / 1000
-            )
+            timeout = aiohttp.ClientTimeout(total=self._config.request_timeout_ms / 1000)
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
 

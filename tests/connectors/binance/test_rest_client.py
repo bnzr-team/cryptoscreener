@@ -45,9 +45,7 @@ class TestBinanceRestClient:
             }
         )
 
-        with patch.object(
-            aiohttp.ClientSession, "request", return_value=mock_response
-        ):
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
             info = await client.get_exchange_info()
 
         assert len(info.symbols) == 1
@@ -108,9 +106,7 @@ class TestBinanceRestClient:
             }
         )
 
-        with patch.object(
-            aiohttp.ClientSession, "request", return_value=mock_response
-        ):
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
             symbols = await client.get_tradeable_symbols()
 
         # Only BTCUSDT matches: USDT, PERPETUAL, TRADING
@@ -146,9 +142,7 @@ class TestBinanceRestClient:
         mock_response.headers = {"Retry-After": "1"}
         mock_response.json = AsyncMock(return_value={"code": -1003})
 
-        with patch.object(
-            aiohttp.ClientSession, "request", return_value=mock_response
-        ):
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
             # First request hits 429, circuit breaker opens
             # Second attempt is blocked by circuit breaker
             with pytest.raises(RateLimitError) as exc_info:
@@ -193,9 +187,7 @@ class TestBinanceRestClient:
         """Get server time endpoint."""
         mock_response.json = AsyncMock(return_value={"serverTime": 1234567890})
 
-        with patch.object(
-            aiohttp.ClientSession, "request", return_value=mock_response
-        ):
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
             server_time = await client.get_server_time()
 
         assert server_time == 1234567890

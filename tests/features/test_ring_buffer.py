@@ -1,6 +1,5 @@
 """Tests for RingBuffer."""
 
-
 from cryptoscreener.features.ring_buffer import RingBuffer, TimestampedValue
 
 

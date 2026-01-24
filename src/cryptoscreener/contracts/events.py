@@ -261,9 +261,7 @@ class RankEvent(BaseModel):
     symbol: str = Field(..., min_length=1, description="Trading pair symbol")
     rank: int = Field(..., ge=0, description="Current rank (0-indexed)")
     score: float = Field(..., ge=0, le=1, description="Ranking score [0, 1]")
-    payload: RankEventPayload = Field(
-        default_factory=RankEventPayload, description="Event payload"
-    )
+    payload: RankEventPayload = Field(default_factory=RankEventPayload, description="Event payload")
 
     @field_validator("symbol")
     @classmethod
