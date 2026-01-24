@@ -163,4 +163,3 @@ jobs:
         run: |
           echo "Acceptance packet failed with exit code ${{ steps.packet.outputs.packet_exit }}"
           exit 1
-# CI re-trigger
