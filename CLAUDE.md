@@ -168,13 +168,21 @@ If model artifacts absent, run in **baseline mode**:
 * fallback: тест “invalid → fallback”, и тест “fallback always valid”
 * если меняется политика — **обязателен** `DECISIONS.md` + обновление доков
 
-**Формат отчёта**
+**Reporting format (MANDATORY, verbatim-only)**
 
-* Сначала: “Что изменено” (по файлам)
-* Затем: “Что доказано” (артефакты выше)
-* Затем: “Что не покрыто / риски”
-* Затем: “Next PR scope”
-
+1. Before claiming "done/ready", generate a proof packet and paste it verbatim into the PR body (and reviewer chat).
+2. Preferred command:
+   ```bash
+   ./scripts/acceptance_packet.sh <PR_NUMBER>
+   ```
+3. Fallback command (if acceptance_packet is unavailable):
+   ```bash
+   ./scripts/proof_bundle.sh <PR_NUMBER>
+   ```
+4. Paste the **full output verbatim**, without truncation, from the first marker to the END marker.
+5. **NO summaries, no tables, no paraphrasing.** Any "ready/done" without verbatim packet = **NOT DONE**.
+6. If exit code ≠ 0: paste the failing output verbatim and fix until it passes.
+7. If reviewer requests extra evidence: update `acceptance_packet.sh` (preferred) so the packet contains it, re-run, paste verbatim.
 
 ---
 
@@ -620,3 +628,85 @@ PR requires replay proof if it touches ANY of:
 4. If exit code is `1`: fix issues, repeat
 
 **Never request ACCEPT without running acceptance_packet.sh and confirming exit code 0.**
+
+---
+
+## Reviewer Message Generator (Convenience)
+
+**For sending a ready-to-paste message to the reviewer chat:**
+
+```bash
+./scripts/reviewer_message.sh <PR_NUMBER>
+```
+
+This script:
+1. Runs `acceptance_packet.sh` internally
+2. Wraps output in a clean "copy from here" format
+3. Shows status (ready/not ready) at the end
+
+**Usage:**
+1. Run `./scripts/reviewer_message.sh <PR_NUMBER>`
+2. Copy everything between the dashed lines
+3. Paste into reviewer chat
+
+This is optional — you can always use `acceptance_packet.sh` directly.
+
+---
+
+## Stacked PRs and Merge Safety
+
+**Stacked PRs** are PRs that target another feature branch instead of `main`. The acceptance packet automatically detects this and resolves the full PR chain.
+
+### Merge Readiness Classification
+
+The acceptance packet distinguishes two readiness states:
+
+- `Ready for review: true/false` — all quality checks passed, PR can be reviewed
+- `Ready for final merge: true/false` — PR can be merged to main right now
+
+| merge_type | Ready for review | Ready for final merge |
+|------------|------------------|----------------------|
+| DIRECT     | ✓ (if checks pass) | ✓ (if checks pass) |
+| STACKED    | ✓ (if checks pass) | ✗ (merge prerequisites first) |
+
+### PR Chain Resolution
+
+For stacked PRs, the acceptance packet walks up the branch tree to find all prerequisite PRs:
+
+```
+Prerequisite PR chain (merge in order):
+  1. PR#47: Reviewer Message Generator (https://...)
+  2. PR#46: Robust Replay Detection (https://...)
+  ...
+```
+
+If a base branch has **no corresponding open PR**, the packet FAILS:
+```
+ERROR: Stacked base branch 'feature/xyz' has no corresponding open PR
+STACKED_CHAIN_BROKEN: No open PR found for base branch 'feature/xyz'
+```
+
+### Workflow for Stacked PRs
+
+1. Create stacked PR chain (each PR targets the previous feature branch)
+2. Run `acceptance_packet.sh` on each PR — all should show `Ready for review: true`
+3. Get review approval on all PRs
+4. Merge PRs **in order** (starting from the one closest to main)
+5. After merging prerequisites, rebase remaining PRs onto main
+6. Run `acceptance_packet.sh` again to verify `Ready for final merge: true`
+
+### Enforcing Main-Only Base
+
+For the final PR in a chain (after prerequisites are merged):
+```bash
+./scripts/acceptance_packet.sh --require-main-base <PR_NUMBER>
+```
+
+This will **FAIL** if the PR base is not `main` or `master`.
+
+### Best Practices
+
+- Use stacked PRs for incremental review of large features
+- Always check both `Ready for review` and `Ready for final merge` before merging
+- Never merge a STACKED PR directly — merge prerequisites first
+- Use `--require-main-base` for the final merge step

@@ -9,6 +9,43 @@
 
 ### Added
 
+#### GitHub PR#48 — Merge Safety & Stacked PR Detection
+- `acceptance_packet.sh`: added `== ACCEPTANCE PACKET: MERGE SAFETY ==` section
+- PR chain resolution: walks up branch tree to find all prerequisite PRs by number/URL
+- Fails if stacked base branch has no corresponding open PR (`STACKED_CHAIN_BROKEN`)
+- New readiness classification: `Ready for review` vs `Ready for final merge`
+- STACKED PRs show `Ready for final merge: false` (must merge prerequisites first)
+- New `--require-main-base` flag to fail if base is not main/master
+- CLAUDE.md updated with detailed stacked PR workflow and best practices
+
+#### GitHub PR#47 — Reviewer Message Generator
+- New `scripts/reviewer_message.sh <PR>` — generates ready-to-paste reviewer chat message
+- Wraps acceptance_packet.sh output in clean "copy from here" format
+- Shows status indicator (ready/not ready) at the end
+- CLAUDE.md updated with usage instructions
+
+#### GitHub PR#46 — Robust Replay Detection in acceptance_packet.sh
+- `acceptance_packet.sh`: switched from `gh pr view --json files` to `gh api /repos/.../pulls/.../files`
+- File list retrieval now matches `proof_guard.yml` logic (paginated API call)
+- Added fail-safe: empty file list now fails packet (prevents false `replay_required: false`)
+- Added repo detection via `gh repo view --json nameWithOwner`
+
+#### GitHub PR#45 — Enforce Verbatim Acceptance Packet
+- `acceptance_packet.sh`: removed SUMMARY section, single `== ACCEPTANCE PACKET: END ==` marker
+- `acceptance_packet.sh`: added "Paste verbatim, do NOT summarize" banner
+- `proof_guard.yml`: disabled proof_bundle fallback — acceptance_packet is now mandatory
+- `proof_guard.yml`: added `diff --git` check to ensure full patch is included
+- No more shortcuts: PR body must contain complete verbatim acceptance packet output
+
+#### GitHub PR#44 — Global Proof & Reporting Policy (DEC-009)
+- Verbatim-only reporting policy: summaries/tables/paraphrasing are NOT valid proof
+- DEC-009: Global proof policy — acceptable evidence is only verbatim packet output
+- `proof_guard.yml` dual-mode marker validation:
+  - Preferred: acceptance_packet markers (`== ACCEPTANCE PACKET: *`)
+  - Fallback: proof_bundle markers (backward compatible)
+- Replay determinism enforcement in acceptance_packet mode requires `ALL DIGESTS MATCH`
+- CLAUDE.md "Формат отчёта" replaced with verbatim-only mandatory format
+
 #### GitHub PR#43 — Acceptance Packet Automation (DEC-008)
 - New `scripts/acceptance_packet.sh <PR>` — one-command "ready for ACCEPT" generator
   - Waits for CI checks to pass (polls with timeout)
