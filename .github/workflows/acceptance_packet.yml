@@ -111,7 +111,7 @@ jobs:
           run_url = os.environ['RUN_URL']
           artifact_file = f"artifacts/acceptance_packet_pr{pr_number}.txt"
           artifact_name = f"acceptance_packet_pr{pr_number}"
-          check_name = "Acceptance Packet"
+          check_name = "acceptance-packet"  # Must match job name for check-run API
 
           # Read current body
           with open('/tmp/current_body.txt', 'r') as f:
