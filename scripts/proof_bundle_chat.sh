@@ -34,6 +34,8 @@ echo
 
 echo "== CHAT PROOF: GIT EVIDENCE =="
 if [[ -n "${MERGE_COMMIT}" ]]; then
+  # For MERGED PRs: fetch from origin to ensure we have the merge commit locally
+  git fetch origin "${MERGE_COMMIT}" --quiet 2>/dev/null || git fetch origin --quiet 2>/dev/null || true
   echo "--- git show --stat ${MERGE_COMMIT} ---"
   git show "${MERGE_COMMIT}" --stat
   echo
