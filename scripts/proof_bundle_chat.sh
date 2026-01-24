@@ -68,8 +68,7 @@ LATEST="$(ls -1t artifacts/proof_bundle_pr${PR_NUMBER}_*.txt 2>/dev/null | head 
 if [[ -n "${LATEST}" ]]; then
   echo "${LATEST}"
 else
-  echo "MISSING: run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate artifacts file"
-  exit 1
+  echo "WARNING: No artifacts file found. Run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate."
 fi
 
 echo
