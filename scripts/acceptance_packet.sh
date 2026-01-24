@@ -65,6 +65,8 @@ echo "PR STATE: ${STATE}"
 echo "Base: ${BASE_REF}"
 echo "Head: ${HEAD_REF}"
 echo
+echo "NOTE: Paste this output verbatim in full. Do NOT summarize."
+echo
 
 # Get list of changed files for replay detection
 CHANGED_FILES="$(echo "${PR_JSON}" | python3 -c '
@@ -235,26 +237,27 @@ else
 fi
 echo
 
-echo "== ACCEPTANCE PACKET: SUMMARY =="
-echo "PR:             #${PR_NUMBER}"
-echo "URL:            ${PR_URL}"
-echo "State:          ${STATE}"
-echo "Replay required: ${REPLAY_REQUIRED}"
-echo "Packet status:  ${PACKET_STATUS}"
+echo "== ACCEPTANCE PACKET: END =="
 
 if [[ "${PACKET_STATUS}" == "FAIL" ]]; then
+  echo "RESULT: FAIL"
+  echo "PR: #${PR_NUMBER}"
+  echo "URL: ${PR_URL}"
+  echo "State: ${STATE}"
+  echo "Replay required: ${REPLAY_REQUIRED}"
   echo ""
   echo "Failed checks:"
   for check in "${FAILED_CHECKS[@]}"; do
     echo "  - ${check}"
   done
-  echo ""
-  echo "== ACCEPTANCE PACKET: END (FAILED) =="
   exit 1
 else
+  echo "RESULT: PASS"
+  echo "PR: #${PR_NUMBER}"
+  echo "URL: ${PR_URL}"
+  echo "State: ${STATE}"
+  echo "Replay required: ${REPLAY_REQUIRED}"
   echo ""
   echo "✓ All checks passed. Ready for ACCEPT."
-  echo ""
-  echo "== ACCEPTANCE PACKET: END (PASSED) =="
   exit 0
 fi

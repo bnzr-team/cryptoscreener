@@ -9,6 +9,13 @@
 
 ### Added
 
+#### GitHub PR#45 — Enforce Verbatim Acceptance Packet
+- `acceptance_packet.sh`: removed SUMMARY section, single `== ACCEPTANCE PACKET: END ==` marker
+- `acceptance_packet.sh`: added "Paste verbatim, do NOT summarize" banner
+- `proof_guard.yml`: disabled proof_bundle fallback — acceptance_packet is now mandatory
+- `proof_guard.yml`: added `diff --git` check to ensure full patch is included
+- No more shortcuts: PR body must contain complete verbatim acceptance packet output
+
 #### GitHub PR#44 — Global Proof & Reporting Policy (DEC-009)
 - Verbatim-only reporting policy: summaries/tables/paraphrasing are NOT valid proof
 - DEC-009: Global proof policy — acceptable evidence is only verbatim packet output

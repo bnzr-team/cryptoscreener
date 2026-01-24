@@ -63,19 +63,16 @@ jobs:
             "== PYTEST -Q ==",
           ]
 
-          # Detect which mode based on presence of acceptance_packet marker
+          # DEC-009/PR#45: Require acceptance_packet (no fallback)
           is_acceptance_packet_mode = "== ACCEPTANCE PACKET:" in body
+          if not is_acceptance_packet_mode:
+            print("ERROR: PR body must include verbatim acceptance packet output (DEC-009).")
+            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> and paste the FULL output into PR body.")
+            sys.exit(1)
 
-          if is_acceptance_packet_mode:
-            # Acceptance packet mode (preferred)
-            required_markers = acceptance_packet_markers
-            mode_name = "acceptance_packet"
-            tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
-          else:
-            # Fallback to proof_bundle mode
-            required_markers = proof_bundle_markers
-            mode_name = "proof_bundle"
-            tip_command = "./scripts/proof_bundle.sh <PR_NUMBER>"
+          required_markers = acceptance_packet_markers
+          mode_name = "acceptance_packet"
+          tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
 
           missing = [m for m in required_markers if m not in body]
           if missing:
@@ -87,16 +84,15 @@ jobs:
             sys.exit(1)
 
           # Sanity check for minimum content
-          if is_acceptance_packet_mode:
-            # acceptance_packet has fewer "==" markers but more content
-            if body.count("==") < 10:
-              print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
-              sys.exit(1)
-          else:
-            # proof_bundle has 11 markers = 22 "=="
-            if body.count("==") < 22:
-              print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
-              sys.exit(1)
+          if body.count("==") < 10:
+            print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
+            sys.exit(1)
+
+          # PR#45: Require actual diff content (not just header)
+          if "diff --git" not in body:
+            print("ERROR: Acceptance packet must include full PR diff (expected 'diff --git').")
+            print("TIP: Ensure acceptance_packet.sh output includes '== ACCEPTANCE PACKET: PR DIFF ==' section with gh pr diff output.")
+            sys.exit(1)
 
           # Fetch changed files for replay requirement check
           def gh_get(url: str):
