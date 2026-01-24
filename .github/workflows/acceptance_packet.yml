@@ -122,25 +122,34 @@ jobs:
               packet_content = f.read()
 
           # Determine mode: FULL VERBATIM or CI ARTIFACT
-          # GitHub PR body limit is ~65536 chars
+          # GitHub PR body limit is ~65536 BYTES (not chars!)
           # Calculate what the total body size would be with FULL VERBATIM
           # Strip existing acceptance packet block to get base body size
           import re
           pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
           base_body = re.sub(pattern, '', current_body, flags=re.DOTALL).strip()
 
-          # Estimate full verbatim size: base + packet + markdown overhead (~200 chars for markers/code fence)
-          full_verbatim_size = len(base_body) + len(packet_content) + 200
+          # Calculate sizes in BYTES (UTF-8) for accurate GitHub limit comparison
+          base_body_bytes = len(base_body.encode('utf-8'))
+          packet_content_bytes = len(packet_content.encode('utf-8'))
+          overhead_bytes = 200  # markers + code fence
+
+          # Estimate full verbatim size in bytes
+          full_verbatim_bytes = base_body_bytes + packet_content_bytes + overhead_bytes
+
+          print(f"Size check: base_body={base_body_bytes}B, packet={packet_content_bytes}B, total={full_verbatim_bytes}B")
 
           # Use FULL VERBATIM only if:
-          # 1. Total body size < 50000 (safe margin below 65K limit)
-          # 2. Packet content itself < 45000 (prevent huge diffs)
+          # 1. Total body size < 50000 bytes (safe margin below 65K limit)
+          # 2. Packet content itself < 45000 bytes (prevent huge diffs)
           # 3. Packet has diff content
           use_full_verbatim = (
-              full_verbatim_size < 50000 and
-              len(packet_content) < 45000 and
+              full_verbatim_bytes < 50000 and
+              packet_content_bytes < 45000 and
               'diff --git' in packet_content
           )
+
+          print(f"Mode: {'FULL VERBATIM' if use_full_verbatim else 'CI ARTIFACT'}")
 
           if use_full_verbatim:
               # FULL VERBATIM mode
