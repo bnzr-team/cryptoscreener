@@ -168,13 +168,21 @@ If model artifacts absent, run in **baseline mode**:
 * fallback: тест “invalid → fallback”, и тест “fallback always valid”
 * если меняется политика — **обязателен** `DECISIONS.md` + обновление доков
 
-**Формат отчёта**
+**Reporting format (MANDATORY, verbatim-only)**
 
-* Сначала: “Что изменено” (по файлам)
-* Затем: “Что доказано” (артефакты выше)
-* Затем: “Что не покрыто / риски”
-* Затем: “Next PR scope”
-
+1. Before claiming "done/ready", generate a proof packet and paste it verbatim into the PR body (and reviewer chat).
+2. Preferred command:
+   ```bash
+   ./scripts/acceptance_packet.sh <PR_NUMBER>
+   ```
+3. Fallback command (if acceptance_packet is unavailable):
+   ```bash
+   ./scripts/proof_bundle.sh <PR_NUMBER>
+   ```
+4. Paste the **full output verbatim**, without truncation, from the first marker to the END marker.
+5. **NO summaries, no tables, no paraphrasing.** Any "ready/done" without verbatim packet = **NOT DONE**.
+6. If exit code ≠ 0: paste the failing output verbatim and fix until it passes.
+7. If reviewer requests extra evidence: update `acceptance_packet.sh` (preferred) so the packet contains it, re-run, paste verbatim.
 
 ---
 

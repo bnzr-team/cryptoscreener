@@ -34,12 +34,22 @@ jobs:
 
           if not body:
             print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
-            print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
+            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> or ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
             sys.exit(1)
 
-          # Required markers from proof_bundle.sh output (v3+file: 11 markers)
-          # These markers indicate raw command output was pasted
-          required_markers = [
+          # DEC-009: Dual-mode marker validation
+          # Mode 1: acceptance_packet markers (preferred)
+          # Mode 2: proof_bundle markers (fallback)
+
+          acceptance_packet_markers = [
+            "== ACCEPTANCE PACKET: IDENTITY ==",
+            "== ACCEPTANCE PACKET: CI ==",
+            "== ACCEPTANCE PACKET: GATES ==",
+            "== ACCEPTANCE PACKET: PR DIFF ==",
+            "== ACCEPTANCE PACKET: END",
+          ]
+
+          proof_bundle_markers = [
             "== PROOF_BUNDLE_FILE ==",
             "== PR URL ==",
             "== GH PR VIEW ==",
@@ -53,21 +63,42 @@ jobs:
             "== PYTEST -Q ==",
           ]
 
+          # Detect which mode based on presence of acceptance_packet marker
+          is_acceptance_packet_mode = "== ACCEPTANCE PACKET:" in body
+
+          if is_acceptance_packet_mode:
+            # Acceptance packet mode (preferred)
+            required_markers = acceptance_packet_markers
+            mode_name = "acceptance_packet"
+            tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
+          else:
+            # Fallback to proof_bundle mode
+            required_markers = proof_bundle_markers
+            mode_name = "proof_bundle"
+            tip_command = "./scripts/proof_bundle.sh <PR_NUMBER>"
+
           missing = [m for m in required_markers if m not in body]
           if missing:
-            print("ERROR: Missing required proof bundle markers in PR body:")
+            print(f"ERROR: Missing required {mode_name} markers in PR body:")
             for m in missing:
               print(f" - {m}")
             print("")
-            print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the FULL output into PR body.")
+            print(f"TIP: Run {tip_command} and paste the FULL output into PR body.")
             sys.exit(1)
 
-          # Sanity check: must have some actual output after markers (11 markers = 22 "==")
-          if body.count("==") < 22:
-            print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
-            sys.exit(1)
+          # Sanity check for minimum content
+          if is_acceptance_packet_mode:
+            # acceptance_packet has fewer "==" markers but more content
+            if body.count("==") < 10:
+              print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
+              sys.exit(1)
+          else:
+            # proof_bundle has 11 markers = 22 "=="
+            if body.count("==") < 22:
+              print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
+              sys.exit(1)
 
-          # Check for fixtures/replay requirement
+          # Fetch changed files for replay requirement check
           def gh_get(url: str):
             req = urllib.request.Request(url)
             req.add_header("Accept", "application/vnd.github+json")
@@ -88,7 +119,7 @@ jobs:
               break
             page += 1
 
-          # Expanded replay-related file detection (DEC-008)
+          # DEC-008/DEC-009: Expanded replay-related file detection
           replay_patterns = [
               "tests/fixtures/",       # Fixture files
               "tests/replay/",         # Replay tests
@@ -106,21 +137,43 @@ jobs:
           require_replay = len(replay_related_files) > 0
 
           if require_replay:
-            # Accept both python and python3 variants
-            has_replay_proof = (
-                "python -m scripts.run_replay" in body or
-                "python3 -m scripts.run_replay" in body or
-                "python3 scripts/run_replay.py" in body or
-                "scripts.run_replay" in body
-            )
-            if not has_replay_proof:
-              print("ERROR: This PR changes replay-related files. Must include replay determinism proof:")
-              print(" - python3 scripts/run_replay.py --fixture <path> -v (or equivalent)")
-              print("")
-              print("Changed files that triggered this requirement:")
-              for f in replay_related_files:
-                  print(f" - {f}")
+            if is_acceptance_packet_mode:
+              # In acceptance_packet mode, require REPLAY DETERMINISM section with digest match
+              has_replay_section = "== ACCEPTANCE PACKET: REPLAY DETERMINISM ==" in body
+              has_digest_match = "ALL DIGESTS MATCH" in body or "DETERMINISM CHECK PASSED" in body
 
-          print("OK: Proof bundle requirements satisfied.")
+              if not has_replay_section:
+                print("ERROR: This PR changes replay-related files. Must include replay determinism section:")
+                print(" - == ACCEPTANCE PACKET: REPLAY DETERMINISM ==")
+                print("")
+                print("Changed files that triggered this requirement:")
+                for f in replay_related_files:
+                    print(f" - {f}")
+                sys.exit(1)
+
+              if not has_digest_match:
+                print("ERROR: Replay determinism section found but no digest match proof.")
+                print("Expected: 'ALL DIGESTS MATCH' or 'DETERMINISM CHECK PASSED'")
+                print("")
+                print("Make sure replay runs produce matching digests before requesting review.")
+                sys.exit(1)
+            else:
+              # Fallback proof_bundle mode: accept various replay proof patterns
+              has_replay_proof = (
+                  "python -m scripts.run_replay" in body or
+                  "python3 -m scripts.run_replay" in body or
+                  "python3 scripts/run_replay.py" in body or
+                  "scripts.run_replay" in body
+              )
+              if not has_replay_proof:
+                print("ERROR: This PR changes replay-related files. Must include replay determinism proof:")
+                print(" - python3 scripts/run_replay.py --fixture <path> -v (or equivalent)")
+                print("")
+                print("Changed files that triggered this requirement:")
+                for f in replay_related_files:
+                    print(f" - {f}")
+                sys.exit(1)
+
+          print(f"OK: Proof bundle requirements satisfied (mode: {mode_name}).")
           print(f"INFO: PR #{number}, files: {len(files)}, replay required: {require_replay}")
           PY
