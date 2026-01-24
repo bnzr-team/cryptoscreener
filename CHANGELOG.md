@@ -9,6 +9,22 @@
 
 ### Added
 
+#### GitHub PR#41 — Record→Replay Bridge (DEC-007)
+- `scripts/run_record.py` — recording harness for fixture generation
+  - CLI: `--symbols`, `--duration-s`, `--out-dir`, `--cadence-ms`, `--llm`, `--source`
+  - Outputs: `market_events.jsonl`, `expected_rank_events.jsonl`, `manifest.json`
+- `SyntheticMarketEventGenerator` — deterministic synthetic market event generation
+- `MinimalRecordPipeline` — mirrors `MinimalReplayPipeline` for determinism
+- Manifest format v1.0.0 with SHA256 checksums and replay digest
+- LLM OFF by default in recording mode
+- `tests/replay/test_record_replay_roundtrip.py` — 15+ tests for record→replay determinism
+
+#### GitHub PR#32-40 — Proof Bundle v3 (DEC-006)
+- 11 mandatory markers in PR body (enforced by CI)
+- `scripts/proof_bundle_chat.sh` — compact chat report with strict mergeCommit handling
+- File logging to `artifacts/proof_bundle_pr{N}_{timestamp}.txt`
+- Verbatim paste rule for reviewer messages
+
 #### GitHub PR#23 — LLM Explain Pipeline Integration (DEC-005)
 - Integrated LLM explain into Alerter: `RankEvent.payload.llm_text` populated for alert events
 - `ExplainLLMProtocol` for dependency injection (no hard import of explain_llm module)

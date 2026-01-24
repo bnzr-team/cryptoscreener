@@ -187,3 +187,77 @@ If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
 - `AlerterConfig.llm_enabled` (default True) allows global disable
 - Metrics: `llm_calls`, `llm_cache_hits`, `llm_failures` for observability
 - 8 integration tests verify caching, cooldown, and failure handling
+
+---
+
+## DEC-006: Proof Bundle v3 with Mandatory CI Evidence (PR#32-40)
+
+**Date:** 2026-01-24
+
+**Decision:** Implement strict proof bundle system requiring raw CLI output in PR bodies:
+
+1. **11 mandatory markers** in PR body (enforced by CI via `proof_guard.yml`):
+   - `== PROOF_BUNDLE_FILE ==`, `== PR URL ==`, `== GH PR VIEW ==`, `== GH PR CHECKS ==`
+   - `== CHANGED FILES ==`, `== TOOLCHAIN VERSIONS ==`, `== GIT SHOW --STAT ==`
+   - `== GIT SHOW ==`, `== RUFF CHECK . ==`, `== MYPY . ==`, `== PYTEST -Q ==`
+2. **File logging**: `proof_bundle.sh` outputs to `artifacts/proof_bundle_pr{N}_{timestamp}.txt`
+3. **Chat proof script**: `proof_bundle_chat.sh` for compact reviewer reports with strict mergeCommit validation
+4. **Verbatim paste rule**: No summaries or extra text after `== CHAT PROOF: END ==`
+
+**Alternatives considered:**
+1. Manual evidence screenshots — rejected: not machine-parseable, easy to forge
+2. Automated CI-only evidence — rejected: need local pre-merge verification
+3. Markdown-formatted evidence — rejected: raw output prevents tampering
+
+**Rationale:**
+- Raw CLI output provides unforgeable evidence of local verification
+- CI enforcement prevents PRs without proper proof bundles
+- Chat proof enables async review with complete evidence
+- Strict mergeCommit handling ensures git evidence matches actual merged code
+
+**Impact:**
+- All PRs must include full `proof_bundle.sh` output in body
+- Reviewers receive `proof_bundle_chat.sh` output verbatim
+- CI blocks PRs missing required markers
+- `artifacts/` directory stores proof bundle history
+
+---
+
+## DEC-007: Record→Replay Bridge (PR#41)
+
+**Date:** 2026-01-24
+
+**Decision:** Implement recording harness to generate replay fixtures from synthetic or live data:
+
+1. **New script `scripts/run_record.py`**:
+   - CLI: `--symbols`, `--duration-s`, `--out-dir`, `--cadence-ms`, `--llm` (default OFF), `--source synthetic|live`
+   - Outputs: `market_events.jsonl`, `expected_rank_events.jsonl`, `manifest.json`
+
+2. **Manifest format (schema_version 1.0.0)**:
+   - Required fields: `schema_version`, `recorded_at`, `source`, `symbols`, `duration_s`
+   - SHA256 checksums: `sha256.market_events.jsonl`, `sha256.expected_rank_events.jsonl`
+   - Replay verification: `replay.rank_event_stream_digest`
+   - Stats: `total_market_events`, `total_rank_events`, `time_range_ms`
+
+3. **MinimalRecordPipeline mirrors MinimalReplayPipeline**:
+   - Same deterministic logic (SYMBOL_ENTER at trade 2, ALERT_TRADABLE at trade 4)
+   - Ensures record→replay digest match
+
+4. **LLM OFF by default**: Recording does not include LLM explanations unless `--llm` flag is set
+
+**Alternatives considered:**
+1. Record only market events, recompute expected on replay — rejected: no baseline truth for verification
+2. Store expected digest only (not full events) — rejected: need events for debugging mismatches
+3. Live-only recording — rejected: synthetic mode enables CI testing without external dependencies
+
+**Rationale:**
+- Recording expected outputs provides ground truth for determinism verification
+- SHA256 checksums detect file tampering or corruption
+- Synthetic mode enables fast, deterministic CI tests
+- Manifest documents recording parameters for reproducibility
+
+**Impact:**
+- New `scripts/run_record.py` with CLI interface
+- New `tests/replay/test_record_replay_roundtrip.py` with 15+ tests
+- Fixtures can be generated for any symbol set and duration
+- Replay verification uses manifest digest for comparison
