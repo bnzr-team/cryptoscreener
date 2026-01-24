@@ -6,7 +6,9 @@ from cryptoscreener.connectors.backoff import (
     CircuitBreaker,
     CircuitState,
     RateLimitError,
+    RateLimitKind,
     compute_backoff_delay,
+    handle_error_response,
 )
 
 __all__ = [
@@ -15,5 +17,7 @@ __all__ = [
     "CircuitBreaker",
     "CircuitState",
     "RateLimitError",
+    "RateLimitKind",
     "compute_backoff_delay",
+    "handle_error_response",
 ]
