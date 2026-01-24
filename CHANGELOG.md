@@ -11,10 +11,12 @@
 
 #### GitHub PR#48 — Merge Safety & Stacked PR Detection
 - `acceptance_packet.sh`: added `== ACCEPTANCE PACKET: MERGE SAFETY ==` section
-- Detects stacked PRs (base != main) and shows prerequisites
+- PR chain resolution: walks up branch tree to find all prerequisite PRs by number/URL
+- Fails if stacked base branch has no corresponding open PR (`STACKED_CHAIN_BROKEN`)
+- New readiness classification: `Ready for review` vs `Ready for final merge`
+- STACKED PRs show `Ready for final merge: false` (must merge prerequisites first)
 - New `--require-main-base` flag to fail if base is not main/master
-- Final output shows `merge_type: DIRECT` or `STACKED` with guidance
-- CLAUDE.md updated with stacked PR workflow guidance
+- CLAUDE.md updated with detailed stacked PR workflow and best practices
 
 #### GitHub PR#47 — Reviewer Message Generator
 - New `scripts/reviewer_message.sh <PR>` — generates ready-to-paste reviewer chat message
