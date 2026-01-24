@@ -175,3 +175,64 @@ If model artifacts absent, run in **baseline mode**:
 ## Reporting format (every update)
 
 Use `STATUS_UPDATE_TEMPLATE.md` (required).
+
+---
+
+## PR Automation (GitHub)
+
+### Available scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/gen_proof_bundle.sh` | Generates proof bundle markdown with git, tools, quality gates, checksums, replay |
+| `scripts/pr_create.sh` | Full PR cycle: branch → commit → push → proof → PR → auto-merge |
+
+### Workflow for creating a PR
+
+1. **Make changes** — implement feature/fix
+2. **Run single command:**
+   ```bash
+   ./scripts/pr_create.sh "feature/pr-00XX-name" "PR#X: description"
+   ```
+3. **Script automatically:**
+   - Creates/switches to branch
+   - Commits all changes
+   - Pushes to GitHub
+   - Generates proof bundle (git, ruff, mypy, pytest, checksums, replay)
+   - Creates PR with proof bundle as body
+   - Enables auto-merge (squash) + delete-branch
+
+### GitHub Actions (CI)
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | push to main, all PRs | Runs ruff, mypy, pytest, replay fixture |
+| `proof_guard.yml` | PR opened/edited | Validates PR body has required proof bundle sections |
+
+### Required proof bundle sections (enforced by proof_guard)
+
+Always required:
+- `## 1) Git proof`
+- `## 2) Tool versions`
+- `## 3) Quality gates`
+
+Conditionally required (if PR touches `tests/fixtures/` or `scripts/run_replay.py`):
+- `## 4) Fixtures checksums`
+- `## 5) Replay determinism`
+
+### Pre-flight checklist (before running pr_create.sh)
+
+1. Activate venv: `source .venv/bin/activate`
+2. Ensure changes exist: `git status` shows modified files
+3. Verify quality gates pass locally:
+   ```bash
+   ruff check . && mypy . && pytest -q
+   ```
+
+### Manual proof bundle generation
+
+If you need proof bundle without creating PR:
+```bash
+./scripts/gen_proof_bundle.sh [fixture_dir] [output_file]
+# Default: tests/fixtures/sample_run → proof_bundle.md
+```
