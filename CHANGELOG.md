@@ -9,6 +9,12 @@
 
 ### Added
 
+#### GitHub PR#47 — Reviewer Message Generator
+- New `scripts/reviewer_message.sh <PR>` — generates ready-to-paste reviewer chat message
+- Wraps acceptance_packet.sh output in clean "copy from here" format
+- Shows status indicator (ready/not ready) at the end
+- CLAUDE.md updated with usage instructions
+
 #### GitHub PR#46 — Robust Replay Detection in acceptance_packet.sh
 - `acceptance_packet.sh`: switched from `gh pr view --json files` to `gh api /repos/.../pulls/.../files`
 - File list retrieval now matches `proof_guard.yml` logic (paginated API call)
