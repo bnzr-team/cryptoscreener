@@ -91,6 +91,14 @@
 - Expanded `.github/workflows/proof_guard.yml` replay detection to include `run_record.py` and `tests/replay/`
 - Added mandatory `acceptance_packet.sh` usage rule to CLAUDE.md
 
+#### GitHub PR#25 — Live Pipeline End-to-End (DEC-006)
+- `scripts/run_live.py`: Full live pipeline connecting all components
+- Data flow: BinanceStreamManager → StreamRouter → FeatureEngine → BaselineRunner → Ranker → Alerter
+- Aggregated `PipelineMetrics` with event counts, latencies, LLM stats
+- Graceful shutdown via SIGINT/SIGTERM handlers
+- CLI flags: `--symbols`, `--top N`, `--cadence`, `--llm`, `--output`, `--verbose`
+- LLM disabled by default in live mode (per DEC-005)
+
 #### GitHub PR#23 — LLM Explain Pipeline Integration (DEC-005)
 - Integrated LLM explain into Alerter: `RankEvent.payload.llm_text` populated for alert events
 - `ExplainLLMProtocol` for dependency injection (no hard import of explain_llm module)

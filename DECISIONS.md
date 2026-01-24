@@ -278,3 +278,35 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - CLAUDE.md "Формат отчёта" replaced with verbatim-only policy
 - proof_guard.yml updated with dual-mode marker validation
 - All future PRs must include verbatim packet in body
+
+---
+
+## DEC-006: Live Pipeline Architecture (GitHub PR#25)
+
+**Date:** 2026-01-24
+
+**Decision:** Implement `scripts/run_live.py` as end-to-end live pipeline with the following design:
+
+1. **Data flow order:** BinanceStreamManager → StreamRouter → FeatureEngine → BaselineRunner → Ranker → Alerter → Output
+2. **Async event loop:** Uses `asyncio` with `async for event in stream_manager.events()` pattern
+3. **Snapshot cadence:** Configurable via `--cadence` (default 1000ms), controls feature emission and prediction frequency
+4. **LLM disabled by default:** Live mode sets `llm_enabled=False`; use `--llm` flag to enable
+5. **Graceful shutdown:** SIGINT/SIGTERM handlers trigger `pipeline.stop()` which closes all connections cleanly
+6. **Symbol selection:** Either explicit `--symbols BTCUSDT,ETHUSDT` or `--top N` for top N by volume
+
+**Alternatives considered:**
+1. Separate process per component — rejected: adds IPC complexity, single process is sufficient for 50-500 symbols
+2. Celery/Redis for task distribution — rejected: overkill for MVP, single async loop handles throughput
+3. LLM enabled by default — rejected: per DEC-005, LLM adds latency and cost; disabled by default
+
+**Rationale:**
+- Single async process simplifies deployment and debugging
+- Cadence-based emission (not event-driven) ensures predictable resource usage
+- LLM opt-in prevents unexpected API costs during development
+- Graceful shutdown prevents data loss and allows metrics collection
+
+**Impact:**
+- `scripts/run_live.py` is the primary entry point for live trading signals
+- `PipelineMetrics` collects: event counts, latencies, LLM stats, router/ranker stats
+- Output is JSONL (RankEvents) to stdout or `--output` file
+- CLI designed for production use: `python -m scripts.run_live --top 50 --output events.jsonl`
