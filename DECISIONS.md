@@ -120,3 +120,36 @@ If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
 - Downstream consumers must check `payload.prediction != {}` before accessing prediction fields
 - RankEvent contract in `events.py` uses `RankEventPayload(prediction={})` as default
 - Score normalization formula documented: `score = p_inplay * (utility/Umax) * (1 - α*p_toxic)` with score ∈ [0, 1]
+
+---
+
+## DEC-004: LLM Explain Module Architecture (PR#23)
+
+**Date:** 2026-01-24
+
+**Decision:** Implement LLM Explain module with strict guardrails per CLAUDE.md §9:
+
+1. **Anthropic-only provider** in initial implementation; other providers may be added later.
+2. **Sync interface** (`ExplainLLM.explain()` returns `LLMExplainOutput` directly, no async).
+3. **No-new-numbers constraint:** LLM outputs are text-only; MUST NOT change numeric values, status, or score. Numbers in output must be exact stringwise match to input.
+4. **Fallback on any failure:** Exception, timeout, or validation violation → deterministic fallback via `generate_fallback_output()`.
+5. **Client injection for testing:** `AnthropicExplainer.with_client()` allows injecting mock client; unit tests do NOT perform network calls.
+
+**Alternatives considered:**
+1. Async interface with `asyncio` — rejected: adds complexity, sync is sufficient for batch/interactive use
+2. Multiple providers (OpenAI, Gemini) — deferred: Anthropic-only simplifies initial implementation
+3. Allow LLM to compute percentages (0.83 → 83%) — rejected: violates no-new-numbers principle
+4. Strict retry without fallback — rejected: availability > precision for explanatory text
+
+**Rationale:**
+- LLM explanations are auxiliary text; they MUST NOT affect trading decisions
+- Strict validation prevents LLM hallucinations from introducing spurious numbers
+- Fallback ensures system always produces valid output, even if LLM fails
+- Client injection enables deterministic testing without network dependencies
+- Sync interface matches existing codebase patterns (no async in pipeline)
+
+**Impact:**
+- `validate_llm_output_strict()` enforces no-new-numbers via regex extraction
+- 6 adversarial tests verify constraint: percentage conversion, invented numbers, max_chars, invalid status_label, numbers in words, scientific notation
+- MockExplainer provides deterministic output for "LLM off" mode and tests
+- AnthropicExplainer includes retry logic with exponential backoff + jitter
