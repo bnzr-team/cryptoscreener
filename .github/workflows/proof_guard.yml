@@ -18,7 +18,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python - << 'PY'
-          import json, os, sys, urllib.request
+          import json, os, re, sys, urllib.request
 
           with open(os.environ["GITHUB_EVENT_PATH"], "r", encoding="utf-8") as f:
             event = json.load(f)
@@ -62,7 +62,9 @@ jobs:
 
           # PR#49: Check if body has PENDING marker (CI hasn't updated it yet)
           # PENDING = NOT DONE. Must FAIL to prevent merge without proof.
-          is_pending_mode = "== ACCEPTANCE PACKET: PENDING ==" in body
+          # Use regex to match marker at start of line (not inside diff/code)
+          pending_pattern = r'^== ACCEPTANCE PACKET: PENDING ==$'
+          is_pending_mode = bool(re.search(pending_pattern, body, re.MULTILINE))
 
           if is_pending_mode:
             print("ERROR: PR body still has PENDING marker — no proof yet.")
@@ -72,7 +74,9 @@ jobs:
 
           # PR#49: CI ARTIFACT mode detection
           # If body contains CI ARTIFACT block, validate via check-run API
-          is_ci_artifact_mode = "== ACCEPTANCE PACKET: CI ARTIFACT ==" in body
+          # Use regex to match marker at start of line (not inside diff/code)
+          ci_artifact_pattern = r'^== ACCEPTANCE PACKET: CI ARTIFACT ==$'
+          is_ci_artifact_mode = bool(re.search(ci_artifact_pattern, body, re.MULTILINE))
 
           if is_ci_artifact_mode:
             print("INFO: CI ARTIFACT mode detected, validating via check-run API...")
