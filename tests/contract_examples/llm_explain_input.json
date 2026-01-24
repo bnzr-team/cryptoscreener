@@ -1,0 +1,16 @@
+{
+  "symbol": "BTCUSDT",
+  "timeframe": "2m",
+  "status": "WATCH",
+  "score": 0.83,
+  "reasons": [
+    {"code": "RC_FLOW_SURGE", "value": 2.1, "unit": "z", "evidence": "flow_imbalance=0.63"}
+  ],
+  "numeric_summary": {
+    "spread_bps": 8.2,
+    "impact_bps": 6.5,
+    "p_toxic": 0.21,
+    "regime": "high-vol trend"
+  },
+  "style": {"tone": "friendly", "max_chars": 180}
+}

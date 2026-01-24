@@ -1,0 +1,21 @@
+{
+  "ts": 1706140800000,
+  "symbol": "BTCUSDT",
+  "profile": "A",
+  "p_inplay_30s": 0.72,
+  "p_inplay_2m": 0.83,
+  "p_inplay_5m": 0.65,
+  "expected_utility_bps_2m": 4.5,
+  "p_toxic": 0.21,
+  "status": "WATCH",
+  "reasons": [
+    {"code": "RC_FLOW_SURGE", "value": 2.1, "unit": "z", "evidence": "flow_imbalance=0.63"}
+  ],
+  "model_version": "1.0.0+abc1234",
+  "calibration_version": "iso_2026-01-24",
+  "data_health": {
+    "stale_book_ms": 0,
+    "stale_trades_ms": 0,
+    "missing_streams": []
+  }
+}
