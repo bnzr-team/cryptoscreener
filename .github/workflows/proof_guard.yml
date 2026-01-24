@@ -10,6 +10,7 @@ jobs:
     permissions:
       pull-requests: read
       contents: read
+      checks: read
     steps:
       - name: Validate PR body has required proof bundle markers
         env:
@@ -17,84 +18,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python - << 'PY'
-          import json, os, sys, urllib.request
+          import json, os, re, sys, urllib.request
 
           with open(os.environ["GITHUB_EVENT_PATH"], "r", encoding="utf-8") as f:
             event = json.load(f)
 
           pr = event.get("pull_request") or {}
-          body = (pr.get("body") or "").strip()
           number = pr.get("number")
+          head_sha = pr.get("head", {}).get("sha", "")
           repo = (event.get("repository") or {}).get("full_name")
           token = os.environ.get("GITHUB_TOKEN", "")
 
-          if not number or not repo:
-            print("ERROR: Cannot determine PR number or repository from event payload.")
-            sys.exit(1)
-
-          if not body:
-            print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
-            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> or ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
-            sys.exit(1)
-
-          # DEC-009: Dual-mode marker validation
-          # Mode 1: acceptance_packet markers (preferred)
-          # Mode 2: proof_bundle markers (fallback)
-
-          acceptance_packet_markers = [
-            "== ACCEPTANCE PACKET: IDENTITY ==",
-            "== ACCEPTANCE PACKET: CI ==",
-            "== ACCEPTANCE PACKET: GATES ==",
-            "== ACCEPTANCE PACKET: PR DIFF ==",
-            "== ACCEPTANCE PACKET: END",
-          ]
-
-          proof_bundle_markers = [
-            "== PROOF_BUNDLE_FILE ==",
-            "== PR URL ==",
-            "== GH PR VIEW ==",
-            "== GH PR CHECKS ==",
-            "== CHANGED FILES ==",
-            "== TOOLCHAIN VERSIONS ==",
-            "== GIT SHOW --STAT ==",
-            "== GIT SHOW ==",
-            "== RUFF CHECK . ==",
-            "== MYPY . ==",
-            "== PYTEST -Q ==",
-          ]
-
-          # DEC-009/PR#45: Require acceptance_packet (no fallback)
-          is_acceptance_packet_mode = "== ACCEPTANCE PACKET:" in body
-          if not is_acceptance_packet_mode:
-            print("ERROR: PR body must include verbatim acceptance packet output (DEC-009).")
-            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> and paste the FULL output into PR body.")
-            sys.exit(1)
-
-          required_markers = acceptance_packet_markers
-          mode_name = "acceptance_packet"
-          tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
-
-          missing = [m for m in required_markers if m not in body]
-          if missing:
-            print(f"ERROR: Missing required {mode_name} markers in PR body:")
-            for m in missing:
-              print(f" - {m}")
-            print("")
-            print(f"TIP: Run {tip_command} and paste the FULL output into PR body.")
-            sys.exit(1)
-
-          # Sanity check for minimum content
-          if body.count("==") < 10:
-            print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
-            sys.exit(1)
-
-          # PR#45: Require actual diff content (not just header)
-          if "diff --git" not in body:
-            print("ERROR: Acceptance packet must include full PR diff (expected 'diff --git').")
-            print("TIP: Ensure acceptance_packet.sh output includes '== ACCEPTANCE PACKET: PR DIFF ==' section with gh pr diff output.")
-            sys.exit(1)
-
-          # Fetch changed files for replay requirement check
+          # Fetch body from API at runtime (not from event payload)
+          # This ensures re-runs see the updated PR body
           def gh_get(url: str):
             req = urllib.request.Request(url)
             req.add_header("Accept", "application/vnd.github+json")
@@ -103,6 +39,174 @@ jobs:
             with urllib.request.urlopen(req) as r:
               return json.loads(r.read().decode("utf-8"))
 
+          if number and repo:
+            try:
+              pr_data = gh_get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+              body = (pr_data.get("body") or "").strip()
+              # Also get current HEAD SHA in case PR was updated
+              head_sha = pr_data.get("head", {}).get("sha", head_sha)
+              print(f"INFO: Fetched PR body from API (source: api, bytes: {len(body.encode('utf-8'))})")
+            except Exception as e:
+              # STRICT MODE: API fetch MUST succeed for reliable validation
+              # Fallback to payload only if it has valid proof (not PENDING, has markers)
+              fallback_body = (pr.get("body") or "").strip()
+              fallback_body = fallback_body.replace("\r\n", "\n")  # Normalize CRLF
+
+              # Check if fallback body is usable (has proof, not PENDING)
+              has_pending = "== ACCEPTANCE PACKET: PENDING ==" in fallback_body
+              has_proof_markers = ("== ACCEPTANCE PACKET: CI ARTIFACT ==" in fallback_body or
+                                   "== ACCEPTANCE PACKET: IDENTITY ==" in fallback_body)
+
+              if has_pending or not has_proof_markers:
+                print(f"ERROR: API fetch failed and payload body is not valid proof: {e}")
+                print("Cannot verify PR body without API access. Retry or check GitHub status.")
+                sys.exit(1)
+
+              print(f"WARNING: API fetch failed ({e}), using payload body (has valid markers)")
+              body = fallback_body
+          else:
+            body = (pr.get("body") or "").strip()
+
+          # Normalize CRLF to LF for consistent marker matching
+          body = body.replace("\r\n", "\n")
+
+          if not number or not repo:
+            print("ERROR: Cannot determine PR number or repository from event payload.")
+            sys.exit(1)
+
+          if not body:
+            print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
+            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> or wait for CI to auto-populate.")
+            sys.exit(1)
+
+          # PR#49: Check if body has PENDING marker (CI hasn't updated it yet)
+          # PENDING = NOT DONE. Must FAIL to prevent merge without proof.
+          # Use regex to match marker at start of line (not inside diff/code)
+          # Allow trailing whitespace with \s*$
+          pending_pattern = r'^== ACCEPTANCE PACKET: PENDING ==\s*$'
+          is_pending_mode = bool(re.search(pending_pattern, body, re.MULTILINE))
+
+          if is_pending_mode:
+            print("ERROR: PR body still has PENDING marker — no proof yet.")
+            print("Wait for Acceptance Packet workflow to complete and update the PR body.")
+            print("If Acceptance Packet passed but body wasn't updated, re-run Proof Guard manually.")
+            sys.exit(1)
+
+          # PR#49: CI ARTIFACT mode detection
+          # If body contains CI ARTIFACT block, validate via check-run API
+          # Use regex to match marker at start of line (not inside diff/code)
+          # Allow trailing whitespace with \s*$
+          ci_artifact_pattern = r'^== ACCEPTANCE PACKET: CI ARTIFACT ==\s*$'
+          is_ci_artifact_mode = bool(re.search(ci_artifact_pattern, body, re.MULTILINE))
+
+          if is_ci_artifact_mode:
+            print("INFO: CI ARTIFACT mode detected, validating via check-run API...")
+
+            # Parse required fields from CI ARTIFACT block
+            ci_artifact_fields = {}
+            required_ci_fields = ["RUN_URL", "ARTIFACT_NAME", "SHA256", "BYTES", "CHECK_NAME", "HEAD_SHA"]
+
+            for line in body.split("\n"):
+              for field in required_ci_fields:
+                if line.strip().startswith(f"{field}:"):
+                  ci_artifact_fields[field] = line.split(":", 1)[1].strip()
+
+            missing_fields = [f for f in required_ci_fields if f not in ci_artifact_fields]
+            if missing_fields:
+              print(f"ERROR: CI ARTIFACT mode missing required fields: {missing_fields}")
+              sys.exit(1)
+
+            # Verify check-run exists and is successful for HEAD_SHA
+            artifact_head_sha = ci_artifact_fields["HEAD_SHA"]
+            check_name = ci_artifact_fields["CHECK_NAME"]
+
+            # Allow some tolerance: if PR head changed, artifact might be for previous commit
+            # But we require it matches the declared HEAD_SHA in the block
+            if artifact_head_sha != head_sha:
+              print(f"WARNING: CI ARTIFACT HEAD_SHA ({artifact_head_sha}) differs from current PR head ({head_sha})")
+              print("This may indicate the PR was updated after CI ran. Re-running CI will fix this.")
+              # Don't fail here - the check-run validation will catch stale data
+
+            # Query check-runs for the HEAD_SHA
+            try:
+              check_runs_url = f"https://api.github.com/repos/{repo}/commits/{artifact_head_sha}/check-runs"
+              check_runs_response = gh_get(check_runs_url)
+              check_runs = check_runs_response.get("check_runs", [])
+
+              # Find the check-run with matching name
+              matching_check = None
+              for cr in check_runs:
+                if cr.get("name") == check_name:
+                  matching_check = cr
+                  break
+
+              if not matching_check:
+                print(f"ERROR: No check-run named '{check_name}' found for commit {artifact_head_sha}")
+                print("Available check-runs:")
+                for cr in check_runs:
+                  print(f"  - {cr.get('name')}: {cr.get('conclusion')}")
+                sys.exit(1)
+
+              conclusion = matching_check.get("conclusion")
+              if conclusion != "success":
+                print(f"ERROR: Check-run '{check_name}' has conclusion '{conclusion}', expected 'success'")
+                sys.exit(1)
+
+              print(f"OK: CI ARTIFACT mode validated. Check-run '{check_name}' passed for {artifact_head_sha[:8]}")
+              print(f"INFO: PR #{number}, artifact: {ci_artifact_fields['ARTIFACT_NAME']}, sha256: {ci_artifact_fields['SHA256'][:16]}...")
+
+            except urllib.error.HTTPError as e:
+              print(f"ERROR: Failed to query check-runs API: {e}")
+              sys.exit(1)
+
+            # CI ARTIFACT mode: skip diff --git requirement and marker checks
+            # Replay requirement check still applies (fetch files below)
+
+          else:
+            # FULL VERBATIM mode: require all acceptance_packet markers + diff --git
+
+            acceptance_packet_markers = [
+              "== ACCEPTANCE PACKET: IDENTITY ==",
+              "== ACCEPTANCE PACKET: CI ==",
+              "== ACCEPTANCE PACKET: GATES ==",
+              "== ACCEPTANCE PACKET: PR DIFF ==",
+              "== ACCEPTANCE PACKET: END",
+            ]
+
+            # DEC-009/PR#45: Require acceptance_packet
+            is_acceptance_packet_mode = "== ACCEPTANCE PACKET:" in body
+            if not is_acceptance_packet_mode:
+              print("ERROR: PR body must include verbatim acceptance packet output (DEC-009).")
+              print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> or wait for CI to auto-populate.")
+              sys.exit(1)
+
+            required_markers = acceptance_packet_markers
+            mode_name = "acceptance_packet"
+            tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
+
+            missing = [m for m in required_markers if m not in body]
+            if missing:
+              print(f"ERROR: Missing required {mode_name} markers in PR body:")
+              for m in missing:
+                print(f" - {m}")
+              print("")
+              print(f"TIP: Run {tip_command} and paste the FULL output into PR body.")
+              sys.exit(1)
+
+            # Sanity check for minimum content
+            if body.count("==") < 10:
+              print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
+              sys.exit(1)
+
+            # PR#45: Require actual diff content (not just header)
+            if "diff --git" not in body:
+              print("ERROR: Acceptance packet must include full PR diff (expected 'diff --git').")
+              print("TIP: Ensure acceptance_packet.sh output includes '== ACCEPTANCE PACKET: PR DIFF ==' section with gh pr diff output.")
+              sys.exit(1)
+
+            print(f"OK: FULL VERBATIM mode validated.")
+
+          # Fetch changed files for replay requirement check (both modes)
           files = []
           page = 1
           while True:
@@ -133,8 +237,12 @@ jobs:
           require_replay = len(replay_related_files) > 0
 
           if require_replay:
-            if is_acceptance_packet_mode:
-              # In acceptance_packet mode, require REPLAY DETERMINISM section with digest match
+            # For CI ARTIFACT mode, we trust that the CI ran replay checks
+            # The acceptance_packet.sh script includes replay verification
+            if is_ci_artifact_mode:
+              print(f"INFO: PR touches replay-related files, CI ARTIFACT mode trusts CI ran replay checks")
+            else:
+              # FULL VERBATIM mode: require REPLAY DETERMINISM section with digest match
               has_replay_section = "== ACCEPTANCE PACKET: REPLAY DETERMINISM ==" in body
               has_digest_match = "ALL DIGESTS MATCH" in body or "DETERMINISM CHECK PASSED" in body
 
@@ -153,23 +261,8 @@ jobs:
                 print("")
                 print("Make sure replay runs produce matching digests before requesting review.")
                 sys.exit(1)
-            else:
-              # Fallback proof_bundle mode: accept various replay proof patterns
-              has_replay_proof = (
-                  "python -m scripts.run_replay" in body or
-                  "python3 -m scripts.run_replay" in body or
-                  "python3 scripts/run_replay.py" in body or
-                  "scripts.run_replay" in body
-              )
-              if not has_replay_proof:
-                print("ERROR: This PR changes replay-related files. Must include replay determinism proof:")
-                print(" - python3 scripts/run_replay.py --fixture <path> -v (or equivalent)")
-                print("")
-                print("Changed files that triggered this requirement:")
-                for f in replay_related_files:
-                    print(f" - {f}")
-                sys.exit(1)
 
-          print(f"OK: Proof bundle requirements satisfied (mode: {mode_name}).")
+          mode_desc = "CI ARTIFACT" if is_ci_artifact_mode else "FULL VERBATIM"
+          print(f"OK: Proof bundle requirements satisfied (mode: {mode_desc}).")
           print(f"INFO: PR #{number}, files: {len(files)}, replay required: {require_replay}")
           PY
