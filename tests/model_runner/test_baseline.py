@@ -653,3 +653,31 @@ class TestBaselineRunnerCriticalGates:
         # DEAD due to low p_inplay (gates don't matter)
         assert prediction.p_inplay_2m < 0.3
         assert prediction.status == PredictionStatus.DEAD
+
+    def test_gate_check_before_tradeable_not_trap(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """Gate check happens after TRAP check but before TRADEABLE return.
+
+        Scenario: p_inplay >= 0.6 (would be TRADEABLE) + gate fail + p_toxic < 0.7
+        Expected: WATCH (not TRAP, not TRADEABLE)
+        This confirms gate enforcement is in the correct position in the logic.
+        """
+        snapshot = make_snapshot(
+            spread_bps=15.0,  # Fails gate
+            book_imbalance=0.8,
+            flow_imbalance=0.6,  # High but not extreme (p_toxic < 0.7)
+            impact_bps=5.0,
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        # Verify conditions
+        assert prediction.p_inplay_2m >= 0.6, "Should qualify for TRADEABLE by p_inplay"
+        assert prediction.p_toxic < 0.7, "Should NOT be TRAP"
+
+        # Gate should downgrade to WATCH (not TRAP, not TRADEABLE)
+        assert prediction.status == PredictionStatus.WATCH
+        codes = [r.code for r in prediction.reasons]
+        assert "RC_GATE_SPREAD_FAIL" in codes
