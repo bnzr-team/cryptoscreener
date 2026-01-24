@@ -12,6 +12,12 @@ You are the primary coder for this repository. Build exactly what is specified i
    - raw command output (e.g., pytest), logs, checksums/hashes, git diff, fixtures, JSON contracts
    - do not claim completion without reproducible evidence
 3. Do not change numeric scoring logic using the LLM. LLM is *text only*.
+4. **Auto-PR rule**: After completing any task, automatically:
+   - Run quality gates (ruff, mypy, pytest)
+   - If all pass → create PR with proof bundle body (CLAUDE.md format)
+   - Enable auto-merge (squash)
+   - Provide Proof Bundle Report after merge
+   - No user confirmation needed — just do it
 
 ## 1) Repo layout (create if missing)
 ```
