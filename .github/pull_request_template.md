@@ -29,4 +29,4 @@ After opening the PR, run:
 ```bash
 ./scripts/proof_bundle_chat.sh <PR_NUMBER>
 ```
-and paste its output in the reviewer chat (raw).
+and paste its output in the reviewer chat **verbatim** (no extra text).

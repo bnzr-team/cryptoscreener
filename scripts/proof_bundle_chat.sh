@@ -13,7 +13,20 @@ echo "${PR_JSON}"
 echo
 
 PR_URL="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
-MERGE_COMMIT="$(echo "${PR_JSON}" | python -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc["oid"] if mc else "")')"
+STATE="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
+MERGE_COMMIT="$(echo "${PR_JSON}" | python -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc.get("oid","") if isinstance(mc,dict) else "")')"
+
+if [[ "${STATE}" == "MERGED" && -z "${MERGE_COMMIT}" ]]; then
+  echo "ERROR: PR is MERGED but mergeCommit is missing in gh pr view JSON"
+  echo "Raw PR JSON:"
+  echo "${PR_JSON}"
+  exit 1
+fi
+
+echo "PR URL: ${PR_URL}"
+echo "PR STATE: ${STATE}"
+echo "MERGE COMMIT: ${MERGE_COMMIT:-<none>}"
+echo
 
 echo "== CHAT PROOF: CI =="
 gh pr checks "${PR_NUMBER}" || true
@@ -24,13 +37,13 @@ if [[ -n "${MERGE_COMMIT}" ]]; then
   echo "--- git show --stat ${MERGE_COMMIT} ---"
   git show "${MERGE_COMMIT}" --stat
   echo
-  echo "--- git show --name-only ${MERGE_COMMIT} ---"
+  echo "--- git show --name-only --pretty=\"\" ${MERGE_COMMIT} ---"
   git show --name-only --pretty="" "${MERGE_COMMIT}"
 else
   echo "--- git show --stat (HEAD) ---"
   git show --stat
   echo
-  echo "--- git show --name-only (HEAD) ---"
+  echo "--- git show --name-only --pretty=\"\" HEAD ---"
   git show --name-only --pretty="" HEAD
 fi
 echo
@@ -56,3 +69,6 @@ else
   echo "MISSING: run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate artifacts file"
   exit 1
 fi
+
+echo
+echo "== CHAT PROOF: END =="

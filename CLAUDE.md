@@ -577,4 +577,9 @@ Every report MUST include raw evidence in the following 4 blocks (copy/paste out
 - `mypy .`
 - `pytest -q`
 
-Recommended: run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output directly.
+**How to use:**
+Run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output **verbatim** from `== CHAT PROOF: IDENTITY ==` through `== CHAT PROOF: END ==`.
+
+**Do NOT add any commentary, summary, or extra lines.**
+
+Any message that includes additional summary text after `== CHAT PROOF: END ==` is INVALID.
