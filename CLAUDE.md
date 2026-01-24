@@ -186,7 +186,7 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 ## PR Automation (GitHub)
 
-### Proof Bundle Standard v2 (CRITICAL — enforced by CI)
+### Proof Bundle Standard v3 (CRITICAL — enforced by CI)
 
 **PR не готов без raw proof bundle.** Никаких пересказов ("All passed!") вместо сырого вывода команд.
 
@@ -196,11 +196,14 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 2. Запусти `./scripts/proof_bundle.sh <PR_NUMBER>`
 3. Вставь **весь raw output** в PR body (не редактируй маркеры!)
 
-Скрипт включает: PR URL, gh pr checks, git show, ruff/mypy/pytest.
+Скрипт включает: PR identity, PR checks, changed files, toolchain versions, git show, ruff/mypy/pytest.
 
-**7 обязательных маркеров** (CI фейлит без них):
+**10 обязательных маркеров** (CI фейлит без них):
 - `== PR URL ==`
+- `== GH PR VIEW ==`
 - `== GH PR CHECKS ==`
+- `== CHANGED FILES ==`
+- `== TOOLCHAIN VERSIONS ==`
 - `== GIT SHOW --STAT ==`
 - `== GIT SHOW ==`
 - `== RUFF CHECK . ==`

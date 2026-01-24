@@ -8,11 +8,26 @@ if [[ -z "${PR_NUMBER}" ]]; then
 fi
 
 echo "== PR URL =="
-gh pr view "${PR_NUMBER}" --json url,state,headRefName,baseRefName,commits | cat
+gh pr view "${PR_NUMBER}" --json url | cat
+echo
+
+echo "== GH PR VIEW =="
+gh pr view "${PR_NUMBER}" --json number,title,state,mergedAt,mergeCommit,baseRefName,headRefName,headRepositoryOwner,headRepository,url | cat
 echo
 
 echo "== GH PR CHECKS =="
 gh pr checks "${PR_NUMBER}" || true
+echo
+
+echo "== CHANGED FILES =="
+git show --name-only --pretty="" HEAD
+echo
+
+echo "== TOOLCHAIN VERSIONS =="
+python --version
+ruff --version
+mypy --version
+pytest --version
 echo
 
 echo "== GIT SHOW --STAT =="
