@@ -253,7 +253,8 @@ class LivePipeline:
         # Alerter: process each prediction
         for symbol, prediction in self._predictions.items():
             state = self._ranker.get_state(symbol)
-            rank = state.rank if state else -1
+            # RankEvent.rank must be >= 0; use 0 as default for unranked symbols
+            rank = max(0, state.rank) if state else 0
             score = state.score if state else 0.0
 
             alert_events = self._alerter.process_prediction(
