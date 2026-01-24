@@ -650,3 +650,29 @@ This script:
 3. Paste into reviewer chat
 
 This is optional — you can always use `acceptance_packet.sh` directly.
+
+---
+
+## Stacked PRs and Merge Safety
+
+**Stacked PRs** are PRs that target another feature branch instead of `main`. The acceptance packet automatically detects this and shows:
+
+- `merge_type: DIRECT` — PR targets main, ready for final merge
+- `merge_type: STACKED` — PR targets another branch, must merge prerequisites first
+
+**For stacked PRs:**
+1. Merge prerequisite PRs first (in order)
+2. Rebase the final PR onto main
+3. Run acceptance_packet again to verify
+
+**To enforce main-only base (for final PRs):**
+```bash
+./scripts/acceptance_packet.sh --require-main-base <PR_NUMBER>
+```
+
+This will FAIL if the PR base is not `main` or `master`.
+
+**Best practice:**
+- Use stacked PRs for incremental review of large features
+- Always check `merge_type` in acceptance packet before merging
+- Final merge should always be to main

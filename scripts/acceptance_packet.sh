@@ -4,18 +4,40 @@
 # One-command "ready for ACCEPT" generator.
 # Waits for CI, runs quality gates, generates artifacts, validates replay if required.
 #
-# Usage: ./scripts/acceptance_packet.sh <PR_NUMBER>
+# Usage: ./scripts/acceptance_packet.sh [--require-main-base] <PR_NUMBER>
+#
+# Options:
+#   --require-main-base   Fail if PR base is not main/master (for final PRs)
 #
 # Exit codes:
 #   0 - All checks passed, ready for ACCEPT
-#   1 - Some check failed (CI, gates, replay)
+#   1 - Some check failed (CI, gates, replay, or base requirement)
 #   2 - Usage error
 
 set -euo pipefail
 
+# Parse options
+REQUIRE_MAIN_BASE="false"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --require-main-base)
+      REQUIRE_MAIN_BASE="true"
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      echo "Usage: ./scripts/acceptance_packet.sh [--require-main-base] <PR_NUMBER>"
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
 PR_NUMBER="${1:-}"
 if [[ -z "${PR_NUMBER}" ]]; then
-  echo "Usage: ./scripts/acceptance_packet.sh <PR_NUMBER>"
+  echo "Usage: ./scripts/acceptance_packet.sh [--require-main-base] <PR_NUMBER>"
   exit 2
 fi
 
@@ -66,6 +88,30 @@ echo "Base: ${BASE_REF}"
 echo "Head: ${HEAD_REF}"
 echo
 echo "NOTE: Paste this output verbatim in full. Do NOT summarize."
+echo
+
+# == MERGE SAFETY: Base branch check ==
+echo "== ACCEPTANCE PACKET: MERGE SAFETY =="
+IS_MAIN_BASE="false"
+if [[ "${BASE_REF}" == "main" || "${BASE_REF}" == "master" ]]; then
+  IS_MAIN_BASE="true"
+  echo "merge_type: DIRECT"
+  echo "Base branch: ${BASE_REF} (main branch)"
+  log_info "PR targets main branch directly — ready for final merge"
+else
+  echo "merge_type: STACKED"
+  echo "Base branch: ${BASE_REF} (NOT main)"
+  log_warn "STACKED PR detected: base is '${BASE_REF}', not main"
+  echo ""
+  echo "Prerequisites (must merge first):"
+  echo "  1. ${BASE_REF}"
+  echo ""
+  echo "After merging prerequisites, rebase this PR onto main before final merge."
+
+  if [[ "${REQUIRE_MAIN_BASE}" == "true" ]]; then
+    fail_check "BASE_NOT_MAIN: --require-main-base specified but base is '${BASE_REF}'"
+  fi
+fi
 echo
 
 # Get list of changed files via gh api (robust, matches proof_guard.yml)
@@ -253,6 +299,8 @@ if [[ "${PACKET_STATUS}" == "FAIL" ]]; then
   echo "PR: #${PR_NUMBER}"
   echo "URL: ${PR_URL}"
   echo "State: ${STATE}"
+  echo "Base: ${BASE_REF}"
+  echo "Merge type: $([ "${IS_MAIN_BASE}" == "true" ] && echo "DIRECT" || echo "STACKED")"
   echo "Replay required: ${REPLAY_REQUIRED}"
   echo ""
   echo "Failed checks:"
@@ -265,8 +313,15 @@ else
   echo "PR: #${PR_NUMBER}"
   echo "URL: ${PR_URL}"
   echo "State: ${STATE}"
+  echo "Base: ${BASE_REF}"
+  echo "Merge type: $([ "${IS_MAIN_BASE}" == "true" ] && echo "DIRECT" || echo "STACKED")"
   echo "Replay required: ${REPLAY_REQUIRED}"
   echo ""
-  echo "✓ All checks passed. Ready for ACCEPT."
+  if [[ "${IS_MAIN_BASE}" == "true" ]]; then
+    echo "✓ All checks passed. Ready for ACCEPT and MERGE."
+  else
+    echo "✓ All checks passed. Ready for ACCEPT."
+    echo "⚠ STACKED PR: Merge prerequisites first, then rebase onto main."
+  fi
   exit 0
 fi

@@ -9,6 +9,13 @@
 
 ### Added
 
+#### GitHub PR#48 — Merge Safety & Stacked PR Detection
+- `acceptance_packet.sh`: added `== ACCEPTANCE PACKET: MERGE SAFETY ==` section
+- Detects stacked PRs (base != main) and shows prerequisites
+- New `--require-main-base` flag to fail if base is not main/master
+- Final output shows `merge_type: DIRECT` or `STACKED` with guidance
+- CLAUDE.md updated with stacked PR workflow guidance
+
 #### GitHub PR#47 — Reviewer Message Generator
 - New `scripts/reviewer_message.sh <PR>` — generates ready-to-paste reviewer chat message
 - Wraps acceptance_packet.sh output in clean "copy from here" format
