@@ -8,13 +8,18 @@ BaselineRunner → Ranker → Alerter.
 
 Usage:
     python -m scripts.run_live --symbols BTCUSDT,ETHUSDT
-    python -m scripts.run_live --top 50  # Top 50 by volume
-    python -m scripts.run_live --dry-run  # No LLM calls
+    python -m scripts.run_live --top 50  # Top 50 by volume (uses REST bootstrap)
+    python -m scripts.run_live --duration-s 60  # Run for 60 seconds
 
 Per DEC-005:
 - LLM is disabled by default in live mode (--llm to enable)
 - LLM calls are rate-limited per symbol (60s cooldown)
 - LLM failures do not break the pipeline
+
+Per DEC-006:
+- --top N mode uses one-time REST call to fetch symbol list at startup
+- All data streaming is via WebSocket (no REST polling)
+- Graceful shutdown via SIGINT/SIGTERM or --duration-s timeout
 """
 
 from __future__ import annotations
@@ -75,8 +80,8 @@ class LivePipelineConfig:
     # Output file for RankEvents (None = stdout)
     output_file: Path | None = None
 
-    # Dry-run mode (no actual connections)
-    dry_run: bool = False
+    # Duration in seconds (None = run until SIGINT/SIGTERM)
+    duration_s: int | None = None
 
     # Verbose logging
     verbose: bool = False
@@ -157,7 +162,6 @@ class LivePipeline:
         self._config = config
         self._metrics = PipelineMetrics()
         self._running = False
-        self._shutdown_event = asyncio.Event()
 
         # Initialize components
         self._stream_manager = BinanceStreamManager(
@@ -287,8 +291,20 @@ class LivePipeline:
 
         last_process_ts = 0
 
+        # Calculate deadline if duration specified
+        deadline_ts: int | None = None
+        if self._config.duration_s is not None:
+            deadline_ts = self._metrics.start_ts + (self._config.duration_s * 1000)
+            logger.info("Pipeline will stop after %d seconds", self._config.duration_s)
+
         async for event in self._stream_manager.events():
             if not self._running:
+                break
+
+            # Check duration deadline
+            current_ts = int(time.time() * 1000)
+            if deadline_ts is not None and current_ts >= deadline_ts:
+                logger.info("Duration limit reached, stopping pipeline")
                 break
 
             # Track metrics
@@ -303,7 +319,6 @@ class LivePipeline:
             await self._router.route(event)
 
             # Process on cadence
-            current_ts = int(time.time() * 1000)
             if current_ts - last_process_ts >= self._config.snapshot_cadence_ms:
                 # Emit snapshots
                 snapshots = await self._feature_engine.emit_snapshots(current_ts)
@@ -416,27 +431,27 @@ class LivePipeline:
         logger.info("=" * 60)
 
     def request_shutdown(self) -> None:
-        """Request graceful shutdown."""
+        """Request graceful shutdown by setting running flag to False."""
         logger.info("Shutdown requested")
-        self._shutdown_event.set()
+        self._running = False
 
 
-def setup_signal_handlers(pipeline: LivePipeline, loop: asyncio.AbstractEventLoop) -> None:
+def setup_signal_handlers(pipeline: LivePipeline) -> None:
     """
     Setup signal handlers for graceful shutdown.
 
+    Signal handler only sets the running flag to False.
+    The main loop will exit naturally and finally block will call stop().
+    This avoids race conditions from concurrent stop() calls.
+
     Args:
         pipeline: LivePipeline instance.
-        loop: Event loop.
     """
 
     def signal_handler(sig: int, frame: object) -> None:
-        logger.info("Received signal %s", signal.Signals(sig).name)
+        logger.info("Received signal %s, initiating shutdown", signal.Signals(sig).name)
+        # Only set flag - do NOT call stop() here to avoid double-stop race
         pipeline.request_shutdown()
-        # Schedule stop
-        loop.call_soon_threadsafe(
-            lambda: asyncio.create_task(pipeline.stop())
-        )
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -466,9 +481,8 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
 
     pipeline = LivePipeline(config=config, explainer=explainer)
 
-    # Setup signal handlers
-    loop = asyncio.get_event_loop()
-    setup_signal_handlers(pipeline, loop)
+    # Setup signal handlers (only sets flags, does not call stop())
+    setup_signal_handlers(pipeline)
 
     try:
         await pipeline.start()
@@ -515,9 +529,10 @@ def main() -> int:
         help="Output file for RankEvents (default: stdout)",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Dry-run mode (no actual connections)",
+        "--duration-s",
+        type=int,
+        default=None,
+        help="Run for N seconds then stop gracefully (default: run until SIGINT/SIGTERM)",
     )
     parser.add_argument(
         "--verbose",
@@ -542,13 +557,14 @@ def main() -> int:
         snapshot_cadence_ms=args.cadence,
         llm_enabled=args.llm,
         output_file=args.output,
-        dry_run=args.dry_run,
+        duration_s=args.duration_s,
         verbose=args.verbose,
     )
 
     logger.info("Starting CryptoScreener Live Pipeline")
     logger.info("  Symbols: %s", symbols if symbols else f"top {config.top_n}")
     logger.info("  Cadence: %dms", config.snapshot_cadence_ms)
+    logger.info("  Duration: %s", f"{config.duration_s}s" if config.duration_s else "until signal")
     logger.info("  LLM: %s", "enabled" if config.llm_enabled else "disabled")
 
     return asyncio.run(run_pipeline(config))

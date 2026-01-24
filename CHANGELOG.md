@@ -95,8 +95,10 @@
 - `scripts/run_live.py`: Full live pipeline connecting all components
 - Data flow: BinanceStreamManager → StreamRouter → FeatureEngine → BaselineRunner → Ranker → Alerter
 - Aggregated `PipelineMetrics` with event counts, latencies, LLM stats
-- Graceful shutdown via SIGINT/SIGTERM handlers
-- CLI flags: `--symbols`, `--top N`, `--cadence`, `--llm`, `--output`, `--verbose`
+- Graceful shutdown via SIGINT/SIGTERM (flag-based, no race conditions)
+- CLI flags: `--symbols`, `--top N`, `--cadence`, `--llm`, `--output`, `--duration-s`, `--verbose`
+- `--duration-s` for controlled test runs without manual SIGTERM
+- One-time REST call for `--top N` mode (symbol list only, not polling)
 - LLM disabled by default in live mode (per DEC-005)
 
 #### GitHub PR#23 — LLM Explain Pipeline Integration (DEC-005)
