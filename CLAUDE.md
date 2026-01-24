@@ -264,3 +264,100 @@ If you need proof bundle without creating PR:
 6. **Auto-merge enabled** — CI will run and merge if passing
 
 **Key principle:** Never claim "done" without running these steps and providing the PR URL as proof.
+
+---
+
+## Required PR Proof Bundle Output Format
+
+When reporting PR completion, Claude MUST use this exact format:
+
+```markdown
+## PR#<N> — <Title>
+
+| Field | Value |
+|-------|-------|
+| **Status** | OPEN / MERGED |
+| **PR URL** | https://github.com/bnzr-team/cryptoscreener/pull/<N> |
+| **Base** | main @ `<base_commit_hash>` |
+| **Head** | `<head_commit_hash>` |
+| **Files** | <count> |
+| **Lines** | +<added> / -<deleted> |
+
+---
+
+### Scope (3–6 bullets)
+- What was added/changed (concise, no fluff)
+
+---
+
+### Files Changed
+
+| File | Role | LOC |
+|------|------|-----|
+| `path/to/file.py` | Brief description | +N |
+
+---
+
+### Proof Artifacts (sha256)
+
+```bash
+# Patch file (if generated)
+sha256sum proof/pr<N>.patch
+
+# Contract examples
+sha256sum tests/contract_examples/*.json
+
+# Fixtures
+sha256sum tests/fixtures/sample_run/*
+```
+
+---
+
+### Quality Gates (raw output)
+
+```bash
+$ ruff check .
+<full output>
+
+$ mypy .
+<full output>
+
+$ pytest -q
+<full pytest output with test counts>
+```
+
+---
+
+### Replay Determinism (if fixtures touched)
+
+```bash
+$ python -m scripts.run_replay --fixture tests/fixtures/sample_run -v
+<full replay log>
+
+Digest: <sha256>
+Determinism: PASSED/FAILED
+```
+
+---
+
+### SSOT Updates
+
+| File | Updated | Commit/Reason |
+|------|---------|---------------|
+| DECISIONS.md | yes/no | reason or commit |
+| SPEC.md | yes/no | reason or commit |
+| STATE.md | yes/no | reason or commit |
+| CHANGELOG.md | yes/no | reason or commit |
+
+---
+
+### Risks / Deviations (max 3)
+- Any known issues, edge cases, or SSOT mismatches
+- Or "None" if clean
+```
+
+**Rules:**
+1. **No pseudo-patches in text** — use `git show --stat` or sha256 of patch file
+2. **Raw outputs only** — no summaries like "All checks passed", show actual terminal output
+3. **sha256 for all artifacts** — fixtures, examples, patch files
+4. **SSOT updates explicit** — always state if DECISIONS/SPEC/STATE/CHANGELOG were updated
