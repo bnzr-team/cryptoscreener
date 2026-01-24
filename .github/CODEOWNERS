@@ -1,0 +1,12 @@
+```txt
+* @bnzr-hub
+
+DECISIONS.md @bnzr-hub
+STATE.md @bnzr-hub
+CHANGELOG.md @bnzr-hub
+docs/** @bnzr-hub
+src/cryptoscreener/contracts/** @bnzr-hub
+tests/fixtures/** @bnzr-hub
+scripts/run_replay.py @bnzr-hub
+CLAUDE.md @bnzr-hub
+STATUS_UPDATE_TEMPLATE.md @bnzr-hub
