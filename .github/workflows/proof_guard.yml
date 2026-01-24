@@ -1,0 +1,60 @@
+name: Proof Guard
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+jobs:
+  proof-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR body has proof bundle sections
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - << 'PY'
+          import json
+          import os
+          import sys
+          import re
+
+          path = os.environ["GITHUB_EVENT_PATH"]
+          with open(path, "r", encoding="utf-8") as f:
+            event = json.load(f)
+
+          pr = event.get("pull_request") or {}
+          body = (pr.get("body") or "").strip()
+
+          if not body:
+            print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
+            sys.exit(1)
+
+          required = [
+            "## 1) Git proof",
+            "## 2) Tool versions",
+            "## 3) Quality gates",
+          ]
+
+          missing = [h for h in required if h not in body]
+          if missing:
+            print("ERROR: Missing required proof bundle sections in PR body:")
+            for h in missing:
+              print(f" - {h}")
+            sys.exit(1)
+
+          # Require at least one bash code block (raw outputs)
+          if "```bash" not in body:
+            print("ERROR: No ```bash code blocks found. Paste RAW command outputs.")
+            sys.exit(1)
+
+          # Soft sanity: ensure commands are present (helps avoid fake/empty sections)
+          must_contain_cmds = ["ruff check .", "mypy .", "pytest -q"]
+          missing_cmds = [c for c in must_contain_cmds if c not in body]
+          if missing_cmds:
+            print("ERROR: Missing required command lines in PR body (paste raw outputs):")
+            for c in missing_cmds:
+              print(f" - {c}")
+            sys.exit(1)
+
+          print("OK: Proof bundle sections detected.")
+          PY
