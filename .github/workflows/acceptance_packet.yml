@@ -3,6 +3,12 @@ name: Acceptance Packet
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to generate acceptance packet for'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -30,7 +36,7 @@ jobs:
         id: packet
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
         run: |
           set +e
           mkdir -p artifacts
@@ -51,21 +57,39 @@ jobs:
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
 
+      - name: Get PR number for artifact naming
+        id: pr_info
+        run: echo "pr_number=${{ github.event.pull_request.number || inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: acceptance_packet_pr${{ github.event.pull_request.number }}
-          path: artifacts/acceptance_packet_pr${{ github.event.pull_request.number }}.txt
+          name: acceptance_packet_pr${{ steps.pr_info.outputs.pr_number }}
+          path: artifacts/acceptance_packet_pr${{ steps.pr_info.outputs.pr_number }}.txt
           retention-days: 90
+
+      - name: Get HEAD SHA
+        id: head_sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          if [[ -n "${{ github.event.pull_request.head.sha }}" ]]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            # For workflow_dispatch, get HEAD SHA from PR
+            SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q '.headRefOid')
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Update PR body
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           PACKET_EXIT: ${{ steps.packet.outputs.packet_exit }}
           SHA256: ${{ steps.packet.outputs.sha256 }}
           BYTES: ${{ steps.packet.outputs.bytes }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ steps.head_sha.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           ARTIFACT_FILE="artifacts/acceptance_packet_pr${PR_NUMBER}.txt"
