@@ -176,8 +176,10 @@ jobs:
 
           if start_marker in current_body:
               # Replace existing block
+              # Use lambda to avoid backslash interpretation in replacement string
+              # (packet content may contain regex-like patterns: \s, \d, etc.)
               pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
-              new_body = re.sub(pattern, new_block.strip(), current_body, flags=re.DOTALL)
+              new_body = re.sub(pattern, lambda m: new_block.strip(), current_body, flags=re.DOTALL)
           else:
               # Append block
               new_body = current_body + '\n\n' + new_block.strip()
