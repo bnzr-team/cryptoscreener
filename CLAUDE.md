@@ -388,6 +388,24 @@ $ git show <head> --stat
 
 ---
 
+## Self-Lint Rules (Claude MUST verify before sending)
+
+| Rule | Check |
+|------|-------|
+| A1 | Header table present and complete |
+| A2 | PR URL is valid GitHub PR link |
+| B1 | Scope ≤ 6 bullets |
+| B2 | No marketing/subjective words in Scope |
+| C1 | Files table includes ALL touched files |
+| D1 | All sha256 hashes are 64 hex chars |
+| E1 | Quality gates have separate code blocks with `$` prefix |
+| F1 | SSOT Updates: every "yes" has commit hash |
+| F2 | SSOT Updates: no "yes" with "Need to..." |
+| F3 | Risks reference DECISIONS.md or issue link |
+| G | Footer line present and correctly formatted |
+
+---
+
 ## Hard Reject Criteria
 
 Report is **rejected** if any of:
@@ -397,3 +415,35 @@ Report is **rejected** if any of:
 - Any "by design" change without DECISIONS.md + SSOT doc update
 - Risks/Deviations contradict SSOT Updates section
 - Multiple messages instead of single consolidated report
+- Missing or malformed footer line
+
+---
+
+## Merge Gate Policy
+
+1. **proof-guard.yml** validates PR body has required sections
+2. **CI (ci.yml)** runs quality gates (ruff, mypy, pytest, replay)
+3. **Auto-merge** enabled only after both pass
+4. **Manual merge** blocked if proof-guard fails
+
+---
+
+## Ultra-Strict Footer (CI Parsing)
+
+Every proof bundle report MUST end with exactly one of:
+
+```
+PROOF_BUNDLE_SELF_CHECK=PASS
+```
+
+or
+
+```
+PROOF_BUNDLE_SELF_CHECK=FAIL;RULES=A1,B2,...
+```
+
+**Rules:**
+- Footer MUST be the last line of the message
+- Never write anything after the footer line
+- If any self-lint rule fails, list all failing rules after `RULES=`
+- CI/proof-guard can parse this line to auto-reject malformed reports
