@@ -333,13 +333,30 @@ $ pytest -q
 
 ### 5) Replay Determinism (raw output)
 
+**MUST include full verbose log** with these key lines visible:
+- `RankEvent stream digest: <sha256>` (computed)
+- `Expected digest: <sha256>`
+- `✓ DETERMINISM CHECK PASSED: digests match` (or FAILED)
+
 ```bash
 $ python -m scripts.run_replay --fixture <path> -v
-<full raw output>
+2026-01-24 ... [INFO] Fixture: <path>
+2026-01-24 ... [INFO]   market_events.jsonl sha256: <sha256>
+2026-01-24 ... [INFO]   expected_rank_events.jsonl sha256: <sha256>
+...
+2026-01-24 ... [INFO] RankEvent stream digest: <sha256>
+2026-01-24 ... [INFO] Expected digest: <sha256>
+2026-01-24 ... [INFO] ✓ DETERMINISM CHECK PASSED: digests match
 
+============================================================
+REPLAY SUMMARY
+============================================================
+Fixture:        <path>
+RankEvents:     N
 Computed digest: <sha256>
 Expected digest: <sha256>
-Determinism: PASSED/FAILED
+Determinism:    PASSED
+============================================================
 ```
 
 ### 6) Contract Validation Evidence
