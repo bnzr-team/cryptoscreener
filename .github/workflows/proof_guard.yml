@@ -7,47 +7,79 @@ on:
 jobs:
   proof-guard:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
     steps:
-      - name: Validate PR body has proof bundle sections
+      - name: Validate PR body has required sections (conditional)
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python - << 'PY'
-          import json
-          import os
-          import sys
-          import re
+          import json, os, sys, urllib.request
 
-          path = os.environ["GITHUB_EVENT_PATH"]
-          with open(path, "r", encoding="utf-8") as f:
+          with open(os.environ["GITHUB_EVENT_PATH"], "r", encoding="utf-8") as f:
             event = json.load(f)
 
           pr = event.get("pull_request") or {}
           body = (pr.get("body") or "").strip()
+          number = pr.get("number")
+          repo = (event.get("repository") or {}).get("full_name")
+          token = os.environ.get("GITHUB_TOKEN", "")
+
+          if not number or not repo:
+            print("ERROR: Cannot determine PR number or repository from event payload.")
+            sys.exit(1)
 
           if not body:
             print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
             sys.exit(1)
 
-          required = [
+          def gh_get(url: str):
+            req = urllib.request.Request(url)
+            req.add_header("Accept", "application/vnd.github+json")
+            if token:
+              req.add_header("Authorization", f"Bearer {token}")
+            with urllib.request.urlopen(req) as r:
+              return json.loads(r.read().decode("utf-8"))
+
+          files = []
+          page = 1
+          while True:
+            url = f"https://api.github.com/repos/{repo}/pulls/{number}/files?per_page=100&page={page}"
+            chunk = gh_get(url)
+            if not chunk:
+              break
+            files.extend([x.get("filename","") for x in chunk])
+            if len(chunk) < 100:
+              break
+            page += 1
+
+          def touched(prefix: str) -> bool:
+            return any(f.startswith(prefix) for f in files)
+
+          touches_fixtures = touched("tests/fixtures/")
+          touches_replay = any(f == "scripts/run_replay.py" for f in files)
+          require_fixtures_replay = touches_fixtures or touches_replay
+
+          required_sections = [
             "## 1) Git proof",
             "## 2) Tool versions",
             "## 3) Quality gates",
           ]
 
-          missing = [h for h in required if h not in body]
+          missing = [h for h in required_sections if h not in body]
           if missing:
             print("ERROR: Missing required proof bundle sections in PR body:")
             for h in missing:
               print(f" - {h}")
             sys.exit(1)
 
-          # Require at least one bash code block (raw outputs)
           if "```bash" not in body:
             print("ERROR: No ```bash code blocks found. Paste RAW command outputs.")
             sys.exit(1)
 
-          # Soft sanity: ensure commands are present (helps avoid fake/empty sections)
           must_contain_cmds = ["ruff check .", "mypy .", "pytest -q"]
           missing_cmds = [c for c in must_contain_cmds if c not in body]
           if missing_cmds:
@@ -56,5 +88,27 @@ jobs:
               print(f" - {c}")
             sys.exit(1)
 
-          print("OK: Proof bundle sections detected.")
+          if require_fixtures_replay:
+            cond_sections = [
+              "## 4) Fixtures checksums",
+              "## 5) Replay determinism",
+            ]
+            cond_missing = [h for h in cond_sections if h not in body]
+            if cond_missing:
+              print("ERROR: This PR changes fixtures and/or replay harness, so you MUST include:")
+              print(" - ## 4) Fixtures checksums (sha256)")
+              print(" - ## 5) Replay determinism (run_replay log + digest)")
+              print("")
+              print("Changed files that triggered this requirement:")
+              for f in files:
+                if f.startswith("tests/fixtures/") or f == "scripts/run_replay.py":
+                  print(f" - {f}")
+              sys.exit(1)
+
+            if "python -m scripts.run_replay" not in body:
+              print("ERROR: Missing replay command line in PR body: python -m scripts.run_replay ...")
+              sys.exit(1)
+
+          print("OK: Proof bundle requirements satisfied.")
+          print(f"INFO: PR files: {len(files)}; fixtures/replay required: {require_fixtures_replay}")
           PY
