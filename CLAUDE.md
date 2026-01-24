@@ -186,10 +186,42 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 ## PR Automation (GitHub)
 
+### Proof Bundle Standard v3 (CRITICAL — enforced by CI)
+
+**PR не готов без raw proof bundle.** Никаких пересказов ("All passed!") вместо сырого вывода команд.
+
+**Для каждого PR:**
+
+1. Создай PR (получи номер)
+2. Запусти `./scripts/proof_bundle.sh <PR_NUMBER>`
+3. Вставь **весь raw output** в PR body (не редактируй маркеры!)
+
+Скрипт включает: PR identity, PR checks, changed files, toolchain versions, git show, ruff/mypy/pytest.
+
+**10 обязательных маркеров** (CI фейлит без них):
+- `== PR URL ==`
+- `== GH PR VIEW ==`
+- `== GH PR CHECKS ==`
+- `== CHANGED FILES ==`
+- `== TOOLCHAIN VERSIONS ==`
+- `== GIT SHOW --STAT ==`
+- `== GIT SHOW ==`
+- `== RUFF CHECK . ==`
+- `== MYPY . ==`
+- `== PYTEST -Q ==`
+
+**Conditional требования:**
+
+| Если PR затрагивает | Требуется |
+|---------------------|-----------|
+| contracts/events/models | 3 JSON примера + roundtrip/schema proof (raw) |
+| runner/ranker/alerter/replay/run_live | sha256 fixture + digest + determinism proof (run #1 == run #2) |
+
 ### Available scripts
 
 | Script | Purpose |
 |--------|---------|
+| `scripts/proof_bundle.sh <PR#>` | Prints full proof bundle (PR URL, CI checks, git, ruff, mypy, pytest) — paste into PR body |
 | `scripts/gen_proof_bundle.sh` | Generates proof bundle markdown with git, tools, quality gates, checksums, replay |
 | `scripts/pr_create.sh` | Full PR cycle: branch → commit → push → proof → PR → auto-merge |
 
