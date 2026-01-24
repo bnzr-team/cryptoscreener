@@ -51,8 +51,8 @@ fail_check() {
 }
 
 echo "== ACCEPTANCE PACKET: IDENTITY =="
-PR_JSON="$(gh pr view "${PR_NUMBER}" --json url,state,mergedAt,mergeCommit,baseRefName,headRefName,title,number,files)"
-echo "${PR_JSON}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k:v for k,v in d.items() if k!="files"}, indent=2))'
+PR_JSON="$(gh pr view "${PR_NUMBER}" --json url,state,mergedAt,mergeCommit,baseRefName,headRefName,title,number)"
+echo "${PR_JSON}" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))'
 echo
 
 PR_URL="$(echo "${PR_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
@@ -68,16 +68,25 @@ echo
 echo "NOTE: Paste this output verbatim in full. Do NOT summarize."
 echo
 
-# Get list of changed files for replay detection
-CHANGED_FILES="$(echo "${PR_JSON}" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-files = d.get("files", [])
-for f in files:
-    print(f.get("path", ""))
-')"
-
+# Get list of changed files via gh api (robust, matches proof_guard.yml)
+# This is more reliable than gh pr view --json files which can be empty on some gh versions
 echo "== ACCEPTANCE PACKET: CHANGED FILES =="
+REPO_NWO="$(gh repo view --json nameWithOwner -q '.nameWithOwner')"
+if [[ -z "${REPO_NWO}" ]]; then
+  fail_check "REPO_DETECT_FAILED: Could not determine repository (gh repo view failed)"
+  CHANGED_FILES=""
+else
+  CHANGED_FILES="$(gh api "/repos/${REPO_NWO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' 2>&1)" || {
+    fail_check "FILES_API_FAILED: gh api /repos/${REPO_NWO}/pulls/${PR_NUMBER}/files failed"
+    CHANGED_FILES=""
+  }
+fi
+
+# Validate we got file list (empty = suspicious, fail to avoid false negative)
+if [[ -z "${CHANGED_FILES}" && "${PACKET_STATUS}" == "PASS" ]]; then
+  fail_check "FILES_EMPTY: PR file list is empty (unexpected for any valid PR)"
+fi
+
 echo "${CHANGED_FILES}"
 echo
 
