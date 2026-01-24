@@ -186,21 +186,39 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
 
 ## PR Automation (GitHub)
 
-### Proof Bundle Requirement (CRITICAL)
+### Proof Bundle Standard (CRITICAL — enforced by CI)
 
-**PR не готов без raw proof bundle.** Никаких пересказов вместо вывода команд.
+**PR не готов без raw proof bundle.** Никаких пересказов ("All passed!") вместо сырого вывода команд.
 
-Рекомендуемый путь:
+**Обязательные требования для КАЖДОГО PR:**
+
+1. **Raw output `./scripts/proof_bundle.sh`** — вставить полный вывод в PR body
+2. **Repo-scope only**: `ruff check .`, `mypy .`, `pytest -q` (не `ruff check file.py`)
+3. **Raw `gh pr checks <PR#>`** — в отдельной секции
+4. **5 обязательных маркеров** (CI фейлит без них):
+   - `== GIT SHOW --STAT ==`
+   - `== GIT SHOW ==`
+   - `== RUFF CHECK . ==`
+   - `== MYPY . ==`
+   - `== PYTEST -Q ==`
+
+**Conditional требования:**
+
+| Если PR затрагивает | Требуется |
+|---------------------|-----------|
+| contracts/events/models | 3 JSON примера + roundtrip/schema proof (raw) |
+| runner/ranker/alerter/replay/run_live | sha256 fixture + digest + determinism proof (run #1 == run #2) |
+
+**Workflow:**
 ```bash
+# 1. Запустить proof_bundle.sh
 ./scripts/proof_bundle.sh
-```
 
-Вставь **полный вывод** в PR body. proof-guard CI автоматически фейлит PR без маркеров:
-- `== GIT SHOW --STAT ==`
-- `== GIT SHOW ==`
-- `== RUFF CHECK . ==`
-- `== MYPY . ==`
-- `== PYTEST -Q ==`
+# 2. Скопировать ВЕСЬ вывод в PR body (не редактировать маркеры!)
+
+# 3. После создания PR — добавить gh pr checks
+gh pr checks <PR_NUMBER>
+```
 
 ### Available scripts
 

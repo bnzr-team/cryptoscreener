@@ -4,35 +4,39 @@
 ## Scope (what changed)
 -
 
-## Proof Bundle (MUST ATTACH — raw output, no summaries)
+## Proof Bundle (REQUIRED — raw output only, no summaries)
 
-### Git evidence
+Run:
 ```bash
-git show --stat
-git show
+./scripts/proof_bundle.sh
 ```
 
-### Quality gates (repo-scope)
+Paste the **full output** below (do NOT edit the `== ... ==` markers):
 
-```bash
-ruff check .
-mypy .
-pytest -q
-```
+<PASTE_PROOF_BUNDLE_OUTPUT_HERE>
 
-### CI confirmation
+Required markers (must appear in PR body):
+- `== GIT SHOW --STAT ==`
+- `== GIT SHOW ==`
+- `== RUFF CHECK . ==`
+- `== MYPY . ==`
+- `== PYTEST -Q ==`
 
+### CI confirmation (REQUIRED)
+
+Paste raw output:
 ```bash
 gh pr checks <PR_NUMBER>
 ```
 
-### Contracts (if touches contracts/events/models)
+### If this PR touches contracts/events/models (REQUIRED when applicable)
 
-* 3 JSON payload examples that match DATA_CONTRACTS
-* schema validation output (raw)
+* Attach 3 JSON payload examples matching DATA_CONTRACTS.md
+* Attach roundtrip proof (to_json/from_json equality) or schema validation output (raw)
 
-### Replay/determinism (if touches ranker/alerter/runner/replay)
+### If this PR touches runner/ranker/alerter/replay/live pipeline (REQUIRED when applicable)
 
-* input fixture sha256:
-* output RankEvent stream digest:
-* run #1 == run #2:
+* Determinism proof:
+  * input fixture sha256
+  * output RankEvent stream digest sha256
+  * run #1 == run #2 (raw logs)
