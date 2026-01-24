@@ -98,8 +98,18 @@ jobs:
               packet_content = f.read()
 
           # Determine mode: FULL VERBATIM or CI ARTIFACT
-          # GitHub PR body limit is ~65536 chars; use CI ARTIFACT mode if packet > 50000 chars
-          if len(packet_content) < 50000 and 'diff --git' in packet_content:
+          # GitHub PR body limit is ~65536 chars
+          # Calculate what the total body size would be with FULL VERBATIM
+          # Strip existing acceptance packet block to get base body size
+          import re
+          pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
+          base_body = re.sub(pattern, '', current_body, flags=re.DOTALL).strip()
+
+          # Estimate full verbatim size: base + packet + markdown overhead (~100 chars)
+          full_verbatim_size = len(base_body) + len(packet_content) + 100
+
+          # Use FULL VERBATIM only if total < 60000 and packet has diff
+          if full_verbatim_size < 60000 and 'diff --git' in packet_content:
               # FULL VERBATIM mode
               new_block = f'''<!-- ACCEPTANCE_PACKET_START -->
           ```
@@ -107,7 +117,7 @@ jobs:
           ```
           <!-- ACCEPTANCE_PACKET_END -->'''
           else:
-              # CI ARTIFACT mode
+              # CI ARTIFACT mode (body too large or no diff)
               new_block = f'''<!-- ACCEPTANCE_PACKET_START -->
           == ACCEPTANCE PACKET: CI ARTIFACT ==
           RUN_URL: {run_url}
