@@ -267,97 +267,133 @@ If you need proof bundle without creating PR:
 
 ---
 
-## Required PR Proof Bundle Output Format
+## Required PR Proof Bundle Report (Template)
 
-When reporting PR completion, Claude MUST use this exact format:
+When reporting PR completion, Claude MUST use this exact format in a **single message**.
 
-```markdown
-## PR#<N> — <Title>
+### 0) Header
 
 | Field | Value |
 |-------|-------|
+| **PR** | `#<num>` — `<title>` |
 | **Status** | OPEN / MERGED |
-| **PR URL** | https://github.com/bnzr-team/cryptoscreener/pull/<N> |
-| **Base** | main @ `<base_commit_hash>` |
-| **Head** | `<head_commit_hash>` |
-| **Files** | <count> |
-| **Lines** | +<added> / -<deleted> |
+| **PR URL** | `<url>` |
+| **Base** | `<branch> @ <hash>` |
+| **Head** | `<hash>` |
+| **Merge commit** | `<hash>` (if merged) |
+| **Files** | `<count>` |
+| **Lines** | `+<added> / -<deleted>` |
+| **Tests** | `<before> → <after> (+<delta>)` |
 
----
+### 1) Scope (max 6 bullets)
 
-### Scope (3–6 bullets)
-- What was added/changed (concise, no fluff)
+Bullet list only. No marketing. No "should". Pure facts: what changed.
 
----
-
-### Files Changed
+### 2) Files Changed (table)
 
 | File | Role | LOC |
 |------|------|-----|
-| `path/to/file.py` | Brief description | +N |
+| `path/to/file.py` | Brief description (3–8 words) | +N |
 
----
+Include **all** touched files.
 
-### Proof Artifacts (sha256)
+### 3) Proof Artifacts (sha256)
 
 ```bash
-# Patch file (if generated)
-sha256sum proof/pr<N>.patch
+# Patch file
+<sha256>  proof/pr<id>.patch
 
 # Contract examples
-sha256sum tests/contract_examples/*.json
+<sha256>  tests/contract_examples/<file>.json
+...
 
 # Fixtures
-sha256sum tests/fixtures/sample_run/*
+<sha256>  tests/fixtures/sample_run/<file>
+...
 ```
 
----
+### 4) Quality Gates (raw output)
 
-### Quality Gates (raw output)
+Each tool in **separate code block**, verbatim terminal output:
 
 ```bash
 $ ruff check .
-<full output>
-
-$ mypy .
-<full output>
-
-$ pytest -q
-<full pytest output with test counts>
+<raw output>
 ```
 
----
-
-### Replay Determinism (if fixtures touched)
+```bash
+$ mypy .
+<raw output>
+```
 
 ```bash
-$ python -m scripts.run_replay --fixture tests/fixtures/sample_run -v
-<full replay log>
+$ pytest -q
+<raw output with test counts>
+```
 
-Digest: <sha256>
+### 5) Replay Determinism (raw output)
+
+```bash
+$ python -m scripts.run_replay --fixture <path> -v
+<full raw output>
+
+Computed digest: <sha256>
+Expected digest: <sha256>
 Determinism: PASSED/FAILED
 ```
 
----
+### 6) Contract Validation Evidence
 
-### SSOT Updates
+- Examples location: `tests/contract_examples/`
+- Tests that validate:
+  - Schema validation against Pydantic models
+  - `extra="forbid"` rejects unknown fields
+  - Roundtrip `to_json/from_json`
+- If any contract changed: **must** reference SSOT update
+
+### 7) SSOT Updates (mandatory section)
 
 | File | Updated | Commit/Reason |
 |------|---------|---------------|
-| DECISIONS.md | yes/no | reason or commit |
-| SPEC.md | yes/no | reason or commit |
-| STATE.md | yes/no | reason or commit |
-| CHANGELOG.md | yes/no | reason or commit |
+| DECISIONS.md | yes/no | reason or commit hash |
+| SPEC.md | yes/no | reason or commit hash |
+| STATE.md | yes/no | reason or commit hash |
+| CHANGELOG.md | yes/no | reason or commit hash |
+| DATA_CONTRACTS.md | yes/no | reason or commit hash |
+| LLM_INPUT_OUTPUT_SCHEMA.md | yes/no | reason or commit hash |
+
+**Rule:** If report includes any "by design" deviation, relaxed rule, new default, new enum/value, new behavior → **DECISIONS.md must be "yes"** and relevant SSOT docs must be updated.
+
+### 8) Risks / Deviations (max 3)
+
+Each item must be one of:
+- `Mismatch vs SSOT (needs DECISION)` — requires follow-up
+- `Known limitation (explicitly accepted in DECISIONS)` — already documented
+- `Follow-up required (tracked issue link)` — deferred
+
+No operational chatter ("workflow failed once"). Only items that impact correctness or reproducibility.
+
+### 9) Git Evidence
+
+```bash
+$ git status
+<raw output — must be clean>
+
+$ git log -5 --oneline
+<raw output>
+
+$ git show <head> --stat
+<raw output>
+```
 
 ---
 
-### Risks / Deviations (max 3)
-- Any known issues, edge cases, or SSOT mismatches
-- Or "None" if clean
-```
+## Hard Reject Criteria
 
-**Rules:**
-1. **No pseudo-patches in text** — use `git show --stat` or sha256 of patch file
-2. **Raw outputs only** — no summaries like "All checks passed", show actual terminal output
-3. **sha256 for all artifacts** — fixtures, examples, patch files
-4. **SSOT updates explicit** — always state if DECISIONS/SPEC/STATE/CHANGELOG were updated
+Report is **rejected** if any of:
+- No raw outputs (summaries instead of terminal output)
+- No sha256 for fixtures/examples/patch
+- No replay determinism evidence (if fixtures touched)
+- Any "by design" change without DECISIONS.md + SSOT doc update
+- Risks/Deviations contradict SSOT Updates section
+- Multiple messages instead of single consolidated report
