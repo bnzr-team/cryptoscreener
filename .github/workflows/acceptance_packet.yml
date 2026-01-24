@@ -1,0 +1,150 @@
+name: Acceptance Packet
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+jobs:
+  acceptance-packet:
+    runs-on: ubuntu-latest
+    # Anti-loop: skip if triggered by bot updating PR body
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run acceptance packet
+        id: packet
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          mkdir -p artifacts
+
+          # Run acceptance packet and capture output
+          ./scripts/acceptance_packet.sh "$PR_NUMBER" 2>&1 | tee "artifacts/acceptance_packet_pr${PR_NUMBER}.txt"
+          PACKET_EXIT=${PIPESTATUS[0]}
+
+          set -e
+
+          # Compute artifact metadata
+          ARTIFACT_FILE="artifacts/acceptance_packet_pr${PR_NUMBER}.txt"
+          SHA256=$(sha256sum "$ARTIFACT_FILE" | awk '{print $1}')
+          BYTES=$(wc -c < "$ARTIFACT_FILE")
+
+          echo "packet_exit=$PACKET_EXIT" >> "$GITHUB_OUTPUT"
+          echo "artifact_file=$ARTIFACT_FILE" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance_packet_pr${{ github.event.pull_request.number }}
+          path: artifacts/acceptance_packet_pr${{ github.event.pull_request.number }}.txt
+          retention-days: 90
+
+      - name: Update PR body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PACKET_EXIT: ${{ steps.packet.outputs.packet_exit }}
+          SHA256: ${{ steps.packet.outputs.sha256 }}
+          BYTES: ${{ steps.packet.outputs.bytes }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          ARTIFACT_FILE="artifacts/acceptance_packet_pr${PR_NUMBER}.txt"
+          ARTIFACT_NAME="acceptance_packet_pr${PR_NUMBER}"
+          CHECK_NAME="Acceptance Packet"
+
+          # Read current PR body
+          CURRENT_BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body' || echo "")
+
+          # Read packet content
+          PACKET_CONTENT=$(cat "$ARTIFACT_FILE")
+
+          # Determine mode: FULL VERBATIM or CI ARTIFACT
+          # GitHub PR body limit is ~65536 chars; use CI ARTIFACT mode if packet > 50000 chars
+          PACKET_LENGTH=${#PACKET_CONTENT}
+
+          if [[ $PACKET_LENGTH -lt 50000 ]] && echo "$PACKET_CONTENT" | grep -q "diff --git"; then
+            # FULL VERBATIM mode
+            NEW_BLOCK="<!-- ACCEPTANCE_PACKET_START -->
+          \`\`\`
+          $PACKET_CONTENT
+          \`\`\`
+          <!-- ACCEPTANCE_PACKET_END -->"
+          else
+            # CI ARTIFACT mode
+            NEW_BLOCK="<!-- ACCEPTANCE_PACKET_START -->
+          == ACCEPTANCE PACKET: CI ARTIFACT ==
+          RUN_URL: $RUN_URL
+          ARTIFACT_NAME: $ARTIFACT_NAME
+          SHA256: $SHA256
+          BYTES: $BYTES
+          CHECK_NAME: $CHECK_NAME
+          HEAD_SHA: $HEAD_SHA
+          <!-- ACCEPTANCE_PACKET_END -->"
+          fi
+
+          # Check if markers exist in current body
+          if echo "$CURRENT_BODY" | grep -q "<!-- ACCEPTANCE_PACKET_START -->"; then
+            # Replace existing block
+            # Use python for reliable multiline replacement
+            python3 << PYEOF
+          import re
+          import os
+
+          current_body = os.environ.get('CURRENT_BODY', '')
+          new_block = '''$NEW_BLOCK'''
+
+          # Pattern to match the block between markers (including markers)
+          pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
+
+          new_body = re.sub(pattern, new_block.strip(), current_body, flags=re.DOTALL)
+
+          # Check if body actually changed
+          if new_body.strip() == current_body.strip():
+              print("Body unchanged, skipping update")
+              exit(0)
+
+          # Write to temp file for gh pr edit
+          with open('/tmp/pr_body.txt', 'w') as f:
+              f.write(new_body)
+
+          print("Body updated, will apply")
+          PYEOF
+
+            if [[ -f /tmp/pr_body.txt ]]; then
+              gh pr edit "$PR_NUMBER" --body-file /tmp/pr_body.txt
+              echo "PR body updated with acceptance packet"
+            fi
+          else
+            # Append block if markers don't exist
+            echo "$CURRENT_BODY
+
+          $NEW_BLOCK" > /tmp/pr_body.txt
+            gh pr edit "$PR_NUMBER" --body-file /tmp/pr_body.txt
+            echo "PR body updated (appended acceptance packet block)"
+          fi
+
+      - name: Fail if packet failed
+        if: steps.packet.outputs.packet_exit != '0'
+        run: |
+          echo "Acceptance packet failed with exit code ${{ steps.packet.outputs.packet_exit }}"
+          exit 1

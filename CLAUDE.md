@@ -596,20 +596,26 @@ Any message that includes additional summary text after `== CHAT PROOF: END ==` 
 
 ## Acceptance Packet (Mandatory for PR Review)
 
-**Before requesting ACCEPT on any PR, Claude MUST run:**
+**CI is the source of truth.** The `Acceptance Packet` workflow automatically:
+1. Runs `./scripts/acceptance_packet.sh <PR_NUMBER>` on every PR
+2. Uploads artifact `acceptance_packet_pr<N>` with SHA256/size
+3. Auto-updates PR body with proof (FULL VERBATIM or CI ARTIFACT mode)
+4. Fails the check if acceptance_packet.sh exits non-zero
 
+**Local runs are optional but allowed.** You can still run locally:
 ```bash
 ./scripts/acceptance_packet.sh <PR_NUMBER>
 ```
 
-**This is NON-NEGOTIABLE.** The script:
-1. Waits for CI checks to pass (polls until PASS or timeout)
-2. Runs quality gates locally (ruff, mypy, pytest)
-3. Auto-generates proof bundle artifacts if missing
-4. Shows full PR diff
-5. Validates replay determinism if PR touches replay-related files
+**Two proof modes in PR body:**
+1. **FULL VERBATIM**: Complete packet with `diff --git` in body (auto-inserted by CI if size permits)
+2. **CI ARTIFACT**: Reference block with RUN_URL, ARTIFACT_NAME, SHA256, BYTES, CHECK_NAME, HEAD_SHA (for large diffs)
 
-**Exit codes:**
+**Proof Guard validates:**
+- FULL VERBATIM: all markers + `diff --git` present
+- CI ARTIFACT: check-run `Acceptance Packet` passed for HEAD_SHA via GitHub API
+
+**Exit codes (acceptance_packet.sh):**
 - `0` — All checks passed, ready for ACCEPT
 - `1` — Some check failed (CI, gates, replay)
 - `2` — Usage error
@@ -623,11 +629,11 @@ PR requires replay proof if it touches ANY of:
 
 **Workflow:**
 1. Create PR (get number)
-2. Run `./scripts/acceptance_packet.sh <PR_NUMBER>`
-3. If exit code is `0`: paste full output as evidence, request ACCEPT
-4. If exit code is `1`: fix issues, repeat
+2. CI runs automatically, updates PR body
+3. If `Acceptance Packet` check passes → ready for review
+4. If check fails → fix issues, push, CI re-runs
 
-**Never request ACCEPT without running acceptance_packet.sh and confirming exit code 0.**
+**Manual paste is no longer required — CI handles everything.**
 
 ---
 
