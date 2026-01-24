@@ -426,3 +426,230 @@ class TestBaselineRunnerDeterminism:
 
         assert pred1.p_inplay_2m == pred2.p_inplay_2m
         assert pred1.status == pred2.status
+
+
+class TestBaselineRunnerCriticalGates:
+    """Tests for PRD critical gates (spread/impact) blocking TRADEABLE."""
+
+    @pytest.fixture
+    def runner(self) -> BaselineRunner:
+        """Create baseline runner with default config."""
+        return BaselineRunner()
+
+    @pytest.fixture
+    def make_snapshot(self) -> SnapshotFactory:
+        """Factory for creating FeatureSnapshots."""
+
+        def _make(
+            symbol: str = "BTCUSDT",
+            ts: int = 1000,
+            spread_bps: float = 1.0,
+            mid: float = 50000.0,
+            book_imbalance: float = 0.0,
+            flow_imbalance: float = 0.0,
+            natr: float = 0.02,
+            impact_bps: float = 5.0,
+            regime_vol: RegimeVol = RegimeVol.LOW,
+            regime_trend: RegimeTrend = RegimeTrend.CHOP,
+            stale_book_ms: int = 0,
+            stale_trades_ms: int = 0,
+            missing_streams: list[str] | None = None,
+        ) -> FeatureSnapshot:
+            return FeatureSnapshot(
+                ts=ts,
+                symbol=symbol,
+                features=Features(
+                    spread_bps=spread_bps,
+                    mid=mid,
+                    book_imbalance=book_imbalance,
+                    flow_imbalance=flow_imbalance,
+                    natr_14_5m=natr,
+                    impact_bps_q=impact_bps,
+                    regime_vol=regime_vol,
+                    regime_trend=regime_trend,
+                ),
+                windows=Windows(),
+                data_health=DataHealth(
+                    stale_book_ms=stale_book_ms,
+                    stale_trades_ms=stale_trades_ms,
+                    missing_streams=missing_streams or [],
+                ),
+            )
+
+        return _make
+
+    def test_spread_gate_blocks_tradeable(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """High p_inplay but wide spread -> NOT TRADEABLE (gate fail)."""
+        # Setup that would normally be TRADEABLE
+        snapshot = make_snapshot(
+            spread_bps=15.0,  # > 10.0 default max
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=5.0,  # Low impact (passes gate)
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        # Should be blocked from TRADEABLE despite high p_inplay
+        assert prediction.p_inplay_2m >= 0.6, "Should have high p_inplay"
+        assert prediction.status != PredictionStatus.TRADEABLE
+        assert prediction.status == PredictionStatus.WATCH  # Downgraded
+
+        # Should have gate failure reason
+        codes = [r.code for r in prediction.reasons]
+        assert "RC_GATE_SPREAD_FAIL" in codes
+
+    def test_impact_gate_blocks_tradeable(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """High p_inplay but high impact -> NOT TRADEABLE (gate fail)."""
+        # Setup that would normally be TRADEABLE
+        snapshot = make_snapshot(
+            spread_bps=1.0,  # Low spread (passes gate)
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=25.0,  # > 20.0 default max
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        # Should be blocked from TRADEABLE
+        assert prediction.p_inplay_2m >= 0.6, "Should have high p_inplay"
+        assert prediction.status != PredictionStatus.TRADEABLE
+        assert prediction.status == PredictionStatus.WATCH  # Downgraded
+
+        # Should have gate failure reason
+        codes = [r.code for r in prediction.reasons]
+        assert "RC_GATE_IMPACT_FAIL" in codes
+
+    def test_both_gates_fail(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """Both spread and impact gates fail."""
+        snapshot = make_snapshot(
+            spread_bps=15.0,  # > 10.0
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=25.0,  # > 20.0
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status != PredictionStatus.TRADEABLE
+        codes = [r.code for r in prediction.reasons]
+        assert "RC_GATE_SPREAD_FAIL" in codes
+        assert "RC_GATE_IMPACT_FAIL" in codes
+
+    def test_gates_pass_allows_tradeable(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """All gates pass -> TRADEABLE allowed."""
+        snapshot = make_snapshot(
+            spread_bps=5.0,  # <= 10.0 (passes)
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=10.0,  # <= 20.0 (passes)
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        assert prediction.p_inplay_2m >= 0.6
+        assert prediction.status == PredictionStatus.TRADEABLE
+
+        # No gate failure reasons
+        codes = [r.code for r in prediction.reasons]
+        assert "RC_GATE_SPREAD_FAIL" not in codes
+        assert "RC_GATE_IMPACT_FAIL" not in codes
+
+    def test_spread_at_boundary_passes(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """Spread exactly at max -> passes gate."""
+        snapshot = make_snapshot(
+            spread_bps=10.0,  # Exactly at max
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=5.0,
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.TRADEABLE
+
+    def test_impact_at_boundary_passes(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """Impact exactly at max -> passes gate."""
+        snapshot = make_snapshot(
+            spread_bps=5.0,
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=20.0,  # Exactly at max
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.TRADEABLE
+
+    def test_custom_gate_thresholds(self, make_snapshot: SnapshotFactory) -> None:
+        """Custom gate thresholds are respected."""
+        config = ModelRunnerConfig(
+            spread_max_bps=5.0,  # Stricter
+            impact_max_bps=10.0,  # Stricter
+        )
+        runner = BaselineRunner(config)
+
+        # Would pass default gates but fail custom
+        snapshot = make_snapshot(
+            spread_bps=8.0,  # > 5.0 custom max
+            book_imbalance=0.8,
+            flow_imbalance=0.7,
+            impact_bps=5.0,
+            regime_vol=RegimeVol.HIGH,
+            regime_trend=RegimeTrend.TREND,
+        )
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status != PredictionStatus.TRADEABLE
+
+    def test_gates_dont_affect_trap(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """TRAP status is not affected by gates (toxicity takes priority)."""
+        snapshot = make_snapshot(
+            spread_bps=15.0,  # Fails gate
+            book_imbalance=0.5,
+            flow_imbalance=0.95,  # High toxicity (0.95^2 = 0.9025)
+            impact_bps=50.0,  # Fails gate, also increases p_toxic
+        )
+        prediction = runner.predict(snapshot)
+
+        # TRAP should still be TRAP (toxicity > gates)
+        assert prediction.p_toxic >= 0.7
+        assert prediction.status == PredictionStatus.TRAP
+
+    def test_gates_dont_affect_dead(
+        self, runner: BaselineRunner, make_snapshot: SnapshotFactory
+    ) -> None:
+        """DEAD status is not affected by gates (low p_inplay)."""
+        snapshot = make_snapshot(
+            spread_bps=15.0,  # Would fail gate
+            book_imbalance=0.1,
+            flow_imbalance=0.1,
+            impact_bps=25.0,  # Would fail gate
+            regime_vol=RegimeVol.LOW,
+            regime_trend=RegimeTrend.CHOP,
+        )
+        prediction = runner.predict(snapshot)
+
+        # DEAD due to low p_inplay (gates don't matter)
+        assert prediction.p_inplay_2m < 0.3
+        assert prediction.status == PredictionStatus.DEAD

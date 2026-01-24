@@ -41,41 +41,55 @@ Record decisions with:
 
 ---
 
-## DEC-002: BaselineRunner Simplified Status Logic
+## DEC-002: BaselineRunner Status Logic with PRD Critical Gates
 
-**Date:** 2026-01-24
+**Date:** 2026-01-24 (Updated)
 
-**Decision:** BaselineRunner uses simplified heuristic-based status classification without full utility-gate state machine from architecture docs.
+**Decision:** BaselineRunner implements PRD critical gates as HARD blocks before TRADEABLE, plus simplified heuristic-based status classification.
 
-**Simplifications:**
-1. **Status derived from two thresholds only:**
-   - `p_toxic >= 0.7` → TRAP (hard gate, checked first)
-   - `p_inplay >= 0.6` → TRADEABLE
-   - `p_inplay >= 0.3` → WATCH
-   - else → DEAD
+**PRD Critical Gates (HARD - must pass for TRADEABLE):**
+1. **Spread gate:** `spread_bps <= spread_max_bps` (default: 10.0 bps)
+2. **Impact gate:** `impact_bps_q <= impact_max_bps` (default: 20.0 bps)
+3. **Data health gate:** freshness checks (stale/missing streams)
 
-2. **Data health as hard gate:**
+If any gate fails → TRADEABLE is blocked → downgrade to WATCH.
+
+**Status Classification:**
+1. **DATA_ISSUE** (checked first):
    - `stale_book_ms > 5000` → DATA_ISSUE
    - `stale_trades_ms > 30000` → DATA_ISSUE
    - `missing_streams` not empty → DATA_ISSUE
 
-3. **Expected utility computed but not used for gating:**
-   - `expected_utility_bps_2m` is calculated and included in output
-   - Not used for TRADEABLE/WATCH thresholds (future ML runner will use it)
+2. **TRAP** (checked second, before gates):
+   - `p_toxic >= 0.7` → TRAP
+
+3. **TRADEABLE** (requires passing ALL gates):
+   - `p_inplay >= 0.6` AND `spread_bps <= 10.0` AND `impact_bps_q <= 20.0`
+   - If gates fail → downgrade to WATCH
+
+4. **WATCH:** `p_inplay >= 0.3`
+
+5. **DEAD:** `p_inplay < 0.3`
+
+**Gate Failure Reasons:**
+- `RC_GATE_SPREAD_FAIL`: Spread exceeds max threshold
+- `RC_GATE_IMPACT_FAIL`: Impact exceeds max threshold
+
+**Expected utility:** Computed but not used for gating (future MLRunner will use it).
 
 **Alternatives considered:**
-1. Full utility-based state machine from STATE_MACHINE.md
-2. Hard spread/impact gates before TRADEABLE
-3. Hysteresis for state transitions
+1. Soft gates (spread/impact as factors in p_inplay) — rejected: PRD requires HARD gates
+2. Full utility-based state machine from STATE_MACHINE.md — deferred to MLRunner
+3. Hysteresis for state transitions — deferred to MLRunner
 
 **Rationale:**
-- Baseline mode is for initial deployment without trained ML models
-- Heuristic approach is transparent and debuggable
-- Configuration allows threshold tuning without code changes
-- Future MLRunner can implement full state machine with calibrated models
+- PRD Section 9 requires critical gates before TRADEABLE
+- Baseline mode enforces gates with configurable thresholds
+- Gate failures produce explicit reason codes for transparency
+- Configuration allows tuning without code changes
 
 **Impact:**
-- BaselineRunner is deterministic and reproducible
-- `compute_digest()` captures all thresholds for replay verification
-- All status transitions are testable via unit tests
+- TRADEABLE is impossible if spread or impact exceed limits
+- Gate thresholds included in `compute_digest()` for replay verification
+- 10 dedicated gate tests verify behavior
 - Clear upgrade path to MLRunner with more sophisticated logic

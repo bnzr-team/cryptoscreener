@@ -33,6 +33,13 @@ class ModelRunnerConfig:
     # P(inplay) threshold for WATCH status
     watch_threshold: float = 0.3
 
+    # PRD Critical Gates for TRADEABLE status
+    # Spread gate: max spread in bps to allow TRADEABLE
+    spread_max_bps: float = 10.0
+
+    # Impact gate: max impact in bps to allow TRADEABLE
+    impact_max_bps: float = 20.0
+
 
 @dataclass
 class RunnerMetrics:
@@ -161,6 +168,8 @@ class ModelRunner(ABC):
             f"{self._config.default_profile}:"
             f"{self._config.toxic_threshold}:"
             f"{self._config.tradeable_threshold}:"
-            f"{self._config.watch_threshold}"
+            f"{self._config.watch_threshold}:"
+            f"{self._config.spread_max_bps}:"
+            f"{self._config.impact_max_bps}"
         )
         return hashlib.sha256(config_str.encode()).hexdigest()[:16]

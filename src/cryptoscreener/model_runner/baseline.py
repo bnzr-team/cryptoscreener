@@ -64,11 +64,14 @@ class BaselineRunner(ModelRunner):
         # Compute expected utility
         expected_utility = self._compute_expected_utility(features, p_inplay_2m, p_toxic)
 
-        # Determine status
-        status = self._determine_status(p_inplay_2m, p_toxic)
+        # Check PRD critical gates for TRADEABLE
+        gate_failures = self._check_critical_gates(features)
 
-        # Build reason codes
-        reasons = self._build_reasons(features, p_inplay_2m, p_toxic)
+        # Determine status (with gate enforcement)
+        status = self._determine_status(p_inplay_2m, p_toxic, gate_failures)
+
+        # Build reason codes (including gate failures)
+        reasons = self._build_reasons(features, p_inplay_2m, p_toxic, gate_failures)
 
         # Record metrics
         self._metrics.record_prediction(snapshot.symbol, status.value)
@@ -220,16 +223,46 @@ class BaselineRunner(ModelRunner):
 
         return utility
 
+    def _check_critical_gates(self, features: Features) -> list[str]:
+        """
+        Check PRD critical gates for TRADEABLE status.
+
+        Returns list of failed gate codes (empty if all pass).
+        These are HARD gates - failing any blocks TRADEABLE.
+        """
+        failures: list[str] = []
+
+        # Spread gate: spread must be <= spread_max_bps
+        if features.spread_bps > self._config.spread_max_bps:
+            failures.append("GATE_SPREAD")
+
+        # Impact gate: impact must be <= impact_max_bps
+        if features.impact_bps_q > self._config.impact_max_bps:
+            failures.append("GATE_IMPACT")
+
+        return failures
+
     def _determine_status(
-        self, p_inplay: float, p_toxic: float
+        self, p_inplay: float, p_toxic: float, gate_failures: list[str] | None = None
     ) -> PredictionStatus:
-        """Determine prediction status from probabilities."""
-        # High toxicity = TRAP
+        """
+        Determine prediction status from probabilities and gate checks.
+
+        PRD Critical Gates are enforced BEFORE status assignment:
+        - If any gate fails, TRADEABLE is blocked (downgrade to WATCH)
+        """
+        gate_failures = gate_failures or []
+
+        # High toxicity = TRAP (checked first, regardless of gates)
         if p_toxic >= self._config.toxic_threshold:
             return PredictionStatus.TRAP
 
-        # High inplay probability = TRADEABLE
+        # Check if would be TRADEABLE based on p_inplay
         if p_inplay >= self._config.tradeable_threshold:
+            # HARD GATE CHECK: any gate failure blocks TRADEABLE
+            if gate_failures:
+                # Downgrade to WATCH (gates failed)
+                return PredictionStatus.WATCH
             return PredictionStatus.TRADEABLE
 
         # Moderate inplay = WATCH
@@ -244,9 +277,32 @@ class BaselineRunner(ModelRunner):
         features: Features,
         p_inplay: float,
         p_toxic: float,
+        gate_failures: list[str] | None = None,
     ) -> list[ReasonCode]:
         """Build reason codes explaining the prediction."""
         reasons: list[ReasonCode] = []
+        gate_failures = gate_failures or []
+
+        # Gate failure reasons (these explain why TRADEABLE was blocked)
+        if "GATE_SPREAD" in gate_failures:
+            reasons.append(
+                ReasonCode(
+                    code="RC_GATE_SPREAD_FAIL",
+                    value=round(features.spread_bps, 2),
+                    unit="bps",
+                    evidence=f"Spread {features.spread_bps:.1f} bps exceeds max {self._config.spread_max_bps:.1f} bps",
+                )
+            )
+
+        if "GATE_IMPACT" in gate_failures:
+            reasons.append(
+                ReasonCode(
+                    code="RC_GATE_IMPACT_FAIL",
+                    value=round(features.impact_bps_q, 2),
+                    unit="bps",
+                    evidence=f"Impact {features.impact_bps_q:.1f} bps exceeds max {self._config.impact_max_bps:.1f} bps",
+                )
+            )
 
         # Flow imbalance reason
         if abs(features.flow_imbalance) > 0.3:
