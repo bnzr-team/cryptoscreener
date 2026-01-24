@@ -628,3 +628,25 @@ PR requires replay proof if it touches ANY of:
 4. If exit code is `1`: fix issues, repeat
 
 **Never request ACCEPT without running acceptance_packet.sh and confirming exit code 0.**
+
+---
+
+## Reviewer Message Generator (Convenience)
+
+**For sending a ready-to-paste message to the reviewer chat:**
+
+```bash
+./scripts/reviewer_message.sh <PR_NUMBER>
+```
+
+This script:
+1. Runs `acceptance_packet.sh` internally
+2. Wraps output in a clean "copy from here" format
+3. Shows status (ready/not ready) at the end
+
+**Usage:**
+1. Run `./scripts/reviewer_message.sh <PR_NUMBER>`
+2. Copy everything between the dashed lines
+3. Paste into reviewer chat
+
+This is optional — you can always use `acceptance_packet.sh` directly.
