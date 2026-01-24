@@ -1,0 +1,11 @@
+{"ts": 1706140800000, "source": "binance_usdm", "symbol": "BTCUSDT", "type": "trade", "payload": {"price": "42000.50", "qty": "0.1", "side": "buy"}, "recv_ts": 1706140800005}
+{"ts": 1706140800100, "source": "binance_usdm", "symbol": "BTCUSDT", "type": "book", "payload": {"bid": "42000.00", "ask": "42001.00", "bid_qty": "5.0", "ask_qty": "3.0"}, "recv_ts": 1706140800105}
+{"ts": 1706140800200, "source": "binance_usdm", "symbol": "ETHUSDT", "type": "trade", "payload": {"price": "2500.25", "qty": "1.5", "side": "sell"}, "recv_ts": 1706140800205}
+{"ts": 1706140800300, "source": "binance_usdm", "symbol": "BTCUSDT", "type": "trade", "payload": {"price": "42001.00", "qty": "0.2", "side": "buy"}, "recv_ts": 1706140800305}
+{"ts": 1706140800400, "source": "binance_usdm", "symbol": "ETHUSDT", "type": "book", "payload": {"bid": "2500.00", "ask": "2500.50", "bid_qty": "10.0", "ask_qty": "8.0"}, "recv_ts": 1706140800405}
+{"ts": 1706140800500, "source": "binance_usdm", "symbol": "BTCUSDT", "type": "trade", "payload": {"price": "42002.50", "qty": "0.5", "side": "buy"}, "recv_ts": 1706140800505}
+{"ts": 1706140800600, "source": "binance_usdm", "symbol": "SOLUSDT", "type": "trade", "payload": {"price": "95.50", "qty": "20.0", "side": "buy"}, "recv_ts": 1706140800605}
+{"ts": 1706140800700, "source": "binance_usdm", "symbol": "BTCUSDT", "type": "book", "payload": {"bid": "42002.00", "ask": "42003.00", "bid_qty": "4.0", "ask_qty": "6.0"}, "recv_ts": 1706140800705}
+{"ts": 1706140800800, "source": "binance_usdm", "symbol": "ETHUSDT", "type": "trade", "payload": {"price": "2501.00", "qty": "2.0", "side": "buy"}, "recv_ts": 1706140800805}
+{"ts": 1706140800900, "source": "binance_usdm", "symbol": "SOLUSDT", "type": "book", "payload": {"bid": "95.40", "ask": "95.60", "bid_qty": "100.0", "ask_qty": "80.0"}, "recv_ts": 1706140800905}
+{"ts": 1706140801000, "source": "binance_usdm", "symbol": "BTCUSDT", "type": "trade", "payload": {"price": "42003.00", "qty": "0.3", "side": "buy"}, "recv_ts": 1706140801005}

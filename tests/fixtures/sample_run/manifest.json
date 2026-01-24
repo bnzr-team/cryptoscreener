@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "created_at": "2026-01-24T00:00:00Z",
+  "description": "Sample fixture for replay determinism testing",
+  "files": {
+    "market_events": "market_events.jsonl",
+    "expected_rank_events": "expected_rank_events.jsonl"
+  },
+  "checksums": {
+    "market_events.jsonl": "ba7d6e2018426517893ac4de3052a145e72b88f20d82f8d864558fca99eea277",
+    "expected_rank_events.jsonl": "901a6cc399a2de563f55c1b3458edba8250b08a785978848ef890ca435e34335"
+  },
+  "stats": {
+    "total_market_events": 11,
+    "total_rank_events": 3,
+    "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+    "time_range_ms": [1706140800000, 1706140801000]
+  }
+}
