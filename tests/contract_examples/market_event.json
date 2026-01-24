@@ -1,0 +1,8 @@
+{
+  "ts": 1706140800000,
+  "source": "binance_usdm",
+  "symbol": "BTCUSDT",
+  "type": "trade",
+  "payload": {"price": "42000.50", "qty": "0.1", "side": "buy"},
+  "recv_ts": 1706140800005
+}

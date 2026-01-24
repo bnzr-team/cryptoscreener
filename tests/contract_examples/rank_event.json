@@ -1,0 +1,11 @@
+{
+  "ts": 1706140800000,
+  "event": "SYMBOL_ENTER",
+  "symbol": "BTCUSDT",
+  "rank": 3,
+  "score": 0.83,
+  "payload": {
+    "prediction": {"status": "WATCH", "p_inplay_2m": 0.83},
+    "llm_text": "Flow surge detected, watching for breakout."
+  }
+}

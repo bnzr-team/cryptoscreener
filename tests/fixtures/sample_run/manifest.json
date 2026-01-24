@@ -10,6 +10,9 @@
     "market_events.jsonl": "ba7d6e2018426517893ac4de3052a145e72b88f20d82f8d864558fca99eea277",
     "expected_rank_events.jsonl": "901a6cc399a2de563f55c1b3458edba8250b08a785978848ef890ca435e34335"
   },
+  "expected_rank_events_digest": "08f158e3d78b74e0b75318772bf0cd689859783de25c3b404ad501153efcd44d",
+  "market_events_count": 11,
+  "expected_rank_events_count": 3,
   "stats": {
     "total_market_events": 11,
     "total_rank_events": 3,

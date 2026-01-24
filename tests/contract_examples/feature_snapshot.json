@@ -1,0 +1,24 @@
+{
+  "ts": 1706140800000,
+  "symbol": "BTCUSDT",
+  "features": {
+    "spread_bps": 8.2,
+    "mid": 42000.50,
+    "book_imbalance": 0.35,
+    "flow_imbalance": 0.63,
+    "natr_14_5m": 0.025,
+    "impact_bps_q": 6.5,
+    "regime_vol": "high",
+    "regime_trend": "trend"
+  },
+  "windows": {
+    "w1s": {"vol": 150.5},
+    "w10s": {"vol": 1420.3},
+    "w60s": {"vol": 8500.0}
+  },
+  "data_health": {
+    "stale_book_ms": 50,
+    "stale_trades_ms": 120,
+    "missing_streams": []
+  }
+}
