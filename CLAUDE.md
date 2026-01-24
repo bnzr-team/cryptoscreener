@@ -236,3 +236,31 @@ If you need proof bundle without creating PR:
 ./scripts/gen_proof_bundle.sh [fixture_dir] [output_file]
 # Default: tests/fixtures/sample_run → proof_bundle.md
 ```
+
+### Step-by-step PR creation algorithm
+
+**This is the exact sequence Claude must follow for every PR:**
+
+1. **Make changes** — implement feature/fix in code
+2. **Verify quality gates locally:**
+   ```bash
+   source .venv/bin/activate
+   ruff check . && mypy . && pytest -q
+   ```
+3. **Run PR creation script:**
+   ```bash
+   ./scripts/pr_create.sh "feature/pr-00XX-name" "PR#X: description"
+   ```
+4. **If push fails** (authentication error):
+   ```bash
+   gh auth setup-git
+   git push -u origin <branch-name>
+   mkdir -p proof
+   ./scripts/gen_proof_bundle.sh tests/fixtures/sample_run proof/proof_<branch>.md
+   gh pr create --base main --head <branch> --title "PR title" --body-file proof/proof_<branch>.md
+   gh pr merge --auto --squash --delete-branch <pr-url>
+   ```
+5. **Verify PR created** — confirm URL returned
+6. **Auto-merge enabled** — CI will run and merge if passing
+
+**Key principle:** Never claim "done" without running these steps and providing the PR URL as proof.
