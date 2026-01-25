@@ -595,15 +595,15 @@ class MLRunner(ModelRunner):
                 )
             )
 
-        # Book imbalance
+        # Book imbalance (flow imbalance direction per REASON_CODES_TAXONOMY.md)
         if abs(book_imbalance) > 0.3:
-            side = "bid" if book_imbalance > 0 else "ask"
+            direction = "LONG" if book_imbalance > 0 else "SHORT"
             reasons.append(
                 ReasonCode(
-                    code="RC_BOOK_PRESSURE",
+                    code=f"RC_FLOW_IMBALANCE_{direction}",
                     value=round(book_imbalance, 3),
                     unit="ratio",
-                    evidence=f"Strong {side}-side book pressure",
+                    evidence=f"Book imbalance favors {direction.lower()} side",
                 )
             )
 
@@ -621,11 +621,11 @@ class MLRunner(ModelRunner):
                     )
                 )
 
-        # Toxicity warning
+        # Toxicity warning (per REASON_CODES_TAXONOMY.md)
         if p_toxic > 0.5:
             reasons.append(
                 ReasonCode(
-                    code="RC_TOXIC_RISK",
+                    code="RC_TOXIC_RISK_UP",
                     value=round(p_toxic, 3),
                     unit="prob",
                     evidence="Elevated toxic flow risk",

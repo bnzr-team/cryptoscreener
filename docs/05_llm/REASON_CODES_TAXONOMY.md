@@ -26,6 +26,16 @@
 - RC_TOXIC_RISK_UP
 - RC_TRAP_SIGNATURE
 
+### Gates (Trading Blockers)
+- RC_GATE_SPREAD_FAIL — spread exceeds max threshold
+- RC_GATE_IMPACT_FAIL — impact exceeds max threshold
+
+### Data Quality
+- RC_DATA_STALE — stale market data detected
+
+### ML/Calibration (MLRunner-specific)
+- RC_CALIBRATION_ADJ — calibration adjustment applied to raw probability
+
 ## Rule format
 Each code must have:
 - trigger condition (formula, thresholds)

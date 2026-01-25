@@ -9,6 +9,20 @@
 
 ### Added
 
+#### SSOT Reason Codes Alignment (DEC-018)
+- Aligned all `RC_*` codes in `BaselineRunner` and `MLRunner` to `REASON_CODES_TAXONOMY.md`
+- Code renames:
+  - `RC_BOOK_PRESSURE` → `RC_FLOW_IMBALANCE_LONG` / `RC_FLOW_IMBALANCE_SHORT`
+  - `RC_TIGHT_SPREAD` → `RC_SPREAD_TIGHT`
+  - `RC_WIDE_SPREAD` → `RC_SPREAD_WIDE`
+  - `RC_TOXIC_RISK` → `RC_TOXIC_RISK_UP`
+  - `RC_HIGH_VOL` → `RC_REGIME_HIGH_VOL`
+- Updated `REASON_CODES_TAXONOMY.md` with missing implementation codes:
+  - Gates: `RC_GATE_SPREAD_FAIL`, `RC_GATE_IMPACT_FAIL`
+  - Data Quality: `RC_DATA_STALE`
+  - ML/Calibration: `RC_CALIBRATION_ADJ`
+- Updated tests to assert SSOT-compliant code names
+
 #### GitHub PR-C — MLRunner with Calibration Integration (DEC-014)
 - New `src/cryptoscreener/model_runner/ml_runner.py`:
   - `MLRunner` class inheriting from `ModelRunner`
