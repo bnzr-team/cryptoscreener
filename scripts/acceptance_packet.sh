@@ -209,16 +209,20 @@ echo "== ACCEPTANCE PACKET: CI =="
 log_info "Waiting for CI checks to complete..."
 
 # Poll CI status until all checks complete
+# IMPORTANT: Exclude 'acceptance-packet' from checks to avoid recursive self-wait
 MAX_WAIT=600  # 10 minutes max
 POLL_INTERVAL=10
 WAITED=0
 
 while true; do
+  # Get all checks, then filter out acceptance-packet to avoid self-reference loop
   CHECKS_OUTPUT="$(gh pr checks "${PR_NUMBER}" 2>&1 || true)"
-  echo "${CHECKS_OUTPUT}"
+  # Filter out acceptance-packet check (this workflow) to prevent infinite wait
+  FILTERED_CHECKS="$(echo "${CHECKS_OUTPUT}" | grep -v "^acceptance-packet" || true)"
+  echo "${FILTERED_CHECKS}"
 
-  # Check for pending
-  if echo "${CHECKS_OUTPUT}" | grep -q "pending"; then
+  # Check for pending (in filtered output only)
+  if echo "${FILTERED_CHECKS}" | grep -q "pending"; then
     if [[ ${WAITED} -ge ${MAX_WAIT} ]]; then
       fail_check "CI_TIMEOUT: Checks still pending after ${MAX_WAIT}s"
       break
@@ -229,13 +233,13 @@ while true; do
     continue
   fi
 
-  # Check for failures
-  if echo "${CHECKS_OUTPUT}" | grep -qE "(fail|cancelled)"; then
+  # Check for failures (in filtered output only)
+  if echo "${FILTERED_CHECKS}" | grep -qE "(fail|cancelled)"; then
     fail_check "CI_FAILED: One or more checks failed"
     break
   fi
 
-  # All passed
+  # All passed (or only acceptance-packet remaining)
   log_info "All CI checks passed"
   break
 done
