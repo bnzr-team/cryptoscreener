@@ -25,10 +25,14 @@ Output:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
+import subprocess
 import sys
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import orjson
 
@@ -325,6 +329,86 @@ def save_to_jsonl(rows: list[dict[str, object]], output_path: Path) -> None:
     logger.info(f"Saved {len(rows)} rows to {output_path}")
 
 
+# Schema version for label output format
+SCHEMA_VERSION = "1.0.0"
+
+
+@dataclass
+class DatasetMetadata:
+    """Metadata for reproducibility per DATASET_BUILD_PIPELINE.md.
+
+    Attributes:
+        schema_version: Version of the output schema.
+        git_sha: Git commit SHA at build time.
+        config_hash: SHA256 hash of the configuration.
+        data_hash: SHA256 hash of the output data.
+        input_file: Path to input file.
+        output_file: Path to output file.
+        build_timestamp: ISO timestamp of build.
+        row_count: Number of rows generated.
+        symbol_count: Number of unique symbols.
+        config: Full configuration used.
+    """
+
+    schema_version: str
+    git_sha: str
+    config_hash: str
+    data_hash: str
+    input_file: str
+    output_file: str
+    build_timestamp: str
+    row_count: int
+    symbol_count: int
+    config: dict[str, Any]
+
+
+def get_git_sha() -> str:
+    """Get current git commit SHA."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        return result.stdout.strip()[:12]
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return "unknown"
+
+
+def compute_config_hash(config: dict[str, Any]) -> str:
+    """Compute SHA256 hash of configuration."""
+    config_bytes = orjson.dumps(config, option=orjson.OPT_SORT_KEYS)
+    return hashlib.sha256(config_bytes).hexdigest()[:16]
+
+
+def compute_data_hash(output_path: Path) -> str:
+    """Compute SHA256 hash of output file."""
+    sha256 = hashlib.sha256()
+    with output_path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()[:16]
+
+
+def save_metadata(
+    metadata: DatasetMetadata,
+    output_path: Path,
+) -> None:
+    """Save metadata JSON alongside output file.
+
+    Args:
+        metadata: Dataset metadata.
+        output_path: Output data file path (metadata saved as .meta.json).
+    """
+    meta_path = output_path.with_suffix(output_path.suffix + ".meta.json")
+    meta_dict = asdict(metadata)
+    with meta_path.open("wb") as f:
+        f.write(orjson.dumps(meta_dict, option=orjson.OPT_INDENT_2))
+    logger.info(f"Saved metadata to {meta_path}")
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -513,6 +597,40 @@ def main() -> int:
     else:
         logger.error(f"Unknown output format: {output_ext}. Use .parquet or .jsonl")
         return 1
+
+    # Build config dict for metadata
+    config_dict: dict[str, Any] = {
+        "sample_interval_ms": args.sample_interval_ms,
+        "lookahead_ms": args.lookahead_ms,
+        "spread_max_bps": args.spread_max_bps,
+        "impact_max_bps": args.impact_max_bps,
+        "x_bps_30s_a": args.x_bps_30s_a,
+        "x_bps_30s_b": args.x_bps_30s_b,
+        "x_bps_2m_a": args.x_bps_2m_a,
+        "x_bps_2m_b": args.x_bps_2m_b,
+        "x_bps_5m_a": args.x_bps_5m_a,
+        "x_bps_5m_b": args.x_bps_5m_b,
+        "toxicity_tau_ms": args.toxicity_tau_ms,
+        "toxicity_threshold_bps": args.toxicity_threshold_bps,
+        "fees_bps_a": args.fees_bps_a,
+        "fees_bps_b": args.fees_bps_b,
+    }
+
+    # Generate and save metadata per DATASET_BUILD_PIPELINE.md
+    symbols_in_output = {r["symbol"] for r in rows}
+    metadata = DatasetMetadata(
+        schema_version=SCHEMA_VERSION,
+        git_sha=get_git_sha(),
+        config_hash=compute_config_hash(config_dict),
+        data_hash=compute_data_hash(args.output),
+        input_file=str(args.input.resolve()),
+        output_file=str(args.output.resolve()),
+        build_timestamp=datetime.now(UTC).isoformat(),
+        row_count=len(rows),
+        symbol_count=len(symbols_in_output),
+        config=config_dict,
+    )
+    save_metadata(metadata, args.output)
 
     # Print summary
     print("\n" + "=" * 60)
