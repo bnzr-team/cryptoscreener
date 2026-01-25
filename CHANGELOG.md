@@ -9,6 +9,42 @@
 
 ### Added
 
+#### GitHub PR-B — Probability Calibration (DEC-013)
+- New `src/cryptoscreener/calibration/` module:
+  - `PlattCalibrator` with Platt scaling (sigmoid calibration)
+  - `fit_platt()` using gradient descent on cross-entropy
+  - `CalibrationArtifact` with calibrators + metadata
+  - `CalibrationMetadata` with schema_version, git_sha, config_hash, data_hash
+  - `save_calibration_artifact()` / `load_calibration_artifact()`
+  - `Calibrator` protocol for pluggable implementations
+- New `scripts/fit_calibration.py` CLI:
+  - Fits calibrators on validation data
+  - Reports Brier/ECE before and after calibration
+  - Outputs calibration.json with calibrators + metadata
+  - Configurable heads, max_iter, learning rate
+- Tests: 36 unit tests for Platt, artifacts, roundtrip, adversarial
+- Guarantees: probabilities in [0,1], monotonicity, determinism
+- Per PRD §11 Milestone 3: "Training pipeline skeleton"
+
+#### GitHub PR-A — Training Dataset Split (DEC-012)
+- New `src/cryptoscreener/training/` module:
+  - `time_based_split()` with strict temporal ordering
+  - `SplitConfig`, `SplitMetadata`, `SplitResult` dataclasses
+  - `verify_no_leakage()` anti-leakage validation
+  - `_find_boundary_shift()` to prevent duplicate ts leakage
+  - Fail-fast on empty splits
+  - Optional purge gap between splits
+  - `load_labeled_dataset()` for parquet/JSONL
+  - `validate_schema()` with strict mode
+  - `get_feature_columns()`, `get_label_columns()` extractors
+- New `scripts/split_dataset.py` CLI:
+  - Configurable train/val/test ratios (default 0.7/0.15/0.15)
+  - Outputs: train.jsonl, val.jsonl, test.jsonl, metadata.json
+  - LEAKAGE CHECK status with pass/fail
+- Tests: 25 anti-leakage tests verify `max(train_ts) < min(val_ts) < min(test_ts)`
+- Metadata tracking: git_sha, config_hash, data_hash, schema_version
+- Per PRD §11 Milestone 3: "Training pipeline skeleton"
+
 #### GitHub PR#55 — Offline Backtest Harness (DEC-011)
 - New `src/cryptoscreener/backtest/` module:
   - `compute_auc()`, `compute_pr_auc()` for classification quality
