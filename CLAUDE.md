@@ -653,6 +653,13 @@ PR requires replay proof if it touches ANY of:
 
 **Never edit proof blocks manually.** CI auto-updates PR body between `<!-- ACCEPTANCE_PACKET_START -->` and `<!-- ACCEPTANCE_PACKET_END -->` markers. Local runs are for diagnostics only; the source of truth is always the CI-generated packet. If you need to re-generate, use workflow_dispatch on `Acceptance Packet` workflow.
 
+**Manual markers outside managed block = FAIL (PR#51):**
+- Proof Guard detects acceptance markers (`== ACCEPTANCE PACKET: PENDING ==`, `== ACCEPTANCE PACKET: CI ARTIFACT ==`, `== ACCEPTANCE PACKET: IDENTITY ==`) **outside** the managed block
+- If found → **FAIL** with explicit error message asking to remove the manual marker
+- CI only updates content **inside** `<!-- ACCEPTANCE_PACKET_START -->...<!-- ACCEPTANCE_PACKET_END -->`
+- Any markers in user-editable sections will persist and cause validation failure
+- **Fix:** Remove manual markers from PR description, keep only the managed block markers
+
 ---
 
 ## Reviewer Message Generator (Convenience)

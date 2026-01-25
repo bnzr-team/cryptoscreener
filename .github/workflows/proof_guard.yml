@@ -70,6 +70,34 @@ jobs:
           # Normalize CRLF to LF for consistent marker matching
           body = body.replace("\r\n", "\n")
 
+          # PR#51: Detect manual acceptance markers OUTSIDE managed block
+          # This catches users who paste PENDING/CI ARTIFACT/IDENTITY markers in their PR template
+          # CI only updates content INSIDE <!-- ACCEPTANCE_PACKET_START -->...<!-- ACCEPTANCE_PACKET_END -->
+          managed_block_pattern = r'<!-- ACCEPTANCE_PACKET_START -->.*?<!-- ACCEPTANCE_PACKET_END -->'
+          body_outside_block = re.sub(managed_block_pattern, '', body, flags=re.DOTALL)
+
+          # Check for any acceptance markers outside the managed block
+          manual_marker_patterns = [
+              (r'^== ACCEPTANCE PACKET: PENDING ==\s*$', 'PENDING'),
+              (r'^== ACCEPTANCE PACKET: CI ARTIFACT ==\s*$', 'CI ARTIFACT'),
+              (r'^== ACCEPTANCE PACKET: IDENTITY ==\s*$', 'IDENTITY'),
+          ]
+
+          for pattern, marker_name in manual_marker_patterns:
+              if re.search(pattern, body_outside_block, re.MULTILINE):
+                  print(f"ERROR: Manual '{marker_name}' marker found OUTSIDE managed block.")
+                  print("")
+                  print("CI only updates content between:")
+                  print("  <!-- ACCEPTANCE_PACKET_START -->")
+                  print("  <!-- ACCEPTANCE_PACKET_END -->")
+                  print("")
+                  print("Your PR body has an acceptance marker in the user-editable section.")
+                  print("This marker will NOT be updated by CI and will cause validation to fail.")
+                  print("")
+                  print("FIX: Remove the manual marker from your PR description.")
+                  print("     Keep only the managed block markers. CI will populate the proof automatically.")
+                  sys.exit(1)
+
           if not number or not repo:
             print("ERROR: Cannot determine PR number or repository from event payload.")
             sys.exit(1)

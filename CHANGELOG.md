@@ -9,6 +9,13 @@
 
 ### Added
 
+#### GitHub PR#51 — Harden Manual Marker Detection Outside Managed Block
+- `proof_guard.yml`: detect acceptance markers (`PENDING`, `CI ARTIFACT`, `IDENTITY`) outside managed block
+- Manual markers in user-editable PR description now FAIL with explicit error message
+- Error message explains: CI only updates inside `<!-- ACCEPTANCE_PACKET_START -->...<!-- ACCEPTANCE_PACKET_END -->`
+- `acceptance_packet.yml`: fix `re.sub` backslash escape error when packet contains regex patterns (use lambda)
+- CLAUDE.md updated with manual marker warning and fix instructions
+
 #### GitHub PR#49 — CI Acceptance Packet + Auto PR Body Proof + Proof Guard CI Artifact Mode
 - New workflow `.github/workflows/acceptance_packet.yml`:
   - Runs on `pull_request` (opened, synchronize, reopened, ready_for_review) + `workflow_dispatch`
