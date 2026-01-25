@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,7 +38,6 @@ if TYPE_CHECKING:
 from cryptoscreener.contracts import MarketEvent, MarketEventType
 from cryptoscreener.cost_model import CostModelConfig
 from cryptoscreener.label_builder import (
-    Horizon,
     LabelBuilder,
     LabelBuilderConfig,
     LabelRow,
@@ -523,7 +521,7 @@ def main() -> int:
     print(f"Input:        {args.input}")
     print(f"Output:       {args.output}")
     print(f"Total rows:   {len(rows)}")
-    print(f"Symbols:      {len(set(r['symbol'] for r in rows))}")
+    print(f"Symbols:      {len({r['symbol'] for r in rows})}")
 
     # Count tradeability
     tradeable_counts: dict[str, int] = {}

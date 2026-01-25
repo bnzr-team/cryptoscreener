@@ -13,10 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 
 class Profile(str, Enum):
@@ -180,10 +176,9 @@ def compute_impact_bps(
     avg_price = total_cost / total_qty
 
     # Compute slippage from mid
-    if side == "buy":
-        slippage = avg_price - orderbook.mid
-    else:
-        slippage = orderbook.mid - avg_price
+    slippage = (
+        avg_price - orderbook.mid if side == "buy" else orderbook.mid - avg_price
+    )
 
     impact_bps = (slippage / orderbook.mid) * 10000
 
