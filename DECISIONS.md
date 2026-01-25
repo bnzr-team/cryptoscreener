@@ -534,3 +534,100 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - New `scripts/fit_calibration.py` CLI
 - 42 unit tests for Platt, artifacts, roundtrip, adversarial, negative slope rejection
 - Continues PRD §11 Milestone 3: "Training pipeline skeleton"
+
+---
+
+## DEC-015: Baseline E2E Determinism Acceptance (PR#59)
+
+**Date:** 2026-01-25
+
+**Decision:** Add end-to-end replay determinism tests for the **BaselineRunner** pipeline path.
+
+**Scope Clarification:**
+- This PR tests the **BaselineRunner** path (heuristic-based predictions)
+- MLRunner E2E acceptance will be a separate PR after PR#58 (MLRunner) is merged
+- BaselineRunner is the production fallback when ML model is unavailable
+
+**Goal:** Demonstrate that identical input produces identical output:
+`FeatureSnapshot → BaselineRunner → Scorer → Ranker → RankEvent`
+
+**Components:**
+
+1. **E2E Determinism Test Suite** (`tests/replay/test_e2e_determinism.py`):
+   - `TestE2EDeterminism`: Core determinism assertions (12 tests)
+   - `TestE2EReplayProof`: Generates SHA256 proof artifacts
+   - `TestE2EEdgeCases`: Empty, single-frame, single-symbol scenarios
+
+2. **Fixture** (`tests/fixtures/replay_baseline/`):
+   - Deterministic FeatureSnapshots for BTC/ETH/SOL
+   - Fixed timestamps (BASE_TS = 2026-01-01 00:00:00 UTC)
+   - 5 time frames with varying feature values
+
+3. **Pipeline Function** (`run_e2e_pipeline`):
+   - Explicitly uses `BaselineRunner` (not MLRunner)
+   - Configures `RankerConfig(score_threshold=0.001)` to ensure events are generated
+   - Asserts `len(events) > 0` to prevent empty digest regression
+   - Validates runner type via `PredictionSnapshot.model_version`
+
+**Digest Computation (deterministic serialization):**
+```python
+# From cryptoscreener/contracts/events.py:
+def compute_rank_events_digest(events: list[RankEvent]) -> str:
+    """Compute SHA256 of concatenated RankEvent JSON bytes."""
+    data = b"".join(e.to_json() for e in events)
+    return hashlib.sha256(data).hexdigest()
+
+# to_json() uses msgspec which produces deterministic output
+# (stable field order, no whitespace variations)
+```
+
+**Proof Format (corrected, with non-empty events):**
+```
+=== Replay Proof ===
+Input fixture digest:  d80958017df4ea948e910f67f2662c4f838368632da49253c8d962d60d8881fd
+RankEvent digest (r1): fc846d6aea56d76c16287e553b4f3d8bd579f3803788e264df84f0f041efc62c
+RankEvent digest (r2): fc846d6aea56d76c16287e553b4f3d8bd579f3803788e264df84f0f041efc62c
+Prediction digest:     eed9cf4967696a5b75b3c78c7604f9410a2b39986c37f28df03e815b6ca84e52
+Total RankEvents: 3
+Digests match: True
+```
+
+**Test Coverage:**
+- Same input → same events: `test_same_input_produces_same_output`
+- Stable digests: `test_rank_events_digest_stable`, `test_predictions_digest_stable`
+- JSON roundtrip: `test_rank_event_json_roundtrip`, `test_prediction_snapshot_json_roundtrip`
+- Proof generation: `test_generate_replay_proof`
+- Different input → different output: `test_different_input_different_output`
+- **Non-empty events assertion**: `test_produces_rank_events` (prevents empty digest regression)
+
+**Runner Type Validation:**
+- Test asserts `PredictionSnapshot.model_version == "baseline-v1"`
+- Ensures tests are running against expected BaselineRunner, not accidentally MLRunner
+
+**Why BaselineRunner first:**
+1. BaselineRunner is the production fallback (critical path)
+2. Fully deterministic (heuristic-based, no ML model variance)
+3. MLRunner requires PR#58 merge; will be tested separately
+4. MLRunner with `fallback_to_baseline=True` delegates here anyway
+
+**Future work (separate PR):**
+- MLRunner E2E Determinism Acceptance (after PR#58 merge, DEC number TBD)
+- Will test calibrated ML predictions path
+- Note: DEC-016 is reserved for Artifact Registry/Manifest per roadmap
+
+**Alternatives considered:**
+1. Wait for MLRunner merge — rejected: baseline path is critical and testable now
+2. Compare event-by-event instead of digest — rejected: digest is more robust
+3. Use real MarketEvents — deferred: FeatureSnapshots are the pipeline input
+
+**Rationale:**
+- Proves replay determinism for baseline fallback path per PRD requirement
+- Enables CI/CD to catch non-determinism regressions
+- Provides proof artifacts for audit trail
+- Tests full pipeline integration without external dependencies or ML models
+
+**Impact:**
+- New `tests/replay/test_e2e_determinism.py` (12 tests)
+- New `tests/fixtures/replay_baseline/` fixture module
+- Extends existing replay test infrastructure
+- Partially completes Milestone 3 replay acceptance (baseline path)
