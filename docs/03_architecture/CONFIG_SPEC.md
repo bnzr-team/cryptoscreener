@@ -30,3 +30,7 @@ All config is loaded from `/configs/*.yaml`.
   - enabled: false
   - provider: openai|local
   - max_chars: 180
+- models:
+  - inference_strictness: dev|prod  # DEC-017: DEV (lenient) or PROD (fail-safe)
+  - stale_book_max_ms: 1000  # SSOT: DATA_FRESHNESS_RULES.md
+  - stale_trades_max_ms: 2000  # SSOT: DATA_FRESHNESS_RULES.md

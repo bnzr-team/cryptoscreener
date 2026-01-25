@@ -93,13 +93,18 @@ class BaselineRunner(ModelRunner):
         )
 
     def _has_data_issues(self, snapshot: FeatureSnapshot) -> bool:
-        """Check if snapshot has data quality issues."""
+        """Check if snapshot has data quality issues.
+
+        Thresholds per DATA_FRESHNESS_RULES.md SSOT:
+        - Book stale: > stale_book_max_ms (default 1000ms)
+        - Trades stale: > stale_trades_max_ms (default 2000ms)
+        """
         health = snapshot.data_health
 
-        # Stale data thresholds (5 seconds)
-        if health.stale_book_ms > 5000:
+        # Stale data thresholds from config (SSOT: 1000ms book, 2000ms trades)
+        if health.stale_book_ms > self._config.stale_book_max_ms:
             return True
-        if health.stale_trades_ms > 30000:  # Trades can be stale longer
+        if health.stale_trades_ms > self._config.stale_trades_max_ms:
             return True
         return bool(health.missing_streams)
 
