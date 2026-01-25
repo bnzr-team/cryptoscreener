@@ -1,8 +1,5 @@
 """Tests for label builder module."""
 
-import pytest
-
-from cryptoscreener.cost_model import CostModelConfig
 from cryptoscreener.cost_model.calculator import Profile
 from cryptoscreener.label_builder import (
     Horizon,
@@ -185,7 +182,7 @@ class TestToxicityLabel:
             PricePoint(ts=50_000, mid=95.0),    # Big drop but outside tau
         ]
 
-        y_toxic, severity = builder.compute_toxicity_label(
+        y_toxic, _severity = builder.compute_toxicity_label(
             entry_price, future_prices, entry_ts=0
         )
         assert y_toxic == 0
@@ -203,7 +200,6 @@ class TestTradeabilityLabel:
         )
         builder = LabelBuilder(config)
 
-        entry_price = 100.0
         # MFE of 20 bps
         future_prices = [
             PricePoint(ts=10_000, mid=100.2),
@@ -233,7 +229,6 @@ class TestTradeabilityLabel:
         )
         builder = LabelBuilder(config)
 
-        entry_price = 100.0
         # Small MFE of 10 bps
         future_prices = [
             PricePoint(ts=10_000, mid=100.1),
@@ -259,7 +254,6 @@ class TestTradeabilityLabel:
         )
         builder = LabelBuilder(config)
 
-        entry_price = 100.0
         future_prices = [
             PricePoint(ts=10_000, mid=102.0),  # Big MFE
         ]

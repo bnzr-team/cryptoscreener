@@ -1,7 +1,5 @@
 """Tests for cost model calculator."""
 
-import pytest
-
 from cryptoscreener.cost_model import (
     CostCalculator,
     CostModelConfig,

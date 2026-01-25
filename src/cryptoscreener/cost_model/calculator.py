@@ -235,11 +235,11 @@ class CostCalculator:
         Returns:
             Clip size in USD.
         """
-        if style == "scalping":
-            k = self._config.clip_k_scalping
-        else:
-            k = self._config.clip_k_intraday
-
+        k = (
+            self._config.clip_k_scalping
+            if style == "scalping"
+            else self._config.clip_k_intraday
+        )
         return k * usd_volume_60s
 
     def compute_costs(
