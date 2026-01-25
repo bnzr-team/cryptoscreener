@@ -249,7 +249,7 @@ def build_all_labels(
     builder: LabelBuilder,
     sample_interval_ms: int = 1000,
     lookahead_ms: int = DEFAULT_LOOKAHEAD_MS,
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """Build labels for all symbols in the dataset.
 
     Args:
@@ -268,7 +268,7 @@ def build_all_labels(
 
     logger.info(f"Found {len(symbols)} symbols: {sorted(symbols)}")
 
-    all_rows: list[dict] = []
+    all_rows: list[dict[str, object]] = []
 
     for symbol in sorted(symbols):
         count = 0
@@ -284,7 +284,7 @@ def build_all_labels(
     return all_rows
 
 
-def save_to_parquet(rows: list[dict], output_path: Path) -> None:
+def save_to_parquet(rows: list[dict[str, object]], output_path: Path) -> None:
     """Save label rows to parquet file.
 
     Args:
@@ -292,8 +292,8 @@ def save_to_parquet(rows: list[dict], output_path: Path) -> None:
         output_path: Output file path.
     """
     try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
+        import pyarrow as pa  # type: ignore[import-not-found]
+        import pyarrow.parquet as pq  # type: ignore[import-not-found]
     except ImportError:
         logger.error("pyarrow not installed. Install with: pip install pyarrow")
         raise
@@ -310,7 +310,7 @@ def save_to_parquet(rows: list[dict], output_path: Path) -> None:
     logger.info(f"Saved {len(rows)} rows to {output_path}")
 
 
-def save_to_jsonl(rows: list[dict], output_path: Path) -> None:
+def save_to_jsonl(rows: list[dict[str, object]], output_path: Path) -> None:
     """Save label rows to JSONL file.
 
     Args:

@@ -429,7 +429,7 @@ class LabelBuilder:
             spread_bps=spread_bps,
         )
 
-    def label_row_to_flat_dict(self, row: LabelRow) -> dict:
+    def label_row_to_flat_dict(self, row: LabelRow) -> dict[str, object]:
         """Convert LabelRow to flat dictionary for DataFrame/parquet.
 
         Args:
@@ -438,7 +438,7 @@ class LabelBuilder:
         Returns:
             Flat dictionary with all fields.
         """
-        result: dict = {
+        result: dict[str, object] = {
             "ts": row.ts,
             "symbol": row.symbol,
             "mid_price": row.mid_price,
