@@ -319,3 +319,44 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - Output is JSONL (RankEvents) to stdout or `--output` file
 - CLI designed for production use: `python -m scripts.run_live --top 50 --output events.jsonl`
 - CI can use: `python -m scripts.run_live --symbols BTCUSDT --duration-s 10` for smoke tests
+
+---
+
+## DEC-007: Record→Replay Bridge (PR#42)
+
+**Date:** 2026-01-24
+
+**Decision:** Implement recording harness to generate replay fixtures from synthetic or live data:
+
+1. **New script `scripts/run_record.py`**:
+   - CLI: `--symbols`, `--duration-s`, `--out-dir`, `--cadence-ms`, `--llm` (default OFF), `--source synthetic|live`
+   - Outputs: `market_events.jsonl`, `expected_rank_events.jsonl`, `manifest.json`
+
+2. **Manifest format (schema_version 1.0.0)**:
+   - Required fields: `schema_version`, `recorded_at`, `source`, `symbols`, `duration_s`
+   - SHA256 checksums: `sha256.market_events.jsonl`, `sha256.expected_rank_events.jsonl`
+   - Replay verification: `replay.rank_event_stream_digest`
+   - Stats: `total_market_events`, `total_rank_events`, `time_range_ms`
+
+3. **MinimalRecordPipeline mirrors MinimalReplayPipeline**:
+   - Same deterministic logic (SYMBOL_ENTER at trade 2, ALERT_TRADABLE at trade 4)
+   - Ensures record→replay digest match
+
+4. **LLM OFF by default**: Recording does not include LLM explanations unless `--llm` flag is set
+
+**Alternatives considered:**
+1. Record only market events, recompute expected on replay — rejected: no baseline truth for verification
+2. Store expected digest only (not full events) — rejected: need events for debugging mismatches
+3. Live-only recording — rejected: synthetic mode enables CI testing without external dependencies
+
+**Rationale:**
+- Recording expected outputs provides ground truth for determinism verification
+- SHA256 checksums detect file tampering or corruption
+- Synthetic mode enables fast, deterministic CI tests
+- Manifest documents recording parameters for reproducibility
+
+**Impact:**
+- New `scripts/run_record.py` with CLI interface
+- New `tests/replay/test_record_replay_roundtrip.py` with 16 tests
+- Fixtures can be generated for any symbol set and duration
+- Replay verification uses manifest digest for comparison

@@ -101,6 +101,16 @@
 - One-time REST call for `--top N` mode (symbol list only, not polling)
 - LLM disabled by default in live mode (per DEC-005)
 
+#### GitHub PR#42 — Record→Replay Bridge (DEC-007)
+- `scripts/run_record.py` — recording harness for fixture generation
+  - CLI: `--symbols`, `--duration-s`, `--out-dir`, `--cadence-ms`, `--llm`, `--source`
+  - Outputs: `market_events.jsonl`, `expected_rank_events.jsonl`, `manifest.json`
+- `SyntheticMarketEventGenerator` — deterministic synthetic market event generation
+- `MinimalRecordPipeline` — mirrors `MinimalReplayPipeline` for determinism
+- Manifest format v1.0.0 with SHA256 checksums and replay digest
+- LLM OFF by default in recording mode
+- `tests/replay/test_record_replay_roundtrip.py` — 16 tests for record→replay determinism
+
 #### GitHub PR#23 — LLM Explain Pipeline Integration (DEC-005)
 - Integrated LLM explain into Alerter: `RankEvent.payload.llm_text` populated for alert events
 - `ExplainLLMProtocol` for dependency injection (no hard import of explain_llm module)
