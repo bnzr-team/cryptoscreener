@@ -9,6 +9,16 @@
 
 ### Added
 
+#### GitHub PR#52 — CI Pipeline Verified (Smoke Test)
+- **Verified commit:** `31c292d38b64936ac2e2379d11cdd1f94e2ca082`
+- **What was tested:**
+  - FULL VERBATIM mode for small diffs (README.md single-line change)
+  - Manual marker detection outside managed block (PR#51 feature)
+  - acceptance-packet auto-updates PR body between managed markers
+  - proof-guard validates FULL VERBATIM content correctly
+- **Known behavior:** proof-guard may need re-run if it starts before acceptance-packet updates body (timing, not a bug)
+- **Result:** All checks pass, CI pipeline works as designed after PR#49-#51
+
 #### GitHub PR#51 — Harden Manual Marker Detection Outside Managed Block
 - `proof_guard.yml`: detect acceptance markers (`PENDING`, `CI ARTIFACT`, `IDENTITY`) outside managed block
 - Manual markers in user-editable PR description now FAIL with explicit error message
