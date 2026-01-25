@@ -110,7 +110,7 @@ class BinanceStreamManager:
         Bootstrap by fetching tradeable symbols from Binance.
 
         Returns:
-            List of tradeable SymbolInfo.
+            List of tradeable SymbolInfo (unsorted).
         """
         logger.info("Bootstrapping from Binance exchangeInfo")
 
@@ -123,6 +123,43 @@ class BinanceStreamManager:
         )
 
         return list(self._symbols.values())
+
+    async def get_top_symbols_by_volume(self, top_n: int) -> list[str]:
+        """
+        Get top N symbols sorted by 24h quote volume.
+
+        This makes two REST calls:
+        1. exchangeInfo to get tradeable symbols
+        2. 24hr tickers to get volumes
+
+        Args:
+            top_n: Number of top symbols to return.
+
+        Returns:
+            List of symbol names sorted by 24h volume (descending).
+        """
+        # Ensure we have symbol info
+        if not self._symbols:
+            await self.bootstrap()
+
+        # Fetch 24h volumes
+        volumes = await self._rest_client.get_24h_tickers()
+
+        # Filter to tradeable symbols and sort by volume
+        tradeable_volumes = [
+            (symbol, volumes.get(symbol, 0.0))
+            for symbol in self._symbols
+        ]
+        tradeable_volumes.sort(key=lambda x: x[1], reverse=True)
+
+        top_symbols = [symbol for symbol, _ in tradeable_volumes[:top_n]]
+
+        logger.info(
+            "Top symbols by volume",
+            extra={"top_n": top_n, "top_3": top_symbols[:3]},
+        )
+
+        return top_symbols
 
     def get_symbol_info(self, symbol: str) -> SymbolInfo | None:
         """Get symbol info by symbol name."""

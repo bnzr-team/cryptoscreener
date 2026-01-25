@@ -1,0 +1,189 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr35_20260124_172949.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/35"}
+
+== GH PR VIEW ==
+{"baseRefName":"main","headRefName":"feature/pr-0035-chat-proof-fix","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":35,"state":"OPEN","title":"PR#35: Fix Chat Proof Identity + Raw Git Evidence + No Extra Text","url":"https://github.com/bnzr-team/cryptoscreener/pull/35"}
+
+== GH PR CHECKS ==
+checks	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21318867123/job/61365705883	
+proof-guard	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21318867125/job/61365705863	
+
+== CHANGED FILES ==
+.github/pull_request_template.md
+CLAUDE.md
+scripts/proof_bundle_chat.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+ruff 0.14.14
+mypy 1.19.1 (compiled: yes)
+pytest 9.0.2
+
+== GIT SHOW --STAT ==
+commit 7be3ad40673ef9b111ea59d837e33bdc1b70fe32
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 17:29:32 2026 +0000
+
+    PR#35: Fix Chat Proof Identity + Raw Git Evidence + No Extra Text
+    
+    Changes:
+    - proof_bundle_chat.sh: Fix mergeCommit extraction with strict validation
+      - Parse state and mergeCommit.oid from gh pr view JSON
+      - Exit 1 if state==MERGED but mergeCommit is empty
+      - Print explicit PR URL, STATE, MERGE COMMIT fields
+    - proof_bundle_chat.sh: Make git evidence raw with explicit command headers
+      - "--- git show --stat <sha> ---"
+      - "--- git show --name-only --pretty="" <sha> ---"
+    - proof_bundle_chat.sh: Add "== CHAT PROOF: END ==" marker
+    - CLAUDE.md: Enforce verbatim paste rule (no extra text after END)
+    - PR template: Add "verbatim (no extra text)" reminder
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+ .github/pull_request_template.md |  2 +-
+ CLAUDE.md                        |  7 ++++++-
+ scripts/proof_bundle_chat.sh     | 22 +++++++++++++++++++---
+ 3 files changed, 26 insertions(+), 5 deletions(-)
+
+== GIT SHOW ==
+commit 7be3ad40673ef9b111ea59d837e33bdc1b70fe32
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 17:29:32 2026 +0000
+
+    PR#35: Fix Chat Proof Identity + Raw Git Evidence + No Extra Text
+    
+    Changes:
+    - proof_bundle_chat.sh: Fix mergeCommit extraction with strict validation
+      - Parse state and mergeCommit.oid from gh pr view JSON
+      - Exit 1 if state==MERGED but mergeCommit is empty
+      - Print explicit PR URL, STATE, MERGE COMMIT fields
+    - proof_bundle_chat.sh: Make git evidence raw with explicit command headers
+      - "--- git show --stat <sha> ---"
+      - "--- git show --name-only --pretty="" <sha> ---"
+    - proof_bundle_chat.sh: Add "== CHAT PROOF: END ==" marker
+    - CLAUDE.md: Enforce verbatim paste rule (no extra text after END)
+    - PR template: Add "verbatim (no extra text)" reminder
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+diff --git a/.github/pull_request_template.md b/.github/pull_request_template.md
+index 05935d1..0208a86 100644
+--- a/.github/pull_request_template.md
++++ b/.github/pull_request_template.md
+@@ -29,4 +29,4 @@ After opening the PR, run:
+ ```bash
+ ./scripts/proof_bundle_chat.sh <PR_NUMBER>
+ ```
+-and paste its output in the reviewer chat (raw).
++and paste its output in the reviewer chat **verbatim** (no extra text).
+diff --git a/CLAUDE.md b/CLAUDE.md
+index c3b08fd..47d0ced 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -577,4 +577,9 @@ Every report MUST include raw evidence in the following 4 blocks (copy/paste out
+ - `mypy .`
+ - `pytest -q`
+ 
+-Recommended: run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output directly.
++**How to use:**
++Run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output **verbatim** from `== CHAT PROOF: IDENTITY ==` through `== CHAT PROOF: END ==`.
++
++**Do NOT add any commentary, summary, or extra lines.**
++
++Any message that includes additional summary text after `== CHAT PROOF: END ==` is INVALID.
+diff --git a/scripts/proof_bundle_chat.sh b/scripts/proof_bundle_chat.sh
+index cb45f48..a48523c 100755
+--- a/scripts/proof_bundle_chat.sh
++++ b/scripts/proof_bundle_chat.sh
+@@ -13,7 +13,20 @@ echo "${PR_JSON}"
+ echo
+ 
+ PR_URL="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+-MERGE_COMMIT="$(echo "${PR_JSON}" | python -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc["oid"] if mc else "")')"
++STATE="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
++MERGE_COMMIT="$(echo "${PR_JSON}" | python -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc.get("oid","") if isinstance(mc,dict) else "")')"
++
++if [[ "${STATE}" == "MERGED" && -z "${MERGE_COMMIT}" ]]; then
++  echo "ERROR: PR is MERGED but mergeCommit is missing in gh pr view JSON"
++  echo "Raw PR JSON:"
++  echo "${PR_JSON}"
++  exit 1
++fi
++
++echo "PR URL: ${PR_URL}"
++echo "PR STATE: ${STATE}"
++echo "MERGE COMMIT: ${MERGE_COMMIT:-<none>}"
++echo
+ 
+ echo "== CHAT PROOF: CI =="
+ gh pr checks "${PR_NUMBER}" || true
+@@ -24,13 +37,13 @@ if [[ -n "${MERGE_COMMIT}" ]]; then
+   echo "--- git show --stat ${MERGE_COMMIT} ---"
+   git show "${MERGE_COMMIT}" --stat
+   echo
+-  echo "--- git show --name-only ${MERGE_COMMIT} ---"
++  echo "--- git show --name-only --pretty=\"\" ${MERGE_COMMIT} ---"
+   git show --name-only --pretty="" "${MERGE_COMMIT}"
+ else
+   echo "--- git show --stat (HEAD) ---"
+   git show --stat
+   echo
+-  echo "--- git show --name-only (HEAD) ---"
++  echo "--- git show --name-only --pretty=\"\" HEAD ---"
+   git show --name-only --pretty="" HEAD
+ fi
+ echo
+@@ -56,3 +69,6 @@ else
+   echo "MISSING: run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate artifacts file"
+   exit 1
+ fi
++
++echo
++echo "== CHAT PROOF: END =="
+
+== RUFF CHECK . ==
+All checks passed!
+
+== MYPY . ==
+Success: no issues found in 66 source files
+
+== PYTEST -Q ==
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/benya/Project/cryptoscreener
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.0.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 448 items
+
+tests/alerting/test_alerter.py ..................................        [  7%]
+tests/connectors/binance/test_rest_client.py .........                   [  9%]
+tests/connectors/binance/test_shard.py ...............                   [ 12%]
+tests/connectors/binance/test_stream_manager.py ......................   [ 17%]
+tests/connectors/binance/test_types.py ....................              [ 22%]
+tests/connectors/test_backoff.py ....................................... [ 31%]
+...                                                                      [ 31%]
+tests/contracts/test_contract_examples.py ..................             [ 35%]
+tests/contracts/test_contracts.py ...................................... [ 44%]
+..........                                                               [ 46%]
+tests/contracts/test_llm_float_edge_cases.py ...........                 [ 48%]
+tests/contracts/test_replay_determinism.py ..............                [ 52%]
+tests/explain_llm/test_explainer.py .................................    [ 59%]
+tests/features/test_engine.py .................                          [ 63%]
+tests/features/test_ring_buffer.py ...............                       [ 66%]
+tests/features/test_symbol_state.py ...................                  [ 70%]
+tests/model_runner/test_base.py ..........                               [ 72%]
+tests/model_runner/test_baseline.py .................................... [ 81%]
+.                                                                        [ 81%]
+tests/ranker/test_ranker.py .....................                        [ 85%]
+tests/replay/test_determinism.py ..........                              [ 88%]
+tests/scoring/test_scorer.py ...................                         [ 92%]
+tests/stream_router/test_metrics.py ..............                       [ 95%]
+tests/stream_router/test_router.py ....................                  [100%]
+
+============================= 448 passed in 1.68s ==============================
+

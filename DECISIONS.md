@@ -296,7 +296,7 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 7. **Symbol selection:** Either explicit `--symbols BTCUSDT,ETHUSDT` or `--top N` for top N by volume
 
 **REST vs WebSocket:**
-- **One-time REST at startup:** `--top N` mode calls `stream_manager.bootstrap()` which fetches symbol list via REST API. This is a single call at pipeline start, not polling.
+- **One-time REST at startup:** `--top N` mode calls `get_top_symbols_by_volume()` which makes two REST calls: exchangeInfo + 24hr tickers. Symbols are sorted by 24h quote volume (descending).
 - **No REST in main loop:** All market data streaming is via WebSocket. No high-frequency REST polling occurs.
 - **Explicit symbols mode:** `--symbols X,Y,Z` bypasses REST entirely — pure WebSocket from start.
 

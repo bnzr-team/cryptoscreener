@@ -1,0 +1,25 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr43_20260124_185336.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/43"}
+
+== GH PR VIEW ==
+{"baseRefName":"main","headRefName":"feature/pr-0043-acceptance-packet","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":43,"state":"OPEN","title":"PR#43: Acceptance Packet Automation (DEC-008)","url":"https://github.com/bnzr-team/cryptoscreener/pull/43"}
+
+== GH PR CHECKS ==
+checks	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21319931653/job/61368307101	
+proof-guard	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21319931654/job/61368307111	
+
+== CHANGED FILES ==
+.github/workflows/proof_guard.yml
+CHANGELOG.md
+CLAUDE.md
+DECISIONS.md
+scripts/acceptance_packet.sh
+scripts/proof_bundle.sh
+scripts/proof_bundle_chat.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+./scripts/proof_bundle.sh: line 40: ruff: command not found

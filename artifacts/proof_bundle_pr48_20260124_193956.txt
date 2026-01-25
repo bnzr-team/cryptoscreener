@@ -1,0 +1,21 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr48_20260124_193956.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/48"}
+
+== GH PR VIEW ==
+{"baseRefName":"feature/pr-0047-reviewer-message","headRefName":"feature/pr-0048-merge-safety","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":48,"state":"OPEN","title":"PR#48: Merge Safety & Stacked PR Detection","url":"https://github.com/bnzr-team/cryptoscreener/pull/48"}
+
+== GH PR CHECKS ==
+checks	pass	29s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320542868/job/61369730209	
+proof-guard	pass	4s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320542869/job/61369730214	
+
+== CHANGED FILES ==
+CHANGELOG.md
+CLAUDE.md
+scripts/acceptance_packet.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+/home/benya/Project/cryptoscreener/scripts/proof_bundle.sh: line 40: ruff: command not found

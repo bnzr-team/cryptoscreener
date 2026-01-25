@@ -1,0 +1,220 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr45_20260124_191632.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/45"}
+
+== GH PR VIEW ==
+{"baseRefName":"feature/pr-0044-global-proof-policy","headRefName":"feature/pr-0045-enforce-verbatim","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":45,"state":"OPEN","title":"PR#45: Enforce Verbatim Acceptance Packet","url":"https://github.com/bnzr-team/cryptoscreener/pull/45"}
+
+== GH PR CHECKS ==
+proof-guard	fail	4s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320227310/job/61369007651	
+checks	pass	30s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320227307/job/61369007653	
+
+== CHANGED FILES ==
+.github/workflows/proof_guard.yml
+CHANGELOG.md
+scripts/acceptance_packet.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+ruff 0.14.14
+mypy 1.19.1 (compiled: yes)
+pytest 9.0.2
+
+== GIT SHOW --STAT ==
+commit ad04b1bce8465a4650a7fa7b8b0d073275892888
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 19:15:37 2026 +0000
+
+    PR#45: Enforce Verbatim Acceptance Packet
+    
+    - acceptance_packet.sh:
+      - Remove SUMMARY section, single END marker
+      - Add "Paste verbatim, do NOT summarize" banner after IDENTITY
+      - RESULT PASS/FAIL now inside END block
+    - proof_guard.yml:
+      - Disable proof_bundle fallback — acceptance_packet is mandatory
+      - Add diff --git check to ensure full patch included
+      - No more shortcuts: complete verbatim packet required
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+ .github/workflows/proof_guard.yml | 38 +++++++++++++++++---------------------
+ CHANGELOG.md                      |  7 +++++++
+ scripts/acceptance_packet.sh      | 23 +++++++++++++----------
+ 3 files changed, 37 insertions(+), 31 deletions(-)
+
+== GIT SHOW ==
+--- Full PR diff (gh pr diff 45) ---
+diff --git a/.github/workflows/proof_guard.yml b/.github/workflows/proof_guard.yml
+index 7c05795..1517fcf 100644
+--- a/.github/workflows/proof_guard.yml
++++ b/.github/workflows/proof_guard.yml
+@@ -63,19 +63,16 @@ jobs:
+             "== PYTEST -Q ==",
+           ]
+ 
+-          # Detect which mode based on presence of acceptance_packet marker
++          # DEC-009/PR#45: Require acceptance_packet (no fallback)
+           is_acceptance_packet_mode = "== ACCEPTANCE PACKET:" in body
++          if not is_acceptance_packet_mode:
++            print("ERROR: PR body must include verbatim acceptance packet output (DEC-009).")
++            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> and paste the FULL output into PR body.")
++            sys.exit(1)
+ 
+-          if is_acceptance_packet_mode:
+-            # Acceptance packet mode (preferred)
+-            required_markers = acceptance_packet_markers
+-            mode_name = "acceptance_packet"
+-            tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
+-          else:
+-            # Fallback to proof_bundle mode
+-            required_markers = proof_bundle_markers
+-            mode_name = "proof_bundle"
+-            tip_command = "./scripts/proof_bundle.sh <PR_NUMBER>"
++          required_markers = acceptance_packet_markers
++          mode_name = "acceptance_packet"
++          tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
+ 
+           missing = [m for m in required_markers if m not in body]
+           if missing:
+@@ -87,16 +84,15 @@ jobs:
+             sys.exit(1)
+ 
+           # Sanity check for minimum content
+-          if is_acceptance_packet_mode:
+-            # acceptance_packet has fewer "==" markers but more content
+-            if body.count("==") < 10:
+-              print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
+-              sys.exit(1)
+-          else:
+-            # proof_bundle has 11 markers = 22 "=="
+-            if body.count("==") < 22:
+-              print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
+-              sys.exit(1)
++          if body.count("==") < 10:
++            print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
++            sys.exit(1)
++
++          # PR#45: Require actual diff content (not just header)
++          if "diff --git" not in body:
++            print("ERROR: Acceptance packet must include full PR diff (expected 'diff --git').")
++            print("TIP: Ensure acceptance_packet.sh output includes '== ACCEPTANCE PACKET: PR DIFF ==' section with gh pr diff output.")
++            sys.exit(1)
+ 
+           # Fetch changed files for replay requirement check
+           def gh_get(url: str):
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 350a8fd..8a40eb6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,6 +9,13 @@
+ 
+ ### Added
+ 
++#### GitHub PR#45 — Enforce Verbatim Acceptance Packet
++- `acceptance_packet.sh`: removed SUMMARY section, single `== ACCEPTANCE PACKET: END ==` marker
++- `acceptance_packet.sh`: added "Paste verbatim, do NOT summarize" banner
++- `proof_guard.yml`: disabled proof_bundle fallback — acceptance_packet is now mandatory
++- `proof_guard.yml`: added `diff --git` check to ensure full patch is included
++- No more shortcuts: PR body must contain complete verbatim acceptance packet output
++
+ #### GitHub PR#44 — Global Proof & Reporting Policy (DEC-009)
+ - Verbatim-only reporting policy: summaries/tables/paraphrasing are NOT valid proof
+ - DEC-009: Global proof policy — acceptable evidence is only verbatim packet output
+diff --git a/scripts/acceptance_packet.sh b/scripts/acceptance_packet.sh
+index e69b016..0a4f18b 100755
+--- a/scripts/acceptance_packet.sh
++++ b/scripts/acceptance_packet.sh
+@@ -65,6 +65,8 @@ echo "PR STATE: ${STATE}"
+ echo "Base: ${BASE_REF}"
+ echo "Head: ${HEAD_REF}"
+ echo
++echo "NOTE: Paste this output verbatim in full. Do NOT summarize."
++echo
+ 
+ # Get list of changed files for replay detection
+ CHANGED_FILES="$(echo "${PR_JSON}" | python3 -c '
+@@ -235,26 +237,27 @@ else
+ fi
+ echo
+ 
+-echo "== ACCEPTANCE PACKET: SUMMARY =="
+-echo "PR:             #${PR_NUMBER}"
+-echo "URL:            ${PR_URL}"
+-echo "State:          ${STATE}"
+-echo "Replay required: ${REPLAY_REQUIRED}"
+-echo "Packet status:  ${PACKET_STATUS}"
++echo "== ACCEPTANCE PACKET: END =="
+ 
+ if [[ "${PACKET_STATUS}" == "FAIL" ]]; then
++  echo "RESULT: FAIL"
++  echo "PR: #${PR_NUMBER}"
++  echo "URL: ${PR_URL}"
++  echo "State: ${STATE}"
++  echo "Replay required: ${REPLAY_REQUIRED}"
+   echo ""
+   echo "Failed checks:"
+   for check in "${FAILED_CHECKS[@]}"; do
+     echo "  - ${check}"
+   done
+-  echo ""
+-  echo "== ACCEPTANCE PACKET: END (FAILED) =="
+   exit 1
+ else
++  echo "RESULT: PASS"
++  echo "PR: #${PR_NUMBER}"
++  echo "URL: ${PR_URL}"
++  echo "State: ${STATE}"
++  echo "Replay required: ${REPLAY_REQUIRED}"
+   echo ""
+   echo "✓ All checks passed. Ready for ACCEPT."
+-  echo ""
+-  echo "== ACCEPTANCE PACKET: END (PASSED) =="
+   exit 0
+ fi
+
+== RUFF CHECK . ==
+All checks passed!
+
+== MYPY . ==
+Success: no issues found in 66 source files
+
+== PYTEST -Q ==
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/benya/Project/cryptoscreener
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.0.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 448 items
+
+tests/alerting/test_alerter.py ..................................        [  7%]
+tests/connectors/binance/test_rest_client.py .........                   [  9%]
+tests/connectors/binance/test_shard.py ...............                   [ 12%]
+tests/connectors/binance/test_stream_manager.py ......................   [ 17%]
+tests/connectors/binance/test_types.py ....................              [ 22%]
+tests/connectors/test_backoff.py ....................................... [ 31%]
+...                                                                      [ 31%]
+tests/contracts/test_contract_examples.py ..................             [ 35%]
+tests/contracts/test_contracts.py ...................................... [ 44%]
+..........                                                               [ 46%]
+tests/contracts/test_llm_float_edge_cases.py ...........                 [ 48%]
+tests/contracts/test_replay_determinism.py ..............                [ 52%]
+tests/explain_llm/test_explainer.py .................................    [ 59%]
+tests/features/test_engine.py .................                          [ 63%]
+tests/features/test_ring_buffer.py ...............                       [ 66%]
+tests/features/test_symbol_state.py ...................                  [ 70%]
+tests/model_runner/test_base.py ..........                               [ 72%]
+tests/model_runner/test_baseline.py .................................... [ 81%]
+.                                                                        [ 81%]
+tests/ranker/test_ranker.py .....................                        [ 85%]
+tests/replay/test_determinism.py ..........                              [ 88%]
+tests/scoring/test_scorer.py ...................                         [ 92%]
+tests/stream_router/test_metrics.py ..............                       [ 95%]
+tests/stream_router/test_router.py ....................                  [100%]
+
+============================= 448 passed in 1.06s ==============================
+

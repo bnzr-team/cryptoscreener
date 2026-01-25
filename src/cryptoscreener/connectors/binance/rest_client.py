@@ -256,6 +256,31 @@ class BinanceRestClient:
         )
         return symbols
 
+    async def get_24h_tickers(self) -> dict[str, float]:
+        """
+        Get 24h quote volume for all symbols.
+
+        Returns:
+            Dict mapping symbol to 24h quote volume (in USDT).
+        """
+        logger.info("Fetching 24h tickers from Binance")
+        data = await self._request("GET", "/fapi/v1/ticker/24hr")
+
+        volumes: dict[str, float] = {}
+        for ticker in data:
+            symbol = ticker.get("symbol", "")
+            quote_volume = ticker.get("quoteVolume", "0")
+            try:
+                volumes[symbol] = float(quote_volume)
+            except (ValueError, TypeError):
+                volumes[symbol] = 0.0
+
+        logger.info(
+            "Fetched 24h tickers",
+            extra={"count": len(volumes)},
+        )
+        return volumes
+
     async def get_server_time(self) -> int:
         """
         Get Binance server time.

@@ -356,10 +356,10 @@ class LivePipeline:
         if self._config.symbols:
             symbols = self._config.symbols
         else:
-            # Get top N by volume
-            symbol_infos = await self._stream_manager.bootstrap()
-            # Sort by quote volume (approximation: just take first N)
-            symbols = [s.symbol for s in symbol_infos[: self._config.top_n]]
+            # Get top N by 24h quote volume (sorted descending)
+            symbols = await self._stream_manager.get_top_symbols_by_volume(
+                self._config.top_n
+            )
 
         logger.info("Subscribing to %d symbols", len(symbols))
 
@@ -369,8 +369,10 @@ class LivePipeline:
         # Subscribe to streams
         await self._stream_manager.subscribe(symbols)
 
-        # Register snapshot callback
-        self._feature_engine.on_snapshot(self._on_snapshot)
+        # NOTE: We do NOT register on_snapshot callback here because
+        # we manually call emit_snapshots() in the main loop and process
+        # the returned snapshots directly. Registering a callback would
+        # cause double processing.
 
         # Run main loop
         try:

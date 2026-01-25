@@ -1,0 +1,109 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr39_20260124_174128.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/39"}
+
+== GH PR VIEW ==
+{"baseRefName":"main","headRefName":"feature/pr-0039-proof-file-warning-only","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":39,"state":"OPEN","title":"PR#39: Make PROOF FILE check warning-only","url":"https://github.com/bnzr-team/cryptoscreener/pull/39"}
+
+== GH PR CHECKS ==
+checks	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21319019910/job/61366073448	
+proof-guard	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21319019927/job/61366073468	
+
+== CHANGED FILES ==
+scripts/proof_bundle_chat.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+ruff 0.14.14
+mypy 1.19.1 (compiled: yes)
+pytest 9.0.2
+
+== GIT SHOW --STAT ==
+commit 6b164071a349a8df5b03457bfc03c240df8c55c4
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 17:41:14 2026 +0000
+
+    PR#39: Make PROOF FILE check warning-only
+    
+    Change proof_bundle_chat.sh to print warning instead of exit 1 when
+    artifacts file is missing. This allows the script to complete successfully
+    even if proof_bundle.sh wasn't run first.
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+ scripts/proof_bundle_chat.sh | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+== GIT SHOW ==
+commit 6b164071a349a8df5b03457bfc03c240df8c55c4
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 17:41:14 2026 +0000
+
+    PR#39: Make PROOF FILE check warning-only
+    
+    Change proof_bundle_chat.sh to print warning instead of exit 1 when
+    artifacts file is missing. This allows the script to complete successfully
+    even if proof_bundle.sh wasn't run first.
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+diff --git a/scripts/proof_bundle_chat.sh b/scripts/proof_bundle_chat.sh
+index cc71294..949fc8d 100755
+--- a/scripts/proof_bundle_chat.sh
++++ b/scripts/proof_bundle_chat.sh
+@@ -68,8 +68,7 @@ LATEST="$(ls -1t artifacts/proof_bundle_pr${PR_NUMBER}_*.txt 2>/dev/null | head
+ if [[ -n "${LATEST}" ]]; then
+   echo "${LATEST}"
+ else
+-  echo "MISSING: run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate artifacts file"
+-  exit 1
++  echo "WARNING: No artifacts file found. Run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate."
+ fi
+ 
+ echo
+
+== RUFF CHECK . ==
+All checks passed!
+
+== MYPY . ==
+Success: no issues found in 66 source files
+
+== PYTEST -Q ==
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/benya/Project/cryptoscreener
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.0.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 448 items
+
+tests/alerting/test_alerter.py ..................................        [  7%]
+tests/connectors/binance/test_rest_client.py .........                   [  9%]
+tests/connectors/binance/test_shard.py ...............                   [ 12%]
+tests/connectors/binance/test_stream_manager.py ......................   [ 17%]
+tests/connectors/binance/test_types.py ....................              [ 22%]
+tests/connectors/test_backoff.py ....................................... [ 31%]
+...                                                                      [ 31%]
+tests/contracts/test_contract_examples.py ..................             [ 35%]
+tests/contracts/test_contracts.py ...................................... [ 44%]
+..........                                                               [ 46%]
+tests/contracts/test_llm_float_edge_cases.py ...........                 [ 48%]
+tests/contracts/test_replay_determinism.py ..............                [ 52%]
+tests/explain_llm/test_explainer.py .................................    [ 59%]
+tests/features/test_engine.py .................                          [ 63%]
+tests/features/test_ring_buffer.py ...............                       [ 66%]
+tests/features/test_symbol_state.py ...................                  [ 70%]
+tests/model_runner/test_base.py ..........                               [ 72%]
+tests/model_runner/test_baseline.py .................................... [ 81%]
+.                                                                        [ 81%]
+tests/ranker/test_ranker.py .....................                        [ 85%]
+tests/replay/test_determinism.py ..........                              [ 88%]
+tests/scoring/test_scorer.py ...................                         [ 92%]
+tests/stream_router/test_metrics.py ..............                       [ 95%]
+tests/stream_router/test_router.py ....................                  [100%]
+
+============================= 448 passed in 1.70s ==============================
+

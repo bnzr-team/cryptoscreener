@@ -1,0 +1,20 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr46_20260124_192158.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/46"}
+
+== GH PR VIEW ==
+{"baseRefName":"feature/pr-0045-enforce-verbatim","headRefName":"feature/pr-0046-robust-replay-detection","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":46,"state":"OPEN","title":"PR#46: Robust Replay Detection in acceptance_packet.sh","url":"https://github.com/bnzr-team/cryptoscreener/pull/46"}
+
+== GH PR CHECKS ==
+proof-guard	fail	4s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320300220/job/61369175289	
+checks	pass	31s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320300226/job/61369175300	
+
+== CHANGED FILES ==
+CHANGELOG.md
+scripts/acceptance_packet.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+/home/benya/Project/cryptoscreener/scripts/proof_bundle.sh: line 40: ruff: command not found
