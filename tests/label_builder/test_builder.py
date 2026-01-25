@@ -200,9 +200,10 @@ class TestTradeabilityLabel:
         )
         builder = LabelBuilder(config)
 
-        # MFE of 20 bps
+        # bid=100, ask=100.1 -> mid = 100.05
+        # future price = 100.25 -> MFE = (100.25 - 100.05) / 100.05 * 10000 ≈ 20 bps
         future_prices = [
-            PricePoint(ts=10_000, mid=100.2),
+            PricePoint(ts=10_000, mid=100.25),
         ]
 
         row = builder.build_label_row(
@@ -215,9 +216,11 @@ class TestTradeabilityLabel:
 
         # Check 30s Profile A
         label = row.tradeability[(Horizon.H_30S, Profile.A)]
-        # MFE = 20 bps, cost = spread(10) + fees(2) = 12 bps
+        # mid = 100.05, future = 100.25
+        # MFE = (100.25 - 100.05) / 100.05 * 10000 ≈ 20 bps
+        # cost = spread(10) + fees(2) = 12 bps
         # net_edge = 20 - 12 = 8 bps > x_bps(5)
-        assert label.mfe_bps == 20.0
+        assert 19.0 < label.mfe_bps < 21.0  # Approximately 20 bps
         assert label.gates_passed  # spread < 20 bps gate
         assert label.i_tradeable == 1
 
