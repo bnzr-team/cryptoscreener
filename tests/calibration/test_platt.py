@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from cryptoscreener.calibration.platt import PlattCalibrator, fit_platt
+from cryptoscreener.calibration.platt import NegativeSlopeError, PlattCalibrator, fit_platt
 
 
 class TestPlattCalibrator:
@@ -184,9 +184,15 @@ class TestFitPlatt:
 
     def test_calibrated_probs_in_bounds(self) -> None:
         """All calibrated probabilities must be in [0, 1]."""
-        # Random-ish data
-        labels = [1, 0, 1, 0, 1, 1, 0, 0, 1, 0] * 10
-        probs = [0.01, 0.99, 0.5, 0.1, 0.9, 0.3, 0.7, 0.2, 0.8, 0.4] * 10
+        # Well-correlated data (higher prob → higher label rate)
+        n = 100
+        labels = []
+        probs = []
+        for i in range(n):
+            p = (i + 1) / (n + 1)
+            probs.append(p)
+            # Label rate increases with probability (positive correlation)
+            labels.append(1 if (i % 10) < int(p * 10) else 0)
 
         cal = fit_platt(labels, probs, "test")
 
@@ -278,6 +284,66 @@ class TestRankingPreservation:
         assert result_low > result_high, (
             "Expected ranking inversion with negative slope"
         )
+
+
+class TestNegativeSlopeRejection:
+    """Tests for negative slope rejection (anti-ranking-inversion safety)."""
+
+    def test_anti_correlated_data_raises_negative_slope_error(self) -> None:
+        """Anti-correlated data should raise NegativeSlopeError.
+
+        When higher raw probability correlates with LOWER true probability,
+        the optimizer will find a < 0. This is rejected by default.
+        """
+        # Create anti-correlated data: higher probability → lower label rate
+        n = 200
+        labels = []
+        probs = []
+
+        for i in range(n):
+            # Probability increases with i
+            p = (i + 1) / (n + 1)
+            probs.append(p)
+            # BUT label rate DECREASES with i (anti-correlation)
+            labels.append(1 if (i % 10) >= int(p * 10) else 0)
+
+        with pytest.raises(NegativeSlopeError) as exc_info:
+            fit_platt(labels, probs, "anti_correlated")
+
+        # Check exception contains useful info
+        assert "anti_correlated" in str(exc_info.value)
+        assert exc_info.value.head_name == "anti_correlated"
+        assert exc_info.value.a <= 0
+
+    def test_negative_slope_allowed_when_disabled(self) -> None:
+        """Negative slope should be allowed when reject_negative_slope=False.
+
+        This is for diagnostic/debugging purposes only.
+        """
+        # Create anti-correlated data
+        n = 200
+        labels = []
+        probs = []
+
+        for i in range(n):
+            p = (i + 1) / (n + 1)
+            probs.append(p)
+            labels.append(1 if (i % 10) >= int(p * 10) else 0)
+
+        # Should NOT raise when rejection is disabled
+        cal = fit_platt(labels, probs, "test", reject_negative_slope=False)
+
+        # Slope should be negative
+        assert cal.a < 0, f"Expected negative slope, got a={cal.a}"
+
+    def test_error_message_is_actionable(self) -> None:
+        """NegativeSlopeError message should be actionable."""
+        error = NegativeSlopeError("p_inplay_30s", a=-0.5, b=0.1)
+
+        msg = str(error)
+        assert "p_inplay_30s" in msg
+        assert "-0.5" in msg or "negative" in msg.lower()
+        assert "invert" in msg.lower() or "ranking" in msg.lower()
 
 
 class TestNumericalStability:

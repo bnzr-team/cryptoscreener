@@ -100,6 +100,34 @@ def _logit(p: float, eps: float = 1e-7) -> float:
     return math.log(p / (1 - p))
 
 
+class NegativeSlopeError(ValueError):
+    """Raised when fitted calibrator has negative slope (a <= 0).
+
+    A negative slope means the model's probabilities are anti-correlated
+    with actual outcomes. This would invert rankings and is catastrophic
+    for downstream ranker/alerter systems.
+
+    Possible causes:
+    - Model is fundamentally broken (predicts opposite of reality)
+    - Training data is corrupted or mislabeled
+    - Validation window is too small/noisy
+
+    Recommended actions:
+    - Investigate model quality
+    - Check for data issues
+    - Use larger validation window
+    """
+
+    def __init__(self, head_name: str, a: float, b: float) -> None:
+        self.head_name = head_name
+        self.a = a
+        self.b = b
+        super().__init__(
+            f"Calibrator for '{head_name}' has negative slope (a={a:.4f}). "
+            "This would invert rankings. Investigate model/data quality."
+        )
+
+
 def fit_platt(
     y_true: Sequence[int],
     p_raw: Sequence[float],
@@ -107,6 +135,8 @@ def fit_platt(
     max_iter: int = 100,
     lr: float = 0.1,
     tol: float = 1e-6,
+    *,
+    reject_negative_slope: bool = True,
 ) -> PlattCalibrator:
     """Fit Platt scaling parameters using gradient descent.
 
@@ -124,12 +154,15 @@ def fit_platt(
         max_iter: Maximum iterations for optimization.
         lr: Learning rate.
         tol: Convergence tolerance.
+        reject_negative_slope: If True (default), raise NegativeSlopeError
+            when fitted a <= 0. This prevents ranking inversion.
 
     Returns:
         Fitted PlattCalibrator.
 
     Raises:
         ValueError: If inputs are invalid.
+        NegativeSlopeError: If fitted slope is negative and reject_negative_slope=True.
     """
     if len(y_true) != len(p_raw):
         raise ValueError(f"Length mismatch: y_true={len(y_true)}, p_raw={len(p_raw)}")
@@ -188,5 +221,9 @@ def fit_platt(
 
         a -= lr * grad_a
         b -= lr * grad_b
+
+    # CRITICAL: Reject negative slope to prevent ranking inversion
+    if reject_negative_slope and a <= 0:
+        raise NegativeSlopeError(head_name, a, b)
 
     return PlattCalibrator(a=a, b=b, head_name=head_name)

@@ -28,7 +28,7 @@ from cryptoscreener.calibration.artifact import (
     create_calibration_metadata,
     save_calibration_artifact,
 )
-from cryptoscreener.calibration.platt import fit_platt
+from cryptoscreener.calibration.platt import NegativeSlopeError, fit_platt
 
 logging.basicConfig(
     level=logging.INFO,
@@ -238,6 +238,14 @@ def main() -> int:
                 max_iter=args.max_iter,
                 lr=args.lr,
             )
+        except NegativeSlopeError as e:
+            # CRITICAL: Negative slope would invert rankings
+            logger.error(f"CRITICAL: {e}")
+            logger.error(
+                "This indicates the model's predictions are anti-correlated with outcomes. "
+                "Investigate model quality and training data before proceeding."
+            )
+            return 1
         except ValueError as e:
             logger.error(f"Failed to fit calibrator for {head}: {e}")
             return 1

@@ -500,6 +500,14 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - Monotonicity preserved for positive slope
 - Deterministic: same input → same output
 - Fail-fast on invalid input (empty, single class, mismatched lengths)
+- **Anti-ranking-inversion:** Rejects calibrators with `a <= 0` (NegativeSlopeError)
+
+**Negative Slope Handling (CRITICAL):**
+- If fitted `a <= 0`, the calibrator would invert rankings (catastrophic for ranker)
+- `fit_platt()` raises `NegativeSlopeError` by default when `a <= 0`
+- CLI exits with code 1 and logs actionable error message
+- Possible causes: anti-correlated model, data corruption, too small validation window
+- Diagnostic mode: `reject_negative_slope=False` allows fitting for investigation only
 
 **Metadata Tracking:**
 - `schema_version`: Calibration schema version (1.0.0)
@@ -524,5 +532,5 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 **Impact:**
 - New `src/cryptoscreener/calibration/` module
 - New `scripts/fit_calibration.py` CLI
-- 36 unit tests for Platt, artifacts, roundtrip, adversarial
+- 42 unit tests for Platt, artifacts, roundtrip, adversarial, negative slope rejection
 - Continues PRD §11 Milestone 3: "Training pipeline skeleton"

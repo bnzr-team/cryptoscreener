@@ -17,12 +17,13 @@ from cryptoscreener.calibration.calibrator import (
     CalibratorMethod,
     fit_calibrator,
 )
-from cryptoscreener.calibration.platt import PlattCalibrator
+from cryptoscreener.calibration.platt import NegativeSlopeError, PlattCalibrator
 
 __all__ = [
     "CalibrationArtifact",
     "CalibrationMetadata",
     "CalibratorMethod",
+    "NegativeSlopeError",
     "PlattCalibrator",
     "fit_calibrator",
     "load_calibration_artifact",
