@@ -820,17 +820,28 @@ FeatureSnapshot → MLRunner._run_inference() → raw probs
 - Fallback ensures graceful degradation during development
 - Deterministic for reproducible backtests
 
+**Artifact Integrity (added in review):**
+- `MLRunnerConfig.model_sha256` and `calibration_sha256` fields for expected hashes
+- `ArtifactIntegrityError` raised on hash mismatch (or fallback if configured)
+- Hash verification is case-insensitive, computed via SHA256
+- Tests: `TestMLRunnerArtifactIntegrity` (7 tests)
+
+**Evidence No-Digits Policy (added in review):**
+- `ReasonCode.evidence` field must NOT contain digits (0-9)
+- Numbers belong in the `value` field; evidence is for LLM consumption
+- Enforces "no-new-numbers" policy for downstream LLM consumers
+- Tests: `TestEvidenceNoDigitsPolicy` (4 tests)
+
 **Known Limitations (future work):**
-- **No artifact hash verification at load time:** Model files (.pkl/.joblib/.onnx) are loaded
-  without verifying SHA256 checksum. This is acceptable for development but should be added
-  before production deployment. CalibrationArtifact has `config_hash` and `data_hash` in
-  metadata but these are not verified against a registry.
+- **Artifact registry not implemented:** While hash verification exists, there's no central
+  manifest/registry that maps model versions to expected SHA256 hashes. Currently hashes
+  must be manually configured in `MLRunnerConfig`.
 - **LLM not involved:** MLRunner `reasons` field contains deterministic `ReasonCode` objects
   built from feature values, NOT LLM-generated text. The `evidence` field is a template-based
-  string using feature values only. This is intentional separation per DEC-004/DEC-005.
+  string without numbers. This is intentional separation per DEC-004/DEC-005.
 
 **Impact:**
 - New `src/cryptoscreener/model_runner/ml_runner.py`
 - Extended `src/cryptoscreener/model_runner/__init__.py` exports
-- 21 unit tests for fallback, calibration, determinism, gates
+- 32 unit tests for fallback, calibration, determinism, gates, artifact integrity, evidence policy
 - Completes MLRunner portion of PRD §11 Milestone 3
