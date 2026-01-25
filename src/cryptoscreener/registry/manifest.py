@@ -293,8 +293,10 @@ def validate_manifest(manifest: Manifest, package_dir: Path) -> list[str]:
 
     Checks:
     1. Required artifacts exist
-    2. SHA256 hashes match
-    3. File sizes match
+    2. Artifact names are safe (no path traversal)
+    3. Files are not symlinks (security)
+    4. SHA256 hashes match
+    5. File sizes match
 
     Args:
         manifest: Manifest to validate.
@@ -310,11 +312,35 @@ def validate_manifest(manifest: Manifest, package_dir: Path) -> list[str]:
     for name in missing:
         errors.append(f"Missing required artifact: {name}")
 
+    # Resolve package_dir for path containment checks
+    package_dir_resolved = package_dir.resolve()
+
     # Validate each artifact
     for artifact in manifest.artifacts:
+        # Security: Reject path traversal in artifact names
+        if "/" in artifact.name or "\\" in artifact.name or ".." in artifact.name:
+            errors.append(f"Invalid artifact name (path traversal attempt): {artifact.name}")
+            continue
+
         filepath = package_dir / artifact.name
+
+        # Security: Verify file is inside package directory
+        try:
+            filepath_resolved = filepath.resolve()
+            if not str(filepath_resolved).startswith(str(package_dir_resolved)):
+                errors.append(f"Artifact path escapes package directory: {artifact.name}")
+                continue
+        except (OSError, ValueError):
+            errors.append(f"Cannot resolve artifact path: {artifact.name}")
+            continue
+
         if not filepath.exists():
             errors.append(f"Artifact file missing: {artifact.name}")
+            continue
+
+        # Security: Reject symlinks
+        if filepath.is_symlink():
+            errors.append(f"Artifact is a symlink (not allowed): {artifact.name}")
             continue
 
         # Check SHA256

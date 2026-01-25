@@ -437,3 +437,61 @@ class TestValidateManifest:
         errors = validate_manifest(manifest, tmp_path)
 
         assert any("Artifact file missing" in e for e in errors)
+
+    def test_rejects_path_traversal(self, tmp_path: Path) -> None:
+        """Rejects artifact names with path traversal."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name="../etc/passwd", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("path traversal" in e.lower() for e in errors)
+
+    def test_rejects_path_with_slash(self, tmp_path: Path) -> None:
+        """Rejects artifact names with forward slash."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name="subdir/file.bin", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("path traversal" in e.lower() for e in errors)
+
+    def test_rejects_symlinks(self, tmp_path: Path) -> None:
+        """Rejects symlinked artifacts."""
+        import os
+
+        # Create a real file and a symlink to it
+        real_file = tmp_path / "real.txt"
+        real_file.write_text("real content")
+
+        symlink = tmp_path / "linked.txt"
+        os.symlink(real_file, symlink)
+
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(
+                    name="linked.txt",
+                    sha256=compute_file_sha256(real_file),
+                    size_bytes=real_file.stat().st_size,
+                ),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("symlink" in e.lower() for e in errors)
