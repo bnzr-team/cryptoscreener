@@ -309,23 +309,23 @@ class BaselineRunner(ModelRunner):
                 )
             )
 
-        # Book imbalance reason
+        # Book imbalance reason (flow imbalance direction)
         if abs(features.book_imbalance) > 0.3:
-            side = "bid" if features.book_imbalance > 0 else "ask"
+            direction = "LONG" if features.book_imbalance > 0 else "SHORT"
             reasons.append(
                 ReasonCode(
-                    code="RC_BOOK_PRESSURE",
+                    code=f"RC_FLOW_IMBALANCE_{direction}",
                     value=round(features.book_imbalance, 3),
                     unit="ratio",
-                    evidence=f"Strong {side}-side book pressure",
+                    evidence=f"Book imbalance favors {direction.lower()} side",
                 )
             )
 
-        # Spread reason
+        # Spread reason (per REASON_CODES_TAXONOMY.md)
         if features.spread_bps < 2:
             reasons.append(
                 ReasonCode(
-                    code="RC_TIGHT_SPREAD",
+                    code="RC_SPREAD_TIGHT",
                     value=round(features.spread_bps, 2),
                     unit="bps",
                     evidence="Tight spread indicates good liquidity",
@@ -334,29 +334,29 @@ class BaselineRunner(ModelRunner):
         elif features.spread_bps > 10:
             reasons.append(
                 ReasonCode(
-                    code="RC_WIDE_SPREAD",
+                    code="RC_SPREAD_WIDE",
                     value=round(features.spread_bps, 2),
                     unit="bps",
                     evidence="Wide spread indicates poor liquidity",
                 )
             )
 
-        # Toxicity warning
+        # Toxicity warning (per REASON_CODES_TAXONOMY.md)
         if p_toxic > 0.5:
             reasons.append(
                 ReasonCode(
-                    code="RC_TOXIC_RISK",
+                    code="RC_TOXIC_RISK_UP",
                     value=round(p_toxic, 3),
                     unit="prob",
                     evidence="Elevated toxic flow risk",
                 )
             )
 
-        # Regime reason
+        # Regime reason (per REASON_CODES_TAXONOMY.md)
         if features.regime_vol == RegimeVol.HIGH:
             reasons.append(
                 ReasonCode(
-                    code="RC_HIGH_VOL",
+                    code="RC_REGIME_HIGH_VOL",
                     value=round(features.natr_14_5m, 4),
                     unit="natr",
                     evidence="High volatility regime",

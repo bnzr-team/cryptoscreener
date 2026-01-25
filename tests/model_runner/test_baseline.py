@@ -241,50 +241,50 @@ class TestBaselineRunner:
         codes = [r.code for r in prediction.reasons]
         assert "RC_FLOW_SURGE" in codes
 
-    def test_reason_codes_book_pressure(
+    def test_reason_codes_flow_imbalance_long(
         self, runner: BaselineRunner, make_snapshot: SnapshotFactory
     ) -> None:
-        """Book pressure reason code."""
+        """Flow imbalance LONG reason code (per REASON_CODES_TAXONOMY.md)."""
         snapshot = make_snapshot(book_imbalance=0.5)
         prediction = runner.predict(snapshot)
 
         codes = [r.code for r in prediction.reasons]
-        assert "RC_BOOK_PRESSURE" in codes
+        assert "RC_FLOW_IMBALANCE_LONG" in codes
 
-    def test_reason_codes_tight_spread(
+    def test_reason_codes_spread_tight(
         self, runner: BaselineRunner, make_snapshot: SnapshotFactory
     ) -> None:
-        """Tight spread reason code."""
+        """Spread tight reason code (per REASON_CODES_TAXONOMY.md)."""
         snapshot = make_snapshot(spread_bps=0.5)
         prediction = runner.predict(snapshot)
 
         codes = [r.code for r in prediction.reasons]
-        assert "RC_TIGHT_SPREAD" in codes
+        assert "RC_SPREAD_TIGHT" in codes
 
-    def test_reason_codes_wide_spread(
+    def test_reason_codes_spread_wide(
         self, runner: BaselineRunner, make_snapshot: SnapshotFactory
     ) -> None:
-        """Wide spread reason code."""
+        """Spread wide reason code (per REASON_CODES_TAXONOMY.md)."""
         snapshot = make_snapshot(spread_bps=15.0)
         prediction = runner.predict(snapshot)
 
         codes = [r.code for r in prediction.reasons]
-        assert "RC_WIDE_SPREAD" in codes
+        assert "RC_SPREAD_WIDE" in codes
 
-    def test_reason_codes_high_vol(
+    def test_reason_codes_regime_high_vol(
         self, runner: BaselineRunner, make_snapshot: SnapshotFactory
     ) -> None:
-        """High volatility reason code."""
+        """High volatility regime reason code (per REASON_CODES_TAXONOMY.md)."""
         snapshot = make_snapshot(regime_vol=RegimeVol.HIGH)
         prediction = runner.predict(snapshot)
 
         codes = [r.code for r in prediction.reasons]
-        assert "RC_HIGH_VOL" in codes
+        assert "RC_REGIME_HIGH_VOL" in codes
 
-    def test_reason_codes_toxic_risk(
+    def test_reason_codes_toxic_risk_up(
         self, runner: BaselineRunner, make_snapshot: SnapshotFactory
     ) -> None:
-        """Toxic risk reason code."""
+        """Toxic risk up reason code (per REASON_CODES_TAXONOMY.md)."""
         snapshot = make_snapshot(
             flow_imbalance=0.8,
             impact_bps=30.0,
@@ -292,7 +292,7 @@ class TestBaselineRunner:
         prediction = runner.predict(snapshot)
 
         codes = [r.code for r in prediction.reasons]
-        assert "RC_TOXIC_RISK" in codes
+        assert "RC_TOXIC_RISK_UP" in codes
 
     def test_expected_utility_positive(
         self, runner: BaselineRunner, make_snapshot: SnapshotFactory

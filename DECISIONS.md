@@ -746,6 +746,55 @@ package = load_package(
 
 ---
 
+## DEC-018: Reason Codes SSOT Alignment
+
+**Date:** 2026-01-25
+
+**Decision:** Align all `RC_*` reason codes in implementation with `REASON_CODES_TAXONOMY.md` as the Single Source of Truth (SSOT).
+
+**Problem:**
+Implementation in `BaselineRunner` and `MLRunner` used ad-hoc reason code names that diverged from the canonical taxonomy:
+- `RC_BOOK_PRESSURE` → not in SSOT
+- `RC_TIGHT_SPREAD` → SSOT defines `RC_SPREAD_TIGHT`
+- `RC_WIDE_SPREAD` → SSOT defines `RC_SPREAD_WIDE`
+- `RC_TOXIC_RISK` → SSOT defines `RC_TOXIC_RISK_UP`
+- `RC_HIGH_VOL` → SSOT defines `RC_REGIME_HIGH_VOL`
+
+**Changes:**
+
+1. **Code aligned to SSOT** (`baseline.py`, `ml_runner.py`):
+   - `RC_BOOK_PRESSURE` → `RC_FLOW_IMBALANCE_LONG` / `RC_FLOW_IMBALANCE_SHORT` (direction-aware)
+   - `RC_TIGHT_SPREAD` → `RC_SPREAD_TIGHT`
+   - `RC_WIDE_SPREAD` → `RC_SPREAD_WIDE`
+   - `RC_TOXIC_RISK` → `RC_TOXIC_RISK_UP`
+   - `RC_HIGH_VOL` → `RC_REGIME_HIGH_VOL`
+
+2. **SSOT updated** (`REASON_CODES_TAXONOMY.md`):
+   - Added `### Gates (Trading Blockers)`: `RC_GATE_SPREAD_FAIL`, `RC_GATE_IMPACT_FAIL`
+   - Added `### Data Quality`: `RC_DATA_STALE`
+   - Added `### ML/Calibration (MLRunner-specific)`: `RC_CALIBRATION_ADJ`
+
+3. **Tests updated** (`test_baseline.py`):
+   - All assertions updated to expect SSOT-compliant codes
+
+**Alternatives considered:**
+1. Alias mapping layer (translate old→new) — rejected: adds complexity, masks the problem
+2. Update only SSOT (add old names as aliases) — rejected: dilutes SSOT authority
+3. Ignore divergence — rejected: violates SSOT principle, causes confusion
+
+**Rationale:**
+- SSOT must be authoritative; implementation diverging creates confusion
+- Direction-aware flow imbalance codes (`_LONG`/`_SHORT`) are more informative
+- Explicit gate failure codes improve observability
+- Backward compatibility is NOT a concern (no production consumers yet)
+
+**Impact:**
+- All `RC_*` codes in codebase now match `REASON_CODES_TAXONOMY.md`
+- Tests verify SSOT compliance
+- Future additions must go through SSOT first
+
+---
+
 ## DEC-014: MLRunner with Calibration Integration (PR-C)
 
 **Date:** 2026-01-25
