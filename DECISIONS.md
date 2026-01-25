@@ -611,8 +611,9 @@ Digests match: True
 4. MLRunner with `fallback_to_baseline=True` delegates here anyway
 
 **Future work (separate PR):**
-- DEC-016: MLRunner E2E Determinism Acceptance (after PR#58 merge)
+- MLRunner E2E Determinism Acceptance (after PR#58 merge, DEC number TBD)
 - Will test calibrated ML predictions path
+- Note: DEC-016 is reserved for Artifact Registry/Manifest per roadmap
 
 **Alternatives considered:**
 1. Wait for MLRunner merge — rejected: baseline path is critical and testable now
