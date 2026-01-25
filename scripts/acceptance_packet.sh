@@ -215,10 +215,12 @@ POLL_INTERVAL=10
 WAITED=0
 
 while true; do
-  # Get all checks, then filter out acceptance-packet to avoid self-reference loop
+  # Get all checks, then filter out acceptance-packet and proof-guard to avoid circular dependency
+  # - acceptance-packet: this workflow itself
+  # - proof-guard: depends on acceptance-packet completing first
   CHECKS_OUTPUT="$(gh pr checks "${PR_NUMBER}" 2>&1 || true)"
-  # Filter out acceptance-packet check (this workflow) to prevent infinite wait
-  FILTERED_CHECKS="$(echo "${CHECKS_OUTPUT}" | grep -v "^acceptance-packet" || true)"
+  # Filter out both checks to prevent circular wait
+  FILTERED_CHECKS="$(echo "${CHECKS_OUTPUT}" | grep -v "^acceptance-packet" | grep -v "^proof-guard" || true)"
   echo "${FILTERED_CHECKS}"
 
   # Check for pending (in filtered output only)
