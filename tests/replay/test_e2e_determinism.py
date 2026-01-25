@@ -354,6 +354,19 @@ class TestE2EDeterminism:
             assert event.symbol in {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
             assert event.score >= 0
 
+    def test_runner_type_is_baseline(self) -> None:
+        """Verify pipeline uses BaselineRunner (not MLRunner)."""
+        _, predictions = run_e2e_pipeline(E2E_FIXTURE)
+
+        # All predictions must come from BaselineRunner
+        # Format: "baseline-v1.0.0+{git_sha}" (7 chars)
+        for pred in predictions:
+            assert pred.model_version.startswith("baseline-"), (
+                f"Expected baseline-* model, got {pred.model_version}. "
+                "This test suite is for BaselineRunner path only. "
+                "MLRunner E2E tests will be in a separate PR."
+            )
+
     def test_rank_event_json_roundtrip(self) -> None:
         """RankEvents roundtrip through JSON correctly."""
         events, _ = run_e2e_pipeline(E2E_FIXTURE)

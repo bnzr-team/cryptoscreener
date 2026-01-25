@@ -537,14 +537,19 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 
 ---
 
-## DEC-015: Integration Replay Acceptance (PR#59)
+## DEC-015: Baseline E2E Determinism Acceptance (PR#59)
 
 **Date:** 2026-01-25
 
-**Decision:** Add end-to-end replay determinism tests to prove reproducibility of the complete pipeline.
+**Decision:** Add end-to-end replay determinism tests for the **BaselineRunner** pipeline path.
+
+**Scope Clarification:**
+- This PR tests the **BaselineRunner** path (heuristic-based predictions)
+- MLRunner E2E acceptance will be a separate PR after PR#58 (MLRunner) is merged
+- BaselineRunner is the production fallback when ML model is unavailable
 
 **Goal:** Demonstrate that identical input produces identical output:
-`FeatureSnapshot → ModelRunner → Scorer → Ranker → RankEvent`
+`FeatureSnapshot → BaselineRunner → Scorer → Ranker → RankEvent`
 
 **Components:**
 
@@ -559,25 +564,31 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
    - 5 time frames with varying feature values
 
 3. **Pipeline Function** (`run_e2e_pipeline`):
-   - Initializes BaselineRunner, Scorer, Ranker
-   - Processes FeatureSnapshots in batches by timestamp
-   - Collects RankEvents and PredictionSnapshots
-   - Returns both for digest computation
+   - Explicitly uses `BaselineRunner` (not MLRunner)
+   - Configures `RankerConfig(score_threshold=0.001)` to ensure events are generated
+   - Asserts `len(events) > 0` to prevent empty digest regression
+   - Validates runner type via `PredictionSnapshot.model_version`
 
-**Digest Computation:**
+**Digest Computation (deterministic serialization):**
 ```python
-# RankEvents: uses contract's compute_rank_events_digest()
-# Predictions: SHA256 of concatenated to_json() bytes
-# Fixture: SHA256 of concatenated FeatureSnapshot JSON
+# From cryptoscreener/contracts/events.py:
+def compute_rank_events_digest(events: list[RankEvent]) -> str:
+    """Compute SHA256 of concatenated RankEvent JSON bytes."""
+    data = b"".join(e.to_json() for e in events)
+    return hashlib.sha256(data).hexdigest()
+
+# to_json() uses msgspec which produces deterministic output
+# (stable field order, no whitespace variations)
 ```
 
-**Proof Format (from test output):**
+**Proof Format (corrected, with non-empty events):**
 ```
 === Replay Proof ===
 Input fixture digest:  d80958017df4ea948e910f67f2662c4f838368632da49253c8d962d60d8881fd
-RankEvent digest (r1): e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-RankEvent digest (r2): e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+RankEvent digest (r1): fc846d6aea56d76c16287e553b4f3d8bd579f3803788e264df84f0f041efc62c
+RankEvent digest (r2): fc846d6aea56d76c16287e553b4f3d8bd579f3803788e264df84f0f041efc62c
 Prediction digest:     eed9cf4967696a5b75b3c78c7604f9410a2b39986c37f28df03e815b6ca84e52
+Total RankEvents: 3
 Digests match: True
 ```
 
@@ -587,26 +598,35 @@ Digests match: True
 - JSON roundtrip: `test_rank_event_json_roundtrip`, `test_prediction_snapshot_json_roundtrip`
 - Proof generation: `test_generate_replay_proof`
 - Different input → different output: `test_different_input_different_output`
+- **Non-empty events assertion**: `test_produces_rank_events` (prevents empty digest regression)
 
-**Why BaselineRunner (not MLRunner):**
-- BaselineRunner is fully deterministic (heuristic-based)
-- MLRunner with `fallback_to_baseline=True` delegates to BaselineRunner anyway
-- When MLRunner is merged (PR#58), these tests will work unchanged
+**Runner Type Validation:**
+- Test asserts `PredictionSnapshot.model_version == "baseline-v1"`
+- Ensures tests are running against expected BaselineRunner, not accidentally MLRunner
+
+**Why BaselineRunner first:**
+1. BaselineRunner is the production fallback (critical path)
+2. Fully deterministic (heuristic-based, no ML model variance)
+3. MLRunner requires PR#58 merge; will be tested separately
+4. MLRunner with `fallback_to_baseline=True` delegates here anyway
+
+**Future work (separate PR):**
+- DEC-016: MLRunner E2E Determinism Acceptance (after PR#58 merge)
+- Will test calibrated ML predictions path
 
 **Alternatives considered:**
-1. Compare event-by-event instead of digest — rejected: digest is more robust
-2. Use real MarketEvents — deferred: FeatureSnapshots are the pipeline input
-3. Float tolerance in comparison — implemented: uses `abs(diff) < 1e-6`
-4. Test MLRunner directly — deferred: requires PR#58 merge
+1. Wait for MLRunner merge — rejected: baseline path is critical and testable now
+2. Compare event-by-event instead of digest — rejected: digest is more robust
+3. Use real MarketEvents — deferred: FeatureSnapshots are the pipeline input
 
 **Rationale:**
-- Proves replay determinism per PRD requirement
+- Proves replay determinism for baseline fallback path per PRD requirement
 - Enables CI/CD to catch non-determinism regressions
 - Provides proof artifacts for audit trail
-- Tests full pipeline integration without external dependencies
+- Tests full pipeline integration without external dependencies or ML models
 
 **Impact:**
 - New `tests/replay/test_e2e_determinism.py` (12 tests)
 - New `tests/fixtures/replay_baseline/` fixture module
 - Extends existing replay test infrastructure
-- Completes Milestone 3 replay acceptance requirement
+- Partially completes Milestone 3 replay acceptance (baseline path)
