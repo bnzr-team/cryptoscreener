@@ -9,6 +9,28 @@
 
 ### Added
 
+#### GitHub PR#54 — Label Builder for ML Ground Truth (DEC-010)
+- New `src/cryptoscreener/cost_model/` module:
+  - `CostCalculator` for execution cost estimation
+  - `compute_spread_bps()`, `compute_impact_bps()` functions
+  - `ExecutionCosts` dataclass with spread, fees, impact, total
+  - Configurable fees by profile (A: maker-ish, B: taker-ish)
+  - Clip size calculation: `Q_usd = k * usd_volume_60s`
+- New `src/cryptoscreener/label_builder/` module:
+  - `LabelBuilder` for ML ground truth generation
+  - `I_tradeable(H)` for horizons 30s, 2m, 5m per LABELS_SPEC.md
+  - MFE/MAE calculation (Maximum Favorable/Adverse Excursion)
+  - Toxicity labels (`y_toxic`) with configurable tau and threshold
+  - Gate checks (spread, impact) before tradeability
+  - `LabelRow` with all labels for (symbol, timestamp)
+  - Flat dict conversion for DataFrame/parquet export
+- New `scripts/build_labels.py` CLI:
+  - Reads market events from JSONL
+  - Outputs labels to parquet or JSONL
+  - Configurable thresholds: `--x-bps-*`, `--spread-max-bps`, `--toxicity-*`
+  - Summary report with tradeability/toxicity statistics
+- Tests: 25+ unit tests for cost_model and label_builder
+
 #### GitHub PR#52 — CI Pipeline Verified (Smoke Test)
 - **Verified commit:** `31c292d38b64936ac2e2379d11cdd1f94e2ca082`
 - **What was tested:**

@@ -360,3 +360,50 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - New `tests/replay/test_record_replay_roundtrip.py` with 16 tests
 - Fixtures can be generated for any symbol set and duration
 - Replay verification uses manifest digest for comparison
+
+---
+
+## DEC-010: Label Builder Architecture (PR#54)
+
+**Date:** 2026-01-25
+
+**Decision:** Implement offline label builder for ML ground truth generation per LABELS_SPEC.md:
+
+1. **Cost Model** (`src/cryptoscreener/cost_model/`):
+   - `cost_bps = spread_bps + fees_bps + impact_bps(Q)`
+   - Configurable fees per profile: A (maker-ish, 2 bps), B (taker-ish, 4 bps)
+   - Clip size: `Q_usd = k * usd_volume_60s` where k=0.01 (scalping) or k=0.03 (intraday)
+   - Impact estimation via orderbook depth walking
+
+2. **Tradeability Labels**:
+   - `I_tradeable(H, profile) = 1` if `net_edge_bps(H) >= X_bps(profile, H)` AND gates pass
+   - `net_edge_bps(H) = MFE_bps(H) - cost_bps`
+   - MFE = Maximum Favorable Excursion within horizon window
+   - Gates: spread <= spread_max_bps, impact <= impact_max_bps
+
+3. **Toxicity Labels**:
+   - `y_toxic = 1` if price moves against by > threshold_bps within tau_ms
+   - Default: tau=30s, threshold=10 bps
+
+4. **CLI** (`scripts/build_labels.py`):
+   - Input: JSONL market events
+   - Output: parquet or JSONL with flat schema
+   - Configurable thresholds via CLI args
+
+**Alternatives considered:**
+1. Online label generation during recording — rejected: labels need future data (lookahead)
+2. Single profile — rejected: PRD requires both maker and taker profiles
+3. Fixed thresholds — rejected: thresholds should be tunable per trading style
+
+**Rationale:**
+- Offline labeling allows using future data (MFE, toxicity)
+- Separate cost model enables unit testing and reuse
+- Flat output format compatible with pandas/parquet for ML training
+- Configurable thresholds support experimentation
+
+**Impact:**
+- New `src/cryptoscreener/cost_model/` module
+- New `src/cryptoscreener/label_builder/` module
+- New `scripts/build_labels.py` CLI
+- 25+ unit tests for cost model and label builder
+- Labels ready for ML training pipeline (Milestone 3)
