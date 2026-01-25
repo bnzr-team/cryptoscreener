@@ -743,3 +743,85 @@ package = load_package(
 - New `tests/registry/` with 73 tests
 - Single API for loading model packages
 - Foundation for future remote registry (Option B/C)
+
+---
+
+## DEC-014: MLRunner with Calibration Integration (PR-C)
+
+**Date:** 2026-01-25
+
+**Decision:** Implement MLRunner as production model runner with calibration integration per PRD §11 Milestone 3.
+
+**Components:**
+1. **MLRunner Class** (`src/cryptoscreener/model_runner/ml_runner.py`):
+   - Inherits from `ModelRunner` base class
+   - Loads model artifact (pickle/joblib/ONNX)
+   - Loads calibration artifact from DEC-013
+   - Applies calibration to raw model probabilities
+   - Falls back to BaselineRunner when model unavailable
+
+2. **MLRunnerConfig**:
+   - `model_path`: Path to model artifact
+   - `calibration_path`: Path to calibration artifact JSON
+   - `require_calibration`: If True, fail if calibration unavailable (default: True)
+   - `fallback_to_baseline`: If True, use baseline on model failure (default: True)
+
+3. **Calibration Application**:
+   - MLRunner applies `CalibrationArtifact.transform()` to each raw probability
+   - Calibrated probabilities flow to `PredictionSnapshot`
+   - Downstream consumers (Scorer, Ranker, Alerter) use calibrated values
+   - No changes needed in downstream modules
+
+**Probability Flow:**
+```
+FeatureSnapshot → MLRunner._run_inference() → raw probs
+                → MLRunner._calibrate() → calibrated probs
+                → PredictionSnapshot
+                → Scorer.score() uses calibrated probs
+                → Ranker ranks by calibrated scores
+```
+
+**Fallback Behavior:**
+1. Model unavailable + `fallback_to_baseline=True` → uses BaselineRunner
+2. Calibration unavailable + `require_calibration=False` → uses raw probabilities
+3. Calibration unavailable + `require_calibration=True` → raises CalibrationArtifactError
+4. Per-head calibrator missing → uses raw probability for that head
+
+**Error Types:**
+- `ModelArtifactError`: Model file not found or invalid format
+- `CalibrationArtifactError`: Calibration required but unavailable
+
+**Supported Model Formats:**
+- `.pkl`: Python pickle (scikit-learn models)
+- `.joblib`: Joblib serialization
+- `.onnx`: ONNX runtime inference
+
+**Replay Determinism:**
+- Same input + same config → identical PredictionSnapshot JSON
+- `MLRunner.compute_digest()` includes model_version + calibration_version
+- Batch prediction matches sequential prediction
+- Tests verify SHA256 hash stability across runs
+
+**Ranker Integration:**
+- Scorer consumes `PredictionSnapshot.p_inplay_*` and `p_toxic` directly
+- These contain **calibrated** probabilities from MLRunner
+- No changes to Scorer or Ranker code needed
+- Calibration is transparent to downstream
+
+**Alternatives considered:**
+1. Calibrate in Scorer — rejected: calibration is model-specific, belongs in runner
+2. Separate CalibrationRunner wrapper — rejected: adds complexity, single runner simpler
+3. Always require calibration — rejected: need flexibility for development/testing
+4. Async model loading — rejected: startup-time loading is sufficient
+
+**Rationale:**
+- MLRunner is drop-in replacement for BaselineRunner
+- Calibration integrated at inference time for correctness
+- Fallback ensures graceful degradation during development
+- Deterministic for reproducible backtests
+
+**Impact:**
+- New `src/cryptoscreener/model_runner/ml_runner.py`
+- Extended `src/cryptoscreener/model_runner/__init__.py` exports
+- 25+ unit tests for fallback, calibration, determinism, gates
+- Completes MLRunner portion of PRD §11 Milestone 3
