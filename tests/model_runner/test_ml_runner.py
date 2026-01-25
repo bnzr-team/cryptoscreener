@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 from pathlib import Path
 
@@ -19,11 +20,28 @@ from cryptoscreener.contracts.events import (
     RegimeVol,
 )
 from cryptoscreener.model_runner import (
+    ArtifactIntegrityError,
     BaselineRunner,
     CalibrationArtifactError,
     MLRunner,
     MLRunnerConfig,
 )
+from cryptoscreener.model_runner.ml_runner import _compute_file_sha256
+
+
+class MockSklearnModel:
+    """Mock sklearn-style model for testing (must be module-level for pickle)."""
+
+    def predict_proba(self, X):
+        import numpy as np
+
+        # Return multi-output format
+        return [
+            np.array([[0.3, 0.7]]),  # p_inplay_30s
+            np.array([[0.4, 0.6]]),  # p_inplay_2m
+            np.array([[0.35, 0.65]]),  # p_inplay_5m
+            np.array([[0.1, 0.1]]),  # p_toxic
+        ]
 
 
 def make_feature_snapshot(
@@ -414,3 +432,263 @@ class TestMLRunnerReplayDeterminism:
         hash2 = hashlib.sha256(b"".join(p.to_json() for p in preds2)).hexdigest()
 
         assert hash1 == hash2, "Replay determinism violated"
+
+
+class TestMLRunnerArtifactIntegrity:
+    """Tests for artifact hash verification."""
+
+    def test_calibration_hash_match_succeeds(self) -> None:
+        """Should load calibration when hash matches."""
+        artifact = make_calibration_artifact()
+        cal_path = save_calibration_to_temp(artifact)
+
+        try:
+            # Compute actual hash
+            actual_hash = _compute_file_sha256(cal_path)
+
+            config = MLRunnerConfig(
+                calibration_path=cal_path,
+                calibration_sha256=actual_hash,
+                require_calibration=True,
+                fallback_to_baseline=True,
+            )
+            runner = MLRunner(config)
+
+            assert runner.has_calibration is True
+        finally:
+            cal_path.unlink()
+
+    def test_calibration_hash_mismatch_raises(self) -> None:
+        """Should raise CalibrationArtifactError when hash mismatches."""
+        artifact = make_calibration_artifact()
+        cal_path = save_calibration_to_temp(artifact)
+
+        try:
+            wrong_hash = "0" * 64  # Clearly wrong hash
+
+            config = MLRunnerConfig(
+                calibration_path=cal_path,
+                calibration_sha256=wrong_hash,
+                require_calibration=True,
+                fallback_to_baseline=True,
+            )
+
+            with pytest.raises(CalibrationArtifactError) as exc_info:
+                MLRunner(config)
+
+            assert "integrity" in str(exc_info.value).lower()
+        finally:
+            cal_path.unlink()
+
+    def test_calibration_hash_mismatch_fallback_no_calibration(self) -> None:
+        """Should proceed without calibration when hash mismatches and not required."""
+        artifact = make_calibration_artifact()
+        cal_path = save_calibration_to_temp(artifact)
+
+        try:
+            wrong_hash = "0" * 64
+
+            config = MLRunnerConfig(
+                calibration_path=cal_path,
+                calibration_sha256=wrong_hash,
+                require_calibration=False,  # Not required
+                fallback_to_baseline=True,
+            )
+
+            runner = MLRunner(config)
+            assert runner.has_calibration is False  # Calibration skipped due to hash mismatch
+        finally:
+            cal_path.unlink()
+
+    def test_model_hash_mismatch_raises_without_fallback(self) -> None:
+        """Should raise ArtifactIntegrityError when model hash mismatches."""
+        import pickle
+
+        # Create a temp model file
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".pkl", delete=False) as f:
+            pickle.dump({"dummy": "model"}, f)
+            model_path = Path(f.name)
+
+        try:
+            wrong_hash = "0" * 64
+
+            config = MLRunnerConfig(
+                model_path=model_path,
+                model_sha256=wrong_hash,
+                fallback_to_baseline=False,  # No fallback
+            )
+
+            with pytest.raises(ArtifactIntegrityError) as exc_info:
+                MLRunner(config)
+
+            assert "mismatch" in str(exc_info.value).lower()
+        finally:
+            model_path.unlink()
+
+    def test_model_hash_mismatch_falls_back(self) -> None:
+        """Should fall back to baseline when model hash mismatches."""
+        import pickle
+
+        # Create a temp model file
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".pkl", delete=False) as f:
+            pickle.dump({"dummy": "model"}, f)
+            model_path = Path(f.name)
+
+        try:
+            wrong_hash = "0" * 64
+
+            config = MLRunnerConfig(
+                model_path=model_path,
+                model_sha256=wrong_hash,
+                fallback_to_baseline=True,  # Allow fallback
+            )
+
+            runner = MLRunner(config)
+            assert runner.is_using_fallback is True
+
+            # Should still produce valid predictions via fallback
+            snapshot = make_feature_snapshot()
+            prediction = runner.predict(snapshot)
+            assert 0 <= prediction.p_inplay_2m <= 1
+        finally:
+            model_path.unlink()
+
+    def test_model_hash_match_succeeds(self) -> None:
+        """Should load model when hash matches."""
+        pytest.importorskip("numpy")
+
+        import pickle
+
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".pkl", delete=False) as f:
+            pickle.dump(MockSklearnModel(), f)
+            model_path = Path(f.name)
+
+        try:
+            actual_hash = _compute_file_sha256(model_path)
+
+            config = MLRunnerConfig(
+                model_path=model_path,
+                model_sha256=actual_hash,
+                fallback_to_baseline=False,
+                require_calibration=False,
+            )
+
+            runner = MLRunner(config)
+            assert runner.is_using_fallback is False
+
+            # Should produce valid predictions from model
+            snapshot = make_feature_snapshot()
+            prediction = runner.predict(snapshot)
+            assert 0 <= prediction.p_inplay_2m <= 1
+        finally:
+            model_path.unlink()
+
+    def test_hash_verification_case_insensitive(self) -> None:
+        """Hash comparison should be case-insensitive."""
+        artifact = make_calibration_artifact()
+        cal_path = save_calibration_to_temp(artifact)
+
+        try:
+            actual_hash = _compute_file_sha256(cal_path)
+            # Use uppercase
+            upper_hash = actual_hash.upper()
+
+            config = MLRunnerConfig(
+                calibration_path=cal_path,
+                calibration_sha256=upper_hash,
+                require_calibration=True,
+                fallback_to_baseline=True,
+            )
+            runner = MLRunner(config)
+
+            assert runner.has_calibration is True
+        finally:
+            cal_path.unlink()
+
+
+class TestEvidenceNoDigitsPolicy:
+    """Tests enforcing LLM-friendly evidence strings (no digits).
+
+    POLICY: ReasonCode.evidence must NOT contain digits (0-9).
+    Numbers belong in the 'value' field; evidence is for LLM consumption.
+
+    This prevents the LLM from extracting new numbers from evidence strings,
+    enforcing the "no-new-numbers" policy for downstream consumers.
+    """
+
+    DIGIT_PATTERN = re.compile(r"\d")
+
+    def _assert_no_digits_in_evidence(self, reasons: list) -> None:
+        """Assert that no evidence string contains digits."""
+        for reason in reasons:
+            if self.DIGIT_PATTERN.search(reason.evidence):
+                pytest.fail(
+                    f"Evidence string contains digits (violates no-digits policy): "
+                    f"code={reason.code}, evidence='{reason.evidence}'"
+                )
+
+    def test_baseline_runner_evidence_no_digits(self) -> None:
+        """BaselineRunner evidence strings must not contain digits."""
+        from cryptoscreener.model_runner.baseline import BaselineRunner
+
+        runner = BaselineRunner()
+
+        # Test various scenarios that produce different ReasonCodes
+        test_cases = [
+            # Normal case with flow imbalance
+            make_feature_snapshot(flow_imbalance=0.5, book_imbalance=0.4),
+            # High spread (gate failure)
+            make_feature_snapshot(spread_bps=15.0),
+            # High impact (gate failure)
+            make_feature_snapshot(impact_bps=25.0),
+            # Stale data
+            make_feature_snapshot(stale_book_ms=10000),
+            # Tight spread
+            make_feature_snapshot(spread_bps=1.0),
+            # Wide spread
+            make_feature_snapshot(spread_bps=12.0),
+            # High volatility regime
+            make_feature_snapshot(regime_vol=RegimeVol.HIGH),
+        ]
+
+        for snapshot in test_cases:
+            prediction = runner.predict(snapshot)
+            self._assert_no_digits_in_evidence(prediction.reasons)
+
+    def test_ml_runner_fallback_evidence_no_digits(self) -> None:
+        """MLRunner (fallback mode) evidence strings must not contain digits."""
+        runner = MLRunner(MLRunnerConfig(fallback_to_baseline=True))
+
+        test_cases = [
+            make_feature_snapshot(flow_imbalance=0.5, book_imbalance=0.4),
+            make_feature_snapshot(spread_bps=15.0),
+            make_feature_snapshot(impact_bps=25.0),
+            make_feature_snapshot(stale_book_ms=10000),
+        ]
+
+        for snapshot in test_cases:
+            prediction = runner.predict(snapshot)
+            self._assert_no_digits_in_evidence(prediction.reasons)
+
+    def test_data_issue_evidence_no_digits(self) -> None:
+        """DATA_ISSUE prediction evidence must not contain digits."""
+        runner = MLRunner(MLRunnerConfig(fallback_to_baseline=True))
+
+        # Stale book data
+        snapshot = make_feature_snapshot(stale_book_ms=10000)
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE
+        self._assert_no_digits_in_evidence(prediction.reasons)
+
+    def test_gate_failure_evidence_no_digits(self) -> None:
+        """Gate failure evidence must not contain digits."""
+        runner = MLRunner(MLRunnerConfig(fallback_to_baseline=True))
+
+        # Spread gate failure
+        snapshot = make_feature_snapshot(spread_bps=15.0)
+        prediction = runner.predict(snapshot)
+
+        gate_reasons = [r for r in prediction.reasons if "GATE" in r.code]
+        assert len(gate_reasons) > 0, "Expected gate failure reasons"
+        self._assert_no_digits_in_evidence(gate_reasons)

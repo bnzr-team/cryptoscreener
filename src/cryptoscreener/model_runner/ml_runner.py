@@ -6,6 +6,7 @@ Falls back to baseline runner when model or calibrator unavailable.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003 - used at runtime in MLRunnerConfig
@@ -39,6 +40,26 @@ class CalibrationArtifactError(Exception):
     """Raised when calibration artifact is invalid or unavailable."""
 
 
+class ArtifactIntegrityError(Exception):
+    """Raised when artifact hash does not match expected value."""
+
+
+def _compute_file_sha256(path: Path) -> str:
+    """Compute SHA256 hash of a file.
+
+    Args:
+        path: Path to file.
+
+    Returns:
+        Lowercase hex digest of SHA256 hash.
+    """
+    sha256 = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
 @dataclass
 class MLRunnerConfig(ModelRunnerConfig):
     """Configuration for MLRunner.
@@ -48,12 +69,16 @@ class MLRunnerConfig(ModelRunnerConfig):
     Attributes:
         model_path: Path to model artifact (pickle/joblib/onnx).
         calibration_path: Path to calibration artifact JSON.
+        model_sha256: Expected SHA256 hash of model file (for integrity check).
+        calibration_sha256: Expected SHA256 hash of calibration file.
         require_calibration: If True, fail if calibration unavailable.
         fallback_to_baseline: If True, use baseline runner on failure.
     """
 
     model_path: Path | None = None
     calibration_path: Path | None = None
+    model_sha256: str | None = None
+    calibration_sha256: str | None = None
     require_calibration: bool = True
     fallback_to_baseline: bool = True
 
@@ -100,8 +125,17 @@ class MLRunner(ModelRunner):
         # Try to load model
         if self._ml_config.model_path:
             try:
-                self._model = self._load_model(self._ml_config.model_path)
+                self._model = self._load_model(
+                    self._ml_config.model_path,
+                    expected_sha256=self._ml_config.model_sha256,
+                )
                 logger.info(f"Loaded model from {self._ml_config.model_path}")
+            except ArtifactIntegrityError as e:
+                logger.error(f"Model integrity check failed: {e}")
+                if not self._ml_config.fallback_to_baseline:
+                    raise
+                self._using_fallback = True
+                logger.info("Falling back to baseline runner due to integrity failure")
             except Exception as e:
                 logger.warning(f"Failed to load model: {e}")
                 if not self._ml_config.fallback_to_baseline:
@@ -112,6 +146,13 @@ class MLRunner(ModelRunner):
         # Try to load calibration
         if self._ml_config.calibration_path:
             try:
+                # Verify calibration hash if provided
+                if self._ml_config.calibration_sha256:
+                    self._verify_file_hash(
+                        self._ml_config.calibration_path,
+                        self._ml_config.calibration_sha256,
+                        artifact_type="calibration",
+                    )
                 self._calibration = load_calibration_artifact(self._ml_config.calibration_path)
                 logger.info(f"Loaded calibration from {self._ml_config.calibration_path}")
                 # Update calibration_version from artifact
@@ -119,6 +160,12 @@ class MLRunner(ModelRunner):
                     f"cal-{self._calibration.metadata.schema_version}"
                     f"+{self._calibration.metadata.git_sha[:7]}"
                 )
+            except ArtifactIntegrityError as e:
+                logger.error(f"Calibration integrity check failed: {e}")
+                if self._ml_config.require_calibration:
+                    raise CalibrationArtifactError(
+                        f"Calibration integrity check failed: {e}"
+                    ) from e
             except FileNotFoundError as e:
                 logger.warning(f"Calibration artifact not found: {e}")
                 if self._ml_config.require_calibration:
@@ -155,22 +202,56 @@ class MLRunner(ModelRunner):
             return []
         return list(self._calibration.calibrators.keys())
 
-    def _load_model(self, path: Path) -> object:
+    def _verify_file_hash(
+        self,
+        path: Path,
+        expected_sha256: str,
+        artifact_type: str = "artifact",
+    ) -> None:
+        """Verify file SHA256 hash matches expected value.
+
+        Args:
+            path: Path to file.
+            expected_sha256: Expected SHA256 hex digest.
+            artifact_type: Type of artifact for error message.
+
+        Raises:
+            ArtifactIntegrityError: If hash does not match.
+        """
+        if not path.exists():
+            raise ArtifactIntegrityError(f"{artifact_type} file not found: {path}")
+
+        actual_sha256 = _compute_file_sha256(path)
+        if actual_sha256.lower() != expected_sha256.lower():
+            raise ArtifactIntegrityError(
+                f"{artifact_type} hash mismatch: "
+                f"expected {expected_sha256[:16]}..., "
+                f"got {actual_sha256[:16]}..."
+            )
+        logger.debug(f"{artifact_type} hash verified: {actual_sha256[:16]}...")
+
+    def _load_model(self, path: Path, expected_sha256: str | None = None) -> object:
         """Load model artifact.
 
         Supports pickle, joblib, and ONNX formats.
 
         Args:
             path: Path to model file.
+            expected_sha256: If provided, verify file hash before loading.
 
         Returns:
             Loaded model object.
 
         Raises:
             ModelArtifactError: If model format unknown or load fails.
+            ArtifactIntegrityError: If hash verification fails.
         """
         if not path.exists():
             raise ModelArtifactError(f"Model file not found: {path}")
+
+        # Verify hash before loading if provided
+        if expected_sha256:
+            self._verify_file_hash(path, expected_sha256, artifact_type="model")
 
         suffix = path.suffix.lower()
 
@@ -404,7 +485,7 @@ class MLRunner(ModelRunner):
                     code="RC_DATA_STALE",
                     value=float(snapshot.data_health.stale_book_ms),
                     unit="ms",
-                    evidence=f"Book data stale for {snapshot.data_health.stale_book_ms}ms",
+                    evidence="Book data stale beyond threshold",
                 )
             ],
             model_version=self._config.model_version,
@@ -488,7 +569,7 @@ class MLRunner(ModelRunner):
                     code="RC_GATE_SPREAD_FAIL",
                     value=round(spread, 2),
                     unit="bps",
-                    evidence=f"Spread {spread:.1f} bps exceeds max {self._config.spread_max_bps:.1f} bps",
+                    evidence="Spread exceeds maximum threshold",
                 )
             )
 
@@ -498,7 +579,7 @@ class MLRunner(ModelRunner):
                     code="RC_GATE_IMPACT_FAIL",
                     value=round(impact, 2),
                     unit="bps",
-                    evidence=f"Impact {impact:.1f} bps exceeds max {self._config.impact_max_bps:.1f} bps",
+                    evidence="Impact exceeds maximum threshold",
                 )
             )
 
@@ -536,7 +617,7 @@ class MLRunner(ModelRunner):
                         code="RC_CALIBRATION_ADJ",
                         value=round(p_inplay - raw_2m, 3),
                         unit="delta",
-                        evidence=f"Calibration adjusted p_inplay_2m: {raw_2m:.3f} → {p_inplay:.3f}",
+                        evidence="Calibration adjustment applied",
                     )
                 )
 

@@ -122,7 +122,7 @@ class BaselineRunner(ModelRunner):
                     code="RC_DATA_STALE",
                     value=float(snapshot.data_health.stale_book_ms),
                     unit="ms",
-                    evidence=f"Book data stale for {snapshot.data_health.stale_book_ms}ms",
+                    evidence="Book data stale beyond threshold",
                 )
             ],
             model_version=self._config.model_version,
@@ -283,7 +283,7 @@ class BaselineRunner(ModelRunner):
                     code="RC_GATE_SPREAD_FAIL",
                     value=round(features.spread_bps, 2),
                     unit="bps",
-                    evidence=f"Spread {features.spread_bps:.1f} bps exceeds max {self._config.spread_max_bps:.1f} bps",
+                    evidence="Spread exceeds maximum threshold",
                 )
             )
 
@@ -293,7 +293,7 @@ class BaselineRunner(ModelRunner):
                     code="RC_GATE_IMPACT_FAIL",
                     value=round(features.impact_bps_q, 2),
                     unit="bps",
-                    evidence=f"Impact {features.impact_bps_q:.1f} bps exceeds max {self._config.impact_max_bps:.1f} bps",
+                    evidence="Impact exceeds maximum threshold",
                 )
             )
 
