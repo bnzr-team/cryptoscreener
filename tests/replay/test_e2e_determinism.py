@@ -245,6 +245,7 @@ def run_e2e_pipeline(
         enter_ms=1500,
         exit_ms=3000,
         min_dwell_ms=2000,
+        score_threshold=0.001,  # Lower threshold to ensure events are generated
     )
 
     runner = BaselineRunner(runner_config)
@@ -344,9 +345,14 @@ class TestE2EDeterminism:
         expected_predictions = sum(len(frame) for frame in E2E_FIXTURE)
         assert len(predictions) == expected_predictions
 
-        # May or may not produce events depending on hysteresis
-        # but should at least run without error
-        assert isinstance(events, list)
+        # MUST produce at least 1 RankEvent (prevents empty digest regression)
+        assert len(events) > 0, "Pipeline must produce at least one RankEvent"
+
+        # Verify events have valid structure
+        for event in events:
+            assert event.ts > 0
+            assert event.symbol in {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+            assert event.score >= 0
 
     def test_rank_event_json_roundtrip(self) -> None:
         """RankEvents roundtrip through JSON correctly."""
