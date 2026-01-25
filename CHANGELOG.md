@@ -9,6 +9,22 @@
 
 ### Added
 
+#### GitHub PR#55 — Offline Backtest Harness (DEC-011)
+- New `src/cryptoscreener/backtest/` module:
+  - `compute_auc()`, `compute_pr_auc()` for classification quality
+  - `compute_brier_score()`, `compute_ece()` for calibration metrics
+  - `compute_topk_capture()`, `compute_topk_mean_edge()` for top-K metrics
+  - `compute_churn_metrics()` for rank stability analysis
+  - `BacktestHarness` class for running evaluations
+  - `BacktestResult` with serialization to JSON
+- New `scripts/run_backtest.py` CLI:
+  - Evaluates labeled data against metrics
+  - Configurable horizons, profiles, top-K
+  - Outputs JSON report with all metrics
+  - Exit code based on ECE acceptance criteria
+- Tests: 41 unit tests for metrics and harness
+- Per PRD §10: AUC, PR-AUC, Brier, ECE, Top-K capture, churn
+
 #### GitHub PR#54 — Label Builder for ML Ground Truth (DEC-010)
 - New `src/cryptoscreener/cost_model/` module:
   - `CostCalculator` for execution cost estimation

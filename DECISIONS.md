@@ -407,3 +407,52 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - New `scripts/build_labels.py` CLI
 - 25+ unit tests for cost model and label builder
 - Labels ready for ML training pipeline (Milestone 3)
+
+---
+
+## DEC-011: Offline Backtest Harness (PR#55)
+
+**Date:** 2026-01-25
+
+**Decision:** Implement offline backtest evaluation module per PRD §10 and EVALUATION_METRICS.md.
+
+**Components:**
+1. **Metrics Module** (`src/cryptoscreener/backtest/metrics.py`):
+   - AUC, PR-AUC for classification quality
+   - Brier score for probabilistic accuracy
+   - ECE (Expected Calibration Error), MCE (Maximum Calibration Error)
+   - Top-K capture rate, mean net_edge_bps in top-K
+   - Churn metrics for rank stability (Jaccard similarity, state changes)
+
+2. **Harness Module** (`src/cryptoscreener/backtest/harness.py`):
+   - `BacktestConfig` for evaluation configuration
+   - `BacktestHarness` for running evaluations
+   - `Predictor` protocol for model integration
+   - `evaluate_labels_only()` for baseline analysis
+   - `evaluate_with_predictor()` for model evaluation
+
+3. **CLI** (`scripts/run_backtest.py`):
+   - Input: labeled parquet/JSONL from build_labels.py
+   - Output: JSON report with all metrics
+   - Exit code: 0 if ECE < 5% (acceptance criteria), 1 otherwise
+
+**Metrics per PRD §10:**
+- Offline: AUC, PR-AUC, Brier, ECE, Top-K capture, net edge in top-K, churn
+- Acceptance criteria: ECE < 5%, top-K captures >= X% of tradeable events
+
+**Alternatives considered:**
+1. Use scikit-learn metrics — rejected: adds heavy dependency for simple calculations
+2. Inline evaluation in training — rejected: separate module enables reuse
+3. Only model evaluation — rejected: baseline analysis (labels-only) useful for data quality
+
+**Rationale:**
+- Pure Python metrics avoid sklearn dependency
+- Protocol-based predictor allows any model implementation
+- Separate harness enables both offline eval and CI integration
+- JSON output format for easy inspection and automation
+
+**Impact:**
+- New `src/cryptoscreener/backtest/` module
+- New `scripts/run_backtest.py` CLI
+- 41 unit tests for metrics and harness
+- Completes PRD §11 Milestone 2: "Label builder + offline backtest harness"
