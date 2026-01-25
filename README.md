@@ -28,3 +28,4 @@ pytest
 ```bash
 python -m scripts.run_replay --fixture tests/fixtures/sample_run/
 ```
+smoke 2026-01-25T00:06:43Z
