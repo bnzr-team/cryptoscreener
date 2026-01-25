@@ -456,3 +456,81 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 - New `scripts/run_backtest.py` CLI
 - 41 unit tests for metrics and harness
 - Completes PRD §11 Milestone 2: "Label builder + offline backtest harness"
+
+---
+
+## DEC-013: Probability Calibration (PR-B)
+
+**Date:** 2026-01-25
+
+**Decision:** Implement Platt scaling calibration for model probability outputs per PRD §11 Milestone 3.
+
+**Components:**
+1. **Platt Module** (`src/cryptoscreener/calibration/platt.py`):
+   - `PlattCalibrator` dataclass with a, b parameters
+   - `fit_platt()` using gradient descent on cross-entropy
+   - Platt's target adjustment for better calibration
+   - Numerically stable sigmoid/logit transforms
+
+2. **Artifact Module** (`src/cryptoscreener/calibration/artifact.py`):
+   - `CalibrationMetadata` with schema_version, git_sha, config_hash, data_hash
+   - `CalibrationArtifact` containing calibrators + metadata
+   - `save_calibration_artifact()` / `load_calibration_artifact()`
+   - Metrics before/after tracking (Brier, ECE)
+
+3. **Calibrator Interface** (`src/cryptoscreener/calibration/calibrator.py`):
+   - `Calibrator` protocol for pluggable implementations
+   - `CalibratorMethod` enum (PLATT, future: ISOTONIC)
+   - `fit_calibrator()` unified API
+
+4. **CLI** (`scripts/fit_calibration.py`):
+   - Input: validation split from PR-A (val.jsonl)
+   - Output: calibration.json with calibrators + metadata
+   - Reports Brier/ECE before and after calibration
+   - Configurable heads, max_iter, learning rate
+
+**Calibration Heads:**
+- `p_inplay_30s` → `i_tradeable_30s_a`
+- `p_inplay_2m` → `i_tradeable_2m_a`
+- `p_inplay_5m` → `i_tradeable_5m_a`
+- `p_toxic` → `y_toxic`
+
+**Guarantees:**
+- All calibrated probabilities remain in [0, 1]
+- Monotonicity preserved for positive slope
+- Deterministic: same input → same output
+- Fail-fast on invalid input (empty, single class, mismatched lengths)
+- **Anti-ranking-inversion:** Rejects calibrators with `a <= 0` (NegativeSlopeError)
+
+**Negative Slope Handling (CRITICAL):**
+- If fitted `a <= 0`, the calibrator would invert rankings (catastrophic for ranker)
+- `fit_platt()` raises `NegativeSlopeError` by default when `a <= 0`
+- CLI exits with code 1 and logs actionable error message
+- Possible causes: anti-correlated model, data corruption, too small validation window
+- Diagnostic mode: `reject_negative_slope=False` allows fitting for investigation only
+
+**Metadata Tracking:**
+- `schema_version`: Calibration schema version (1.0.0)
+- `git_sha`: Git commit at calibration time (12 chars)
+- `config_hash`: SHA256 of calibration configuration (16 chars)
+- `data_hash`: SHA256 of validation data (16 chars)
+- `metrics_before`/`metrics_after`: Brier, ECE per head
+
+**Alternatives considered:**
+1. scikit-learn CalibratedClassifierCV — rejected: heavy dependency
+2. Isotonic regression — deferred: Platt sufficient for MVP
+3. Temperature scaling — considered: simpler but Platt more flexible
+4. Calibrate on train — rejected: must fit on val to avoid overfitting
+
+**Rationale:**
+- Platt scaling is standard for binary classifier calibration
+- Pure Python avoids sklearn dependency
+- Artifact storage enables reproducibility
+- Metrics before/after demonstrate improvement
+- Fit on validation set prevents calibration overfitting
+
+**Impact:**
+- New `src/cryptoscreener/calibration/` module
+- New `scripts/fit_calibration.py` CLI
+- 42 unit tests for Platt, artifacts, roundtrip, adversarial, negative slope rejection
+- Continues PRD §11 Milestone 3: "Training pipeline skeleton"
