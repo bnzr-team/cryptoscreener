@@ -2,9 +2,21 @@
 
 from cryptoscreener.model_runner.base import ModelRunner, ModelRunnerConfig
 from cryptoscreener.model_runner.baseline import BaselineRunner
+from cryptoscreener.model_runner.ml_runner import (
+    ArtifactIntegrityError,
+    CalibrationArtifactError,
+    MLRunner,
+    MLRunnerConfig,
+    ModelArtifactError,
+)
 
 __all__ = [
+    "ArtifactIntegrityError",
     "BaselineRunner",
+    "CalibrationArtifactError",
+    "MLRunner",
+    "MLRunnerConfig",
+    "ModelArtifactError",
     "ModelRunner",
     "ModelRunnerConfig",
 ]

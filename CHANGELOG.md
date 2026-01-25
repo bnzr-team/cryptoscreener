@@ -9,6 +9,20 @@
 
 ### Added
 
+#### GitHub PR-C — MLRunner with Calibration Integration (DEC-014)
+- New `src/cryptoscreener/model_runner/ml_runner.py`:
+  - `MLRunner` class inheriting from `ModelRunner`
+  - Loads model artifacts (pickle/joblib/ONNX)
+  - Loads calibration artifacts from DEC-013
+  - Applies calibration to raw model probabilities
+  - Fallback to `BaselineRunner` when model unavailable
+- New `MLRunnerConfig` with model_path, calibration_path, require_calibration, fallback_to_baseline
+- Error types: `ModelArtifactError`, `CalibrationArtifactError`
+- Calibration flow: raw probs → calibrated probs → PredictionSnapshot → Scorer/Ranker
+- Tests: 25+ tests for fallback, calibration loading, determinism, gates
+- Replay determinism: same input → identical PredictionSnapshot JSON
+- Per PRD §11 Milestone 3: "Training pipeline skeleton"
+
 #### GitHub PR-B — Probability Calibration (DEC-013)
 - New `src/cryptoscreener/calibration/` module:
   - `PlattCalibrator` with Platt scaling (sigmoid calibration)
