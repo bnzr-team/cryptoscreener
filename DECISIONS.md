@@ -820,8 +820,17 @@ FeatureSnapshot → MLRunner._run_inference() → raw probs
 - Fallback ensures graceful degradation during development
 - Deterministic for reproducible backtests
 
+**Known Limitations (future work):**
+- **No artifact hash verification at load time:** Model files (.pkl/.joblib/.onnx) are loaded
+  without verifying SHA256 checksum. This is acceptable for development but should be added
+  before production deployment. CalibrationArtifact has `config_hash` and `data_hash` in
+  metadata but these are not verified against a registry.
+- **LLM not involved:** MLRunner `reasons` field contains deterministic `ReasonCode` objects
+  built from feature values, NOT LLM-generated text. The `evidence` field is a template-based
+  string using feature values only. This is intentional separation per DEC-004/DEC-005.
+
 **Impact:**
 - New `src/cryptoscreener/model_runner/ml_runner.py`
 - Extended `src/cryptoscreener/model_runner/__init__.py` exports
-- 25+ unit tests for fallback, calibration, determinism, gates
+- 21 unit tests for fallback, calibration, determinism, gates
 - Completes MLRunner portion of PRD §11 Milestone 3
