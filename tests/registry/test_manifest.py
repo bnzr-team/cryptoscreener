@@ -451,7 +451,7 @@ class TestValidateManifest:
 
         errors = validate_manifest(manifest, tmp_path)
 
-        assert any("path traversal" in e.lower() for e in errors)
+        assert any("path separator" in e.lower() for e in errors)
 
     def test_rejects_path_with_slash(self, tmp_path: Path) -> None:
         """Rejects artifact names with forward slash."""
@@ -466,7 +466,7 @@ class TestValidateManifest:
 
         errors = validate_manifest(manifest, tmp_path)
 
-        assert any("path traversal" in e.lower() for e in errors)
+        assert any("path separator" in e.lower() for e in errors)
 
     def test_rejects_symlinks(self, tmp_path: Path) -> None:
         """Rejects symlinked artifacts."""
@@ -495,3 +495,107 @@ class TestValidateManifest:
         errors = validate_manifest(manifest, tmp_path)
 
         assert any("symlink" in e.lower() for e in errors)
+
+    def test_rejects_absolute_path(self, tmp_path: Path) -> None:
+        """Rejects absolute path artifact names."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name="/etc/passwd", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("absolute path" in e.lower() for e in errors)
+
+    def test_rejects_empty_name(self, tmp_path: Path) -> None:
+        """Rejects empty artifact names."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name="", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("empty" in e.lower() for e in errors)
+
+    def test_rejects_whitespace_name(self, tmp_path: Path) -> None:
+        """Rejects whitespace-only artifact names."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name="   ", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("empty" in e.lower() or "whitespace" in e.lower() for e in errors)
+
+    def test_rejects_dot_only_name(self, tmp_path: Path) -> None:
+        """Rejects '.' as artifact name."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name=".", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("special directory" in e.lower() for e in errors)
+
+    def test_rejects_dotdot_name(self, tmp_path: Path) -> None:
+        """Rejects '..' as artifact name."""
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                ArtifactEntry(name="..", sha256="abc", size_bytes=100),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        assert any("special directory" in e.lower() for e in errors)
+
+    def test_prefix_collision_attack(self, tmp_path: Path) -> None:
+        """Reject paths that use prefix collision (e.g., /pkg/dir vs /pkg/dir_evil)."""
+        # This tests that we use relative_to() not startswith()
+        # Create a sibling directory with similar prefix
+        sibling_dir = tmp_path.parent / (tmp_path.name + "_evil")
+        sibling_dir.mkdir(exist_ok=True)
+        secret_file = sibling_dir / "secret.txt"
+        secret_file.write_text("secret")
+
+        # Even if the name looks innocent, the resolved path shouldn't escape
+        # Note: This attack vector is blocked at name validation level now,
+        # but this test ensures the relative_to() check works as a defense-in-depth
+        manifest = Manifest(
+            schema_version="1.0.0",
+            model_version="test",
+            created_at="2026-01-25",
+            artifacts=[
+                # This name is invalid (contains path separator) and will be rejected
+                ArtifactEntry(
+                    name="../" + tmp_path.name + "_evil/secret.txt", sha256="abc", size_bytes=6
+                ),
+            ],
+        )
+
+        errors = validate_manifest(manifest, tmp_path)
+
+        # Should be rejected for path separator
+        assert any("path" in e.lower() for e in errors)

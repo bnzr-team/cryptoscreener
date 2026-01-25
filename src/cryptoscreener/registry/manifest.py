@@ -317,20 +317,43 @@ def validate_manifest(manifest: Manifest, package_dir: Path) -> list[str]:
 
     # Validate each artifact
     for artifact in manifest.artifacts:
-        # Security: Reject path traversal in artifact names
-        if "/" in artifact.name or "\\" in artifact.name or ".." in artifact.name:
-            errors.append(f"Invalid artifact name (path traversal attempt): {artifact.name}")
+        # Security: Validate artifact name using PurePath
+        from pathlib import PurePath
+
+        pure_name = PurePath(artifact.name)
+
+        # Reject empty names
+        if not artifact.name or artifact.name.isspace():
+            errors.append(f"Invalid artifact name (empty or whitespace): {artifact.name!r}")
+            continue
+
+        # Reject . and .. (check before parts check since PurePath('.').parts == ())
+        if artifact.name in (".", ".."):
+            errors.append(f"Invalid artifact name (special directory): {artifact.name}")
+            continue
+
+        # Reject absolute paths
+        if pure_name.is_absolute():
+            errors.append(f"Invalid artifact name (absolute path): {artifact.name}")
+            continue
+
+        # Reject paths with subdirectories or .. components
+        # A valid artifact name should have exactly 1 part (just the filename)
+        if len(pure_name.parts) != 1 or ".." in pure_name.parts:
+            errors.append(f"Invalid artifact name (contains path separator): {artifact.name}")
             continue
 
         filepath = package_dir / artifact.name
 
-        # Security: Verify file is inside package directory
+        # Security: Verify file is inside package directory using relative_to()
+        # This is immune to prefix collision attacks (e.g., /pkg/dir vs /pkg/dir_evil)
         try:
             filepath_resolved = filepath.resolve()
-            if not str(filepath_resolved).startswith(str(package_dir_resolved)):
-                errors.append(f"Artifact path escapes package directory: {artifact.name}")
-                continue
-        except (OSError, ValueError):
+            filepath_resolved.relative_to(package_dir_resolved)
+        except ValueError:
+            errors.append(f"Artifact path escapes package directory: {artifact.name}")
+            continue
+        except OSError:
             errors.append(f"Cannot resolve artifact path: {artifact.name}")
             continue
 
