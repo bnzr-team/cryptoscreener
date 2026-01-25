@@ -196,6 +196,90 @@ class TestFitPlatt:
             assert 0.0 <= result <= 1.0, f"p={p}: result={result} out of bounds"
 
 
+class TestRankingPreservation:
+    """Tests for ranking/ordering preservation.
+
+    CRITICAL: Calibration must not invert rankings. If higher raw probability
+    means higher true probability, calibrated outputs must preserve this order.
+    """
+
+    def test_fit_preserves_ranking_on_well_ordered_data(self) -> None:
+        """Fitted calibrator should preserve ranking on positively-correlated data.
+
+        When raw probabilities are positively correlated with outcomes
+        (higher p_raw → higher P(y=1)), the fitted calibrator must have a >= 0
+        to preserve ranking order.
+        """
+        # Create well-ordered data: higher probability → higher label rate
+        n = 200
+        labels = []
+        probs = []
+
+        for i in range(n):
+            # Probability increases with i
+            p = (i + 1) / (n + 1)
+            probs.append(p)
+            # Label rate also increases with i (positive correlation)
+            labels.append(1 if (i % 10) < int(p * 10) else 0)
+
+        cal = fit_platt(labels, probs, "test")
+
+        # a must be positive for ranking preservation
+        assert cal.a > 0, (
+            f"Fitted a={cal.a} is non-positive on well-ordered data. "
+            "This would invert rankings!"
+        )
+
+        # Verify ranking is actually preserved
+        test_probs = [0.1, 0.3, 0.5, 0.7, 0.9]
+        calibrated = cal.transform_batch(test_probs)
+
+        for i in range(len(calibrated) - 1):
+            assert calibrated[i] < calibrated[i + 1], (
+                f"Ranking inverted: cal({test_probs[i]})={calibrated[i]} >= "
+                f"cal({test_probs[i+1]})={calibrated[i+1]}"
+            )
+
+    def test_ranking_preserved_after_calibration(self) -> None:
+        """Rankings between samples should be preserved post-calibration.
+
+        This is the key invariant: if p1_raw > p2_raw, then p1_cal >= p2_cal
+        (weak inequality allows for ties at extremes).
+        """
+        labels = [1, 0, 1, 0, 1, 1, 0, 0, 1, 0] * 20
+        probs = [0.9, 0.1, 0.8, 0.2, 0.95, 0.7, 0.3, 0.15, 0.85, 0.25] * 20
+
+        cal = fit_platt(labels, probs, "test")
+
+        # For any pair where p1 > p2, calibrated should satisfy cal(p1) >= cal(p2)
+        test_pairs = [(0.2, 0.8), (0.3, 0.7), (0.1, 0.9), (0.4, 0.6)]
+
+        for p_low, p_high in test_pairs:
+            cal_low = cal.transform(p_low)
+            cal_high = cal.transform(p_high)
+            assert cal_low <= cal_high, (
+                f"Ranking inverted: cal({p_low})={cal_low} > cal({p_high})={cal_high}"
+            )
+
+    def test_negative_slope_inverts_ranking(self) -> None:
+        """Document behavior: negative slope inverts rankings.
+
+        This test documents that a negative slope WILL invert rankings.
+        In production, a < 0 indicates the model is anti-correlated with outcomes
+        and should be rejected or investigated.
+        """
+        cal = PlattCalibrator(a=-1.0, b=0.0, head_name="test")
+
+        # With negative slope, higher input → lower output (inversion)
+        result_low = cal.transform(0.2)
+        result_high = cal.transform(0.8)
+
+        # Ranking IS inverted with negative slope
+        assert result_low > result_high, (
+            "Expected ranking inversion with negative slope"
+        )
+
+
 class TestNumericalStability:
     """Tests for numerical edge cases."""
 
