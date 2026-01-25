@@ -1,0 +1,317 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr33_20260124_171639.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/33"}
+
+== GH PR VIEW ==
+{"baseRefName":"main","headRefName":"feature/pr-0033-chat-proof-bundle-contract","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":33,"state":"OPEN","title":"PR#33: Chat Proof Bundle Contract — Stop Summary-Only Reports","url":"https://github.com/bnzr-team/cryptoscreener/pull/33"}
+
+== GH PR CHECKS ==
+proof-guard	fail	3s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21318693480/job/61365305072	
+checks	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21318693467/job/61365305066	
+
+== CHANGED FILES ==
+.github/pull_request_template.md
+.github/workflows/proof_guard.yml
+CLAUDE.md
+scripts/proof_bundle.sh
+scripts/proof_bundle_chat.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+ruff 0.14.14
+mypy 1.19.1 (compiled: yes)
+pytest 9.0.2
+
+== GIT SHOW --STAT ==
+commit ece349b2dfa6f1845d06da766cc62e35174370ee
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 17:16:17 2026 +0000
+
+    PR#33: Chat Proof Bundle Contract — Stop Summary-Only Reports
+    
+    Changes:
+    - scripts/proof_bundle.sh: Added file logging to artifacts/ + PROOF_BUNDLE_FILE marker
+    - scripts/proof_bundle_chat.sh: New script for compact chat reports (4 blocks)
+    - CLAUDE.md: Added Reviewer Message Contract (summary-only = INVALID)
+    - proof_guard.yml: Now requires 11 markers (added PROOF_BUNDLE_FILE)
+    - PR template: Added chat report section
+    
+    11 required markers:
+    - == PROOF_BUNDLE_FILE ==
+    - == PR URL ==
+    - == GH PR VIEW ==
+    - == GH PR CHECKS ==
+    - == CHANGED FILES ==
+    - == TOOLCHAIN VERSIONS ==
+    - == GIT SHOW --STAT ==
+    - == GIT SHOW ==
+    - == RUFF CHECK . ==
+    - == MYPY . ==
+    - == PYTEST -Q ==
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+ .github/pull_request_template.md  |  7 +++++
+ .github/workflows/proof_guard.yml |  7 +++--
+ CLAUDE.md                         | 32 +++++++++++++++++++--
+ scripts/proof_bundle.sh           | 11 ++++++++
+ scripts/proof_bundle_chat.sh      | 58 +++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 110 insertions(+), 5 deletions(-)
+
+== GIT SHOW ==
+commit ece349b2dfa6f1845d06da766cc62e35174370ee
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 17:16:17 2026 +0000
+
+    PR#33: Chat Proof Bundle Contract — Stop Summary-Only Reports
+    
+    Changes:
+    - scripts/proof_bundle.sh: Added file logging to artifacts/ + PROOF_BUNDLE_FILE marker
+    - scripts/proof_bundle_chat.sh: New script for compact chat reports (4 blocks)
+    - CLAUDE.md: Added Reviewer Message Contract (summary-only = INVALID)
+    - proof_guard.yml: Now requires 11 markers (added PROOF_BUNDLE_FILE)
+    - PR template: Added chat report section
+    
+    11 required markers:
+    - == PROOF_BUNDLE_FILE ==
+    - == PR URL ==
+    - == GH PR VIEW ==
+    - == GH PR CHECKS ==
+    - == CHANGED FILES ==
+    - == TOOLCHAIN VERSIONS ==
+    - == GIT SHOW --STAT ==
+    - == GIT SHOW ==
+    - == RUFF CHECK . ==
+    - == MYPY . ==
+    - == PYTEST -Q ==
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+diff --git a/.github/pull_request_template.md b/.github/pull_request_template.md
+index 61bc97f..05935d1 100644
+--- a/.github/pull_request_template.md
++++ b/.github/pull_request_template.md
+@@ -23,3 +23,10 @@ Paste the **full output** below (do NOT edit the `== ... ==` markers):
+ ### If this PR touches runner/ranker/alerter/replay/live pipeline (REQUIRED when applicable)
+ 
+ * Determinism proof: input fixture sha256 + output RankEvent digest + run#1==run#2 (raw)
++
++### Chat report to reviewer (REQUIRED)
++After opening the PR, run:
++```bash
++./scripts/proof_bundle_chat.sh <PR_NUMBER>
++```
++and paste its output in the reviewer chat (raw).
+diff --git a/.github/workflows/proof_guard.yml b/.github/workflows/proof_guard.yml
+index fe7add6..69135c8 100644
+--- a/.github/workflows/proof_guard.yml
++++ b/.github/workflows/proof_guard.yml
+@@ -37,9 +37,10 @@ jobs:
+             print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
+             sys.exit(1)
+ 
+-          # Required markers from proof_bundle.sh output (v3: 10 markers)
++          # Required markers from proof_bundle.sh output (v3+file: 11 markers)
+           # These markers indicate raw command output was pasted
+           required_markers = [
++            "== PROOF_BUNDLE_FILE ==",
+             "== PR URL ==",
+             "== GH PR VIEW ==",
+             "== GH PR CHECKS ==",
+@@ -61,8 +62,8 @@ jobs:
+             print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the FULL output into PR body.")
+             sys.exit(1)
+ 
+-          # Sanity check: must have some actual output after markers (10 markers = 20 "==")
+-          if body.count("==") < 20:
++          # Sanity check: must have some actual output after markers (11 markers = 22 "==")
++          if body.count("==") < 22:
+             print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
+             sys.exit(1)
+ 
+diff --git a/CLAUDE.md b/CLAUDE.md
+index eaf2810..c3b08fd 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -198,7 +198,8 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
+ 
+ Скрипт включает: PR identity, PR checks, changed files, toolchain versions, git show, ruff/mypy/pytest.
+ 
+-**10 обязательных маркеров** (CI фейлит без них):
++**11 обязательных маркеров** (CI фейлит без них):
++- `== PROOF_BUNDLE_FILE ==`
+ - `== PR URL ==`
+ - `== GH PR VIEW ==`
+ - `== GH PR CHECKS ==`
+@@ -221,7 +222,8 @@ Use `STATUS_UPDATE_TEMPLATE.md` (required).
+ 
+ | Script | Purpose |
+ |--------|---------|
+-| `scripts/proof_bundle.sh <PR#>` | Prints full proof bundle (PR URL, CI checks, git, ruff, mypy, pytest) — paste into PR body |
++| `scripts/proof_bundle.sh <PR#>` | Prints full proof bundle (11 markers) + saves to `artifacts/` — paste into PR body |
++| `scripts/proof_bundle_chat.sh <PR#>` | Prints compact chat report (4 blocks: identity/CI/git/gates) for reviewer message |
+ | `scripts/gen_proof_bundle.sh` | Generates proof bundle markdown with git, tools, quality gates, checksums, replay |
+ | `scripts/pr_create.sh` | Full PR cycle: branch → commit → push → proof → PR → auto-merge |
+ 
+@@ -550,3 +552,29 @@ PROOF_BUNDLE_SELF_CHECK=FAIL;RULES=A1,B2,...
+ - Never write anything after the footer line
+ - If any self-lint rule fails, list all failing rules after `RULES=`
+ - CI/proof-guard can parse this line to auto-reject malformed reports
++
++---
++
++## Reviewer Message Contract (MANDATORY)
++
++When reporting progress to the reviewer in chat, summary-only messages are INVALID.
++
++Every report MUST include raw evidence in the following 4 blocks (copy/paste output):
++
++1) Identity
++- PR number + URL
++- state (OPEN/MERGED) + merge commit (if merged)
++
++2) CI (raw)
++- `gh pr checks <PR_NUMBER>`
++
++3) Git evidence (raw)
++- `git show <mergeCommit> --stat` (or `git show --stat` if not merged)
++- Link to "Files changed"
++
++4) Gates (raw, repo-scope)
++- `ruff check .`
++- `mypy .`
++- `pytest -q`
++
++Recommended: run `./scripts/proof_bundle_chat.sh <PR_NUMBER>` and paste its output directly.
+diff --git a/scripts/proof_bundle.sh b/scripts/proof_bundle.sh
+index a724f1e..d55d550 100755
+--- a/scripts/proof_bundle.sh
++++ b/scripts/proof_bundle.sh
+@@ -7,6 +7,17 @@ if [[ -z "${PR_NUMBER}" ]]; then
+   exit 2
+ fi
+ 
++TS="$(date +%Y%m%d_%H%M%S)"
++OUT="artifacts/proof_bundle_pr${PR_NUMBER}_${TS}.txt"
++mkdir -p artifacts
++
++# tee everything to a persistent file
++exec > >(tee "$OUT") 2>&1
++
++echo "== PROOF_BUNDLE_FILE =="
++echo "$OUT"
++echo
++
+ echo "== PR URL =="
+ gh pr view "${PR_NUMBER}" --json url | cat
+ echo
+diff --git a/scripts/proof_bundle_chat.sh b/scripts/proof_bundle_chat.sh
+new file mode 100755
+index 0000000..cb45f48
+--- /dev/null
++++ b/scripts/proof_bundle_chat.sh
+@@ -0,0 +1,58 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++PR_NUMBER="${1:-}"
++if [[ -z "${PR_NUMBER}" ]]; then
++  echo "Usage: ./scripts/proof_bundle_chat.sh <PR_NUMBER>"
++  exit 2
++fi
++
++echo "== CHAT PROOF: IDENTITY =="
++PR_JSON="$(gh pr view "${PR_NUMBER}" --json url,state,mergedAt,mergeCommit,baseRefName,headRefName,title,number)"
++echo "${PR_JSON}"
++echo
++
++PR_URL="$(echo "${PR_JSON}" | python -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
++MERGE_COMMIT="$(echo "${PR_JSON}" | python -c 'import json,sys; d=json.load(sys.stdin); mc=d.get("mergeCommit"); print(mc["oid"] if mc else "")')"
++
++echo "== CHAT PROOF: CI =="
++gh pr checks "${PR_NUMBER}" || true
++echo
++
++echo "== CHAT PROOF: GIT EVIDENCE =="
++if [[ -n "${MERGE_COMMIT}" ]]; then
++  echo "--- git show --stat ${MERGE_COMMIT} ---"
++  git show "${MERGE_COMMIT}" --stat
++  echo
++  echo "--- git show --name-only ${MERGE_COMMIT} ---"
++  git show --name-only --pretty="" "${MERGE_COMMIT}"
++else
++  echo "--- git show --stat (HEAD) ---"
++  git show --stat
++  echo
++  echo "--- git show --name-only (HEAD) ---"
++  git show --name-only --pretty="" HEAD
++fi
++echo
++echo "Files changed: ${PR_URL}/files"
++echo
++
++echo "== CHAT PROOF: GATES =="
++echo "--- ruff check . ---"
++ruff check .
++echo
++echo "--- mypy . ---"
++mypy .
++echo
++echo "--- pytest -q ---"
++pytest -q
++echo
++
++echo "== CHAT PROOF: PROOF FILE =="
++LATEST="$(ls -1t artifacts/proof_bundle_pr${PR_NUMBER}_*.txt 2>/dev/null | head -n 1 || true)"
++if [[ -n "${LATEST}" ]]; then
++  echo "${LATEST}"
++else
++  echo "MISSING: run ./scripts/proof_bundle.sh ${PR_NUMBER} to generate artifacts file"
++  exit 1
++fi
+
+== RUFF CHECK . ==
+All checks passed!
+
+== MYPY . ==
+Success: no issues found in 66 source files
+
+== PYTEST -Q ==
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/benya/Project/cryptoscreener
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.0.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 448 items
+
+tests/alerting/test_alerter.py ..................................        [  7%]
+tests/connectors/binance/test_rest_client.py .........                   [  9%]
+tests/connectors/binance/test_shard.py ...............                   [ 12%]
+tests/connectors/binance/test_stream_manager.py ......................   [ 17%]
+tests/connectors/binance/test_types.py ....................              [ 22%]
+tests/connectors/test_backoff.py ....................................... [ 31%]
+...                                                                      [ 31%]
+tests/contracts/test_contract_examples.py ..................             [ 35%]
+tests/contracts/test_contracts.py ...................................... [ 44%]
+..........                                                               [ 46%]
+tests/contracts/test_llm_float_edge_cases.py ...........                 [ 48%]
+tests/contracts/test_replay_determinism.py ..............                [ 52%]
+tests/explain_llm/test_explainer.py .................................    [ 59%]
+tests/features/test_engine.py .................                          [ 63%]
+tests/features/test_ring_buffer.py ...............                       [ 66%]
+tests/features/test_symbol_state.py ...................                  [ 70%]
+tests/model_runner/test_base.py ..........                               [ 72%]
+tests/model_runner/test_baseline.py .................................... [ 81%]
+.                                                                        [ 81%]
+tests/ranker/test_ranker.py .....................                        [ 85%]
+tests/replay/test_determinism.py ..........                              [ 88%]
+tests/scoring/test_scorer.py ...................                         [ 92%]
+tests/stream_router/test_metrics.py ..............                       [ 95%]
+tests/stream_router/test_router.py ....................                  [100%]
+
+============================= 448 passed in 0.99s ==============================
+

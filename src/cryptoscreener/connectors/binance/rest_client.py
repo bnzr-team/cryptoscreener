@@ -81,7 +81,7 @@ class BinanceRestClient:
         method: str,
         endpoint: str,
         params: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         Make an HTTP request with retry and circuit breaker logic.
 
@@ -91,7 +91,7 @@ class BinanceRestClient:
             params: Query parameters.
 
         Returns:
-            JSON response data.
+            JSON response data (dict or list depending on endpoint).
 
         Raises:
             RateLimitError: If rate limited and retries exhausted.
@@ -255,6 +255,38 @@ class BinanceRestClient:
             extra={"count": len(symbols), "quote_asset": quote_asset},
         )
         return symbols
+
+    async def get_24h_tickers(self) -> dict[str, float]:
+        """
+        Get 24h quote volume for all symbols.
+
+        Returns:
+            Dict mapping symbol to 24h quote volume (in USDT).
+        """
+        logger.info("Fetching 24h tickers from Binance")
+        # Note: This endpoint returns a list of ticker objects
+        data = await self._request("GET", "/fapi/v1/ticker/24hr")
+
+        volumes: dict[str, float] = {}
+        if not isinstance(data, list):
+            logger.warning("Unexpected response type from ticker endpoint")
+            return volumes
+
+        for ticker in data:
+            if not isinstance(ticker, dict):
+                continue
+            symbol = str(ticker.get("symbol", ""))
+            quote_volume = ticker.get("quoteVolume", "0")
+            try:
+                volumes[symbol] = float(str(quote_volume))
+            except (ValueError, TypeError):
+                volumes[symbol] = 0.0
+
+        logger.info(
+            "Fetched 24h tickers",
+            extra={"count": len(volumes)},
+        )
+        return volumes
 
     async def get_server_time(self) -> int:
         """

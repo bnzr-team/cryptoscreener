@@ -1,0 +1,351 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr44_20260124_190440.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/44"}
+
+== GH PR VIEW ==
+{"baseRefName":"feature/pr-0043-acceptance-packet","headRefName":"feature/pr-0044-global-proof-policy","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":44,"state":"OPEN","title":"PR#44: Global Proof & Reporting Policy (DEC-009)","url":"https://github.com/bnzr-team/cryptoscreener/pull/44"}
+
+== GH PR CHECKS ==
+proof-guard	fail	3s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320071175/job/61368631273	
+checks	pass	34s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21320071173/job/61368631286	
+
+== CHANGED FILES ==
+.github/workflows/proof_guard.yml
+CHANGELOG.md
+CLAUDE.md
+DECISIONS.md
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+ruff 0.14.14
+mypy 1.19.1 (compiled: yes)
+pytest 9.0.2
+
+== GIT SHOW --STAT ==
+commit 0897c1884875f1b3b55af1459c6c9de713c578ec
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Sat Jan 24 19:03:45 2026 +0000
+
+    PR#44: Global Proof & Reporting Policy (DEC-009)
+    
+    - CLAUDE.md: Replace "Формат отчёта" with verbatim-only mandatory format
+      - Preferred: ./scripts/acceptance_packet.sh <PR>
+      - Fallback: ./scripts/proof_bundle.sh <PR>
+      - NO summaries/tables/paraphrasing allowed
+    - DECISIONS.md: Add DEC-009 (Global Proof Policy)
+      - Acceptable evidence is only verbatim packet output
+      - Required sections + conditional (replay/LLM)
+    - proof_guard.yml: Dual-mode marker validation
+      - acceptance_packet mode: require IDENTITY/CI/GATES/PR DIFF/END markers
+      - proof_bundle mode: fallback to 11 original markers
+      - Replay enforcement: require REPLAY DETERMINISM section + digest match
+    - CHANGELOG.md: Add PR#44 entry
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+ .github/workflows/proof_guard.yml | 111 ++++++++++++++++++++++++++++----------
+ CHANGELOG.md                      |   9 ++++
+ CLAUDE.md                         |  20 ++++---
+ DECISIONS.md                      |  41 ++++++++++++++
+ 4 files changed, 146 insertions(+), 35 deletions(-)
+
+== GIT SHOW ==
+--- Full PR diff (gh pr diff 44) ---
+diff --git a/.github/workflows/proof_guard.yml b/.github/workflows/proof_guard.yml
+index 4113f91..7c05795 100644
+--- a/.github/workflows/proof_guard.yml
++++ b/.github/workflows/proof_guard.yml
+@@ -34,12 +34,22 @@ jobs:
+ 
+           if not body:
+             print("ERROR: PR description is empty. Proof bundle is REQUIRED.")
+-            print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
++            print("TIP: Run ./scripts/acceptance_packet.sh <PR_NUMBER> or ./scripts/proof_bundle.sh <PR_NUMBER> and paste the output.")
+             sys.exit(1)
+ 
+-          # Required markers from proof_bundle.sh output (v3+file: 11 markers)
+-          # These markers indicate raw command output was pasted
+-          required_markers = [
++          # DEC-009: Dual-mode marker validation
++          # Mode 1: acceptance_packet markers (preferred)
++          # Mode 2: proof_bundle markers (fallback)
++
++          acceptance_packet_markers = [
++            "== ACCEPTANCE PACKET: IDENTITY ==",
++            "== ACCEPTANCE PACKET: CI ==",
++            "== ACCEPTANCE PACKET: GATES ==",
++            "== ACCEPTANCE PACKET: PR DIFF ==",
++            "== ACCEPTANCE PACKET: END",
++          ]
++
++          proof_bundle_markers = [
+             "== PROOF_BUNDLE_FILE ==",
+             "== PR URL ==",
+             "== GH PR VIEW ==",
+@@ -53,21 +63,42 @@ jobs:
+             "== PYTEST -Q ==",
+           ]
+ 
++          # Detect which mode based on presence of acceptance_packet marker
++          is_acceptance_packet_mode = "== ACCEPTANCE PACKET:" in body
++
++          if is_acceptance_packet_mode:
++            # Acceptance packet mode (preferred)
++            required_markers = acceptance_packet_markers
++            mode_name = "acceptance_packet"
++            tip_command = "./scripts/acceptance_packet.sh <PR_NUMBER>"
++          else:
++            # Fallback to proof_bundle mode
++            required_markers = proof_bundle_markers
++            mode_name = "proof_bundle"
++            tip_command = "./scripts/proof_bundle.sh <PR_NUMBER>"
++
+           missing = [m for m in required_markers if m not in body]
+           if missing:
+-            print("ERROR: Missing required proof bundle markers in PR body:")
++            print(f"ERROR: Missing required {mode_name} markers in PR body:")
+             for m in missing:
+               print(f" - {m}")
+             print("")
+-            print("TIP: Run ./scripts/proof_bundle.sh <PR_NUMBER> and paste the FULL output into PR body.")
+-            sys.exit(1)
+-
+-          # Sanity check: must have some actual output after markers (11 markers = 22 "==")
+-          if body.count("==") < 22:
+-            print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
++            print(f"TIP: Run {tip_command} and paste the FULL output into PR body.")
+             sys.exit(1)
+ 
+-          # Check for fixtures/replay requirement
++          # Sanity check for minimum content
++          if is_acceptance_packet_mode:
++            # acceptance_packet has fewer "==" markers but more content
++            if body.count("==") < 10:
++              print("ERROR: PR body looks incomplete. Make sure you pasted FULL acceptance_packet.sh output.")
++              sys.exit(1)
++          else:
++            # proof_bundle has 11 markers = 22 "=="
++            if body.count("==") < 22:
++              print("ERROR: PR body looks incomplete. Make sure you pasted FULL proof_bundle.sh output.")
++              sys.exit(1)
++
++          # Fetch changed files for replay requirement check
+           def gh_get(url: str):
+             req = urllib.request.Request(url)
+             req.add_header("Accept", "application/vnd.github+json")
+@@ -88,7 +119,7 @@ jobs:
+               break
+             page += 1
+ 
+-          # Expanded replay-related file detection (DEC-008)
++          # DEC-008/DEC-009: Expanded replay-related file detection
+           replay_patterns = [
+               "tests/fixtures/",       # Fixture files
+               "tests/replay/",         # Replay tests
+@@ -106,21 +137,43 @@ jobs:
+           require_replay = len(replay_related_files) > 0
+ 
+           if require_replay:
+-            # Accept both python and python3 variants
+-            has_replay_proof = (
+-                "python -m scripts.run_replay" in body or
+-                "python3 -m scripts.run_replay" in body or
+-                "python3 scripts/run_replay.py" in body or
+-                "scripts.run_replay" in body
+-            )
+-            if not has_replay_proof:
+-              print("ERROR: This PR changes replay-related files. Must include replay determinism proof:")
+-              print(" - python3 scripts/run_replay.py --fixture <path> -v (or equivalent)")
+-              print("")
+-              print("Changed files that triggered this requirement:")
+-              for f in replay_related_files:
+-                  print(f" - {f}")
+-
+-          print("OK: Proof bundle requirements satisfied.")
++            if is_acceptance_packet_mode:
++              # In acceptance_packet mode, require REPLAY DETERMINISM section with digest match
++              has_replay_section = "== ACCEPTANCE PACKET: REPLAY DETERMINISM ==" in body
++              has_digest_match = "ALL DIGESTS MATCH" in body or "DETERMINISM CHECK PASSED" in body
++
++              if not has_replay_section:
++                print("ERROR: This PR changes replay-related files. Must include replay determinism section:")
++                print(" - == ACCEPTANCE PACKET: REPLAY DETERMINISM ==")
++                print("")
++                print("Changed files that triggered this requirement:")
++                for f in replay_related_files:
++                    print(f" - {f}")
++                sys.exit(1)
++
++              if not has_digest_match:
++                print("ERROR: Replay determinism section found but no digest match proof.")
++                print("Expected: 'ALL DIGESTS MATCH' or 'DETERMINISM CHECK PASSED'")
++                print("")
++                print("Make sure replay runs produce matching digests before requesting review.")
++                sys.exit(1)
++            else:
++              # Fallback proof_bundle mode: accept various replay proof patterns
++              has_replay_proof = (
++                  "python -m scripts.run_replay" in body or
++                  "python3 -m scripts.run_replay" in body or
++                  "python3 scripts/run_replay.py" in body or
++                  "scripts.run_replay" in body
++              )
++              if not has_replay_proof:
++                print("ERROR: This PR changes replay-related files. Must include replay determinism proof:")
++                print(" - python3 scripts/run_replay.py --fixture <path> -v (or equivalent)")
++                print("")
++                print("Changed files that triggered this requirement:")
++                for f in replay_related_files:
++                    print(f" - {f}")
++                sys.exit(1)
++
++          print(f"OK: Proof bundle requirements satisfied (mode: {mode_name}).")
+           print(f"INFO: PR #{number}, files: {len(files)}, replay required: {require_replay}")
+           PY
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 92c0271..350a8fd 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,6 +9,15 @@
+ 
+ ### Added
+ 
++#### GitHub PR#44 — Global Proof & Reporting Policy (DEC-009)
++- Verbatim-only reporting policy: summaries/tables/paraphrasing are NOT valid proof
++- DEC-009: Global proof policy — acceptable evidence is only verbatim packet output
++- `proof_guard.yml` dual-mode marker validation:
++  - Preferred: acceptance_packet markers (`== ACCEPTANCE PACKET: *`)
++  - Fallback: proof_bundle markers (backward compatible)
++- Replay determinism enforcement in acceptance_packet mode requires `ALL DIGESTS MATCH`
++- CLAUDE.md "Формат отчёта" replaced with verbatim-only mandatory format
++
+ #### GitHub PR#43 — Acceptance Packet Automation (DEC-008)
+ - New `scripts/acceptance_packet.sh <PR>` — one-command "ready for ACCEPT" generator
+   - Waits for CI checks to pass (polls with timeout)
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 448e783..f90b65f 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -168,13 +168,21 @@ If model artifacts absent, run in **baseline mode**:
+ * fallback: тест “invalid → fallback”, и тест “fallback always valid”
+ * если меняется политика — **обязателен** `DECISIONS.md` + обновление доков
+ 
+-**Формат отчёта**
+-
+-* Сначала: “Что изменено” (по файлам)
+-* Затем: “Что доказано” (артефакты выше)
+-* Затем: “Что не покрыто / риски”
+-* Затем: “Next PR scope”
++**Reporting format (MANDATORY, verbatim-only)**
+ 
++1. Before claiming "done/ready", generate a proof packet and paste it verbatim into the PR body (and reviewer chat).
++2. Preferred command:
++   ```bash
++   ./scripts/acceptance_packet.sh <PR_NUMBER>
++   ```
++3. Fallback command (if acceptance_packet is unavailable):
++   ```bash
++   ./scripts/proof_bundle.sh <PR_NUMBER>
++   ```
++4. Paste the **full output verbatim**, without truncation, from the first marker to the END marker.
++5. **NO summaries, no tables, no paraphrasing.** Any "ready/done" without verbatim packet = **NOT DONE**.
++6. If exit code ≠ 0: paste the failing output verbatim and fix until it passes.
++7. If reviewer requests extra evidence: update `acceptance_packet.sh` (preferred) so the packet contains it, re-run, paste verbatim.
+ 
+ ---
+ 
+diff --git a/DECISIONS.md b/DECISIONS.md
+index 70f98cc..55276c7 100644
+--- a/DECISIONS.md
++++ b/DECISIONS.md
+@@ -237,3 +237,44 @@ PR requires replay proof if it touches any of:
+ - Updated `scripts/proof_bundle_chat.sh` (auto-generate artifacts)
+ - Expanded `proof_guard.yml` replay detector
+ - CLAUDE.md updated with mandatory acceptance_packet usage
++
++---
++
++## DEC-009: Proof & Reporting Policy (Global)
++
++**Date:** 2026-01-24
++
++**Decision:** Acceptable review evidence is **only** a verbatim proof packet pasted into PR body:
++- Preferred: output of `./scripts/acceptance_packet.sh <PR>`
++- Fallback: full output of `./scripts/proof_bundle.sh <PR>`
++
++Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" applies to all PRs and all DEC scopes.
++
++**Required packet contents (minimum):**
++- PR identity (url/state/base/head/title/number)
++- CI status (no pending; fail if any failed)
++- Quality gates raw output: ruff/mypy/pytest
++- PR diff (full, patch-level)
++- Artifacts/proof bundle file path (or proof markers)
++
++**Conditional requirements:**
++- If PR touches replay-related areas (`scripts/run_replay.py`, `scripts/run_record.py`, `tests/replay/*`, `tests/fixtures/*`) → packet must include replay determinism proof (2 runs + digest match).
++- If PR touches LLM guardrails/contracts → packet must include adversarial tests ("no-new-numbers", enums, max chars, fallback).
++
++**Enforcement:** `proof_guard.yml` validates presence of packet markers in PR body (dual-mode: acceptance_packet or proof_bundle markers).
++
++**Alternatives considered:**
++1. Summary-based reporting — rejected: summaries can omit/hide failures
++2. Manual marker checks — rejected: error-prone, inconsistent
++3. CI-only enforcement — rejected: doesn't catch missing evidence in PR body
++
++**Rationale:**
++- Verbatim output is tamper-evident and complete
++- Reviewer can verify exact command output without re-running
++- Eliminates "it works on my machine" claims
++- Standardizes evidence across all PRs
++
++**Impact:**
++- CLAUDE.md "Формат отчёта" replaced with verbatim-only policy
++- proof_guard.yml updated with dual-mode marker validation
++- All future PRs must include verbatim packet in body
+
+== RUFF CHECK . ==
+All checks passed!
+
+== MYPY . ==
+Success: no issues found in 66 source files
+
+== PYTEST -Q ==
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/benya/Project/cryptoscreener
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.0.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 448 items
+
+tests/alerting/test_alerter.py ..................................        [  7%]
+tests/connectors/binance/test_rest_client.py .........                   [  9%]
+tests/connectors/binance/test_shard.py ...............                   [ 12%]
+tests/connectors/binance/test_stream_manager.py ......................   [ 17%]
+tests/connectors/binance/test_types.py ....................              [ 22%]
+tests/connectors/test_backoff.py ....................................... [ 31%]
+...                                                                      [ 31%]
+tests/contracts/test_contract_examples.py ..................             [ 35%]
+tests/contracts/test_contracts.py ...................................... [ 44%]
+..........                                                               [ 46%]
+tests/contracts/test_llm_float_edge_cases.py ...........                 [ 48%]
+tests/contracts/test_replay_determinism.py ..............                [ 52%]
+tests/explain_llm/test_explainer.py .................................    [ 59%]
+tests/features/test_engine.py .................                          [ 63%]
+tests/features/test_ring_buffer.py ...............                       [ 66%]
+tests/features/test_symbol_state.py ...................                  [ 70%]
+tests/model_runner/test_base.py ..........                               [ 72%]
+tests/model_runner/test_baseline.py .................................... [ 81%]
+.                                                                        [ 81%]
+tests/ranker/test_ranker.py .....................                        [ 85%]
+tests/replay/test_determinism.py ..........                              [ 88%]
+tests/scoring/test_scorer.py ...................                         [ 92%]
+tests/stream_router/test_metrics.py ..............                       [ 95%]
+tests/stream_router/test_router.py ....................                  [100%]
+
+============================= 448 passed in 1.00s ==============================
+
