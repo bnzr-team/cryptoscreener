@@ -631,3 +631,115 @@ Digests match: True
 - New `tests/fixtures/replay_baseline/` fixture module
 - Extends existing replay test infrastructure
 - Partially completes Milestone 3 replay acceptance (baseline path)
+
+---
+
+## DEC-016: Artifact Registry / Manifest (PR#60)
+
+**Date:** 2026-01-25
+
+**Decision:** Implement unified artifact manifest format with fail-fast validation per MODEL_REGISTRY_VERSIONING.md.
+
+**Scope (Option A - Minimal):**
+1. Unified manifest format (checksums.txt + manifest.json)
+2. Schema validation with fail-fast
+3. ModelPackage loader API (single entry point)
+4. Tests for good/bad package scenarios
+
+**Components:**
+
+1. **Version Parsing** (`src/cryptoscreener/registry/version.py`):
+   - `ModelVersion` frozen dataclass with semver, git_sha, data_cutoff, train_hash
+   - `parse_model_version()` supports full format and baseline-v format
+   - Pattern: `{semver}+{git_sha}+{data_cutoff}+{train_hash}`
+
+2. **Manifest Management** (`src/cryptoscreener/registry/manifest.py`):
+   - `Manifest` and `ArtifactEntry` dataclasses
+   - `parse_checksums_txt()` / `generate_checksums_txt()` for checksums.txt format
+   - `load_manifest()` / `save_manifest()` for dual-format support
+   - `validate_manifest()` for hash/size verification
+   - `compute_file_sha256()` for file hashing
+
+3. **ModelPackage Loader** (`src/cryptoscreener/registry/package.py`):
+   - `ModelPackage` dataclass with path, manifest, schema, features, version, calibrators
+   - `load_package()` as single entry point with optional validation
+   - `validate_package()` for comprehensive validation
+   - `FeatureSpec` and `SchemaVersion` helper dataclasses
+
+**checksums.txt Format (SSOT for hashes):**
+```
+# checksums.txt - SHA256 hashes for 1.0.0+abc1234+20260125+12345678
+# Generated: 2026-01-25T12:00:00Z
+
+abc123...  model.bin
+def456...  calibrator_p_inplay_2m.pkl
+```
+
+**manifest.json Format (metadata + checksums):**
+```json
+{
+  "schema_version": "1.0.0",
+  "model_version": "1.0.0+abc1234+20260125+12345678",
+  "created_at": "2026-01-25T12:00:00Z",
+  "artifacts": [
+    {"name": "model.bin", "sha256": "abc123...", "size_bytes": 12345}
+  ]
+}
+```
+
+**Required Artifacts (per MODEL_REGISTRY_VERSIONING.md):**
+- `schema_version.json` — Package schema and model version
+- `features.json` — Ordered feature list
+- `checksums.txt` — SHA256 hashes for all artifacts
+
+**Optional Artifacts:**
+- `model.bin` — Trained model binary
+- `calibrator_{head}.pkl` — Probability calibrators
+- `training_report.md` — Training metrics
+
+**Validation Behavior:**
+- Fail-fast on SHA256 mismatch
+- Fail-fast on size mismatch
+- Fail-fast on missing required artifacts
+- Schema version compatibility check
+- Feature list exact match validation (optional)
+
+**API Usage:**
+```python
+from cryptoscreener.registry import load_package
+
+# Load with full validation
+package = load_package("/path/to/model")
+print(package.version.semver)  # "1.0.0"
+print(package.features.features)  # ["spread_bps", "book_imbalance", ...]
+print(package.calibrators)  # {"p_inplay_2m": Path(...)}
+
+# Skip validation for development
+package = load_package("/path/to/model", validate=False)
+
+# Validate with expected schema/features
+package = load_package(
+    "/path/to/model",
+    expected_schema_version="1.0.0",
+    expected_features=["spread_bps", "book_imbalance"]
+)
+```
+
+**Alternatives considered:**
+1. Full registry with remote storage — deferred: local-first MVP sufficient
+2. Only checksums.txt format — rejected: manifest.json provides richer metadata
+3. Only manifest.json format — rejected: checksums.txt is human-readable SSOT
+4. No validation — rejected: fail-fast prevents corrupted model usage
+
+**Rationale:**
+- Dual format provides both machine-readable metadata and human-readable checksums
+- checksums.txt is SSOT for hashes (easy to verify manually: `sha256sum -c checksums.txt`)
+- Fail-fast validation prevents silent corruption
+- Single entry point (`load_package`) simplifies consumer code
+- Compatible with MODEL_REGISTRY_VERSIONING.md specification
+
+**Impact:**
+- New `src/cryptoscreener/registry/` module with 4 files
+- New `tests/registry/` with 73 tests
+- Single API for loading model packages
+- Foundation for future remote registry (Option B/C)
