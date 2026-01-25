@@ -692,3 +692,282 @@ class TestEvidenceNoDigitsPolicy:
         gate_reasons = [r for r in prediction.reasons if "GATE" in r.code]
         assert len(gate_reasons) > 0, "Expected gate failure reasons"
         self._assert_no_digits_in_evidence(gate_reasons)
+
+
+class TestProdModeStrictness:
+    """Tests for PROD mode strictness (DEC-017).
+
+    In PROD mode:
+    - No fallback to baseline when model missing
+    - No fallback when calibration missing
+    - No exceptions raised (returns DATA_ISSUE instead)
+    - Never returns TRADEABLE without valid model+calibration
+    """
+
+    def test_prod_mode_no_model_returns_data_issue(self) -> None:
+        """PROD mode: missing model → DATA_ISSUE with RC_MODEL_UNAVAILABLE."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        config = MLRunnerConfig(
+            strictness=InferenceStrictness.PROD,
+            # No model_path → model missing
+        )
+        runner = MLRunner(config)
+
+        # Should have artifact error flag with specific code
+        assert runner.has_artifact_error
+        assert runner.artifact_error_code == "RC_MODEL_UNAVAILABLE"
+        assert runner.artifact_error_reason is not None
+        assert "Model path not configured" in runner.artifact_error_reason
+
+        # Should NOT be using fallback (PROD doesn't fallback)
+        assert not runner.is_using_fallback
+
+        # predict() should return DATA_ISSUE with correct reason code
+        snapshot = make_feature_snapshot()
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE
+        assert len(prediction.reasons) == 1
+        assert prediction.reasons[0].code == "RC_MODEL_UNAVAILABLE"
+
+    def test_prod_mode_no_calibration_returns_data_issue(self, tmp_path: Path) -> None:
+        """PROD mode: missing calibration → DATA_ISSUE with RC_CALIBRATION_MISSING."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        # Create a valid model file
+        model_path = tmp_path / "model.pkl"
+        import pickle
+
+        with model_path.open("wb") as f:
+            pickle.dump(MockSklearnModel(), f)
+
+        config = MLRunnerConfig(
+            model_path=model_path,
+            strictness=InferenceStrictness.PROD,
+            # No calibration_path → calibration missing
+        )
+        runner = MLRunner(config)
+
+        # Should have artifact error with specific code
+        assert runner.has_artifact_error
+        assert runner.artifact_error_code == "RC_CALIBRATION_MISSING"
+        assert runner.artifact_error_reason is not None
+        assert "Calibration path not configured" in runner.artifact_error_reason
+
+        # predict() should return DATA_ISSUE with correct reason code
+        snapshot = make_feature_snapshot()
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE
+        assert prediction.reasons[0].code == "RC_CALIBRATION_MISSING"
+
+    def test_prod_mode_hash_mismatch_returns_data_issue(self, tmp_path: Path) -> None:
+        """PROD mode: model hash mismatch → DATA_ISSUE with RC_ARTIFACT_INTEGRITY_FAIL."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        # Create a valid model file
+        model_path = tmp_path / "model.pkl"
+        import pickle
+
+        with model_path.open("wb") as f:
+            pickle.dump(MockSklearnModel(), f)
+
+        config = MLRunnerConfig(
+            model_path=model_path,
+            model_sha256="0000000000000000000000000000000000000000000000000000000000000000",
+            strictness=InferenceStrictness.PROD,
+        )
+        runner = MLRunner(config)
+
+        # Should have artifact error with specific code
+        assert runner.has_artifact_error
+        assert runner.artifact_error_code == "RC_ARTIFACT_INTEGRITY_FAIL"
+        assert runner.artifact_error_reason is not None
+        assert "hash mismatch" in runner.artifact_error_reason.lower()
+
+        # predict() should return DATA_ISSUE with correct reason code
+        snapshot = make_feature_snapshot()
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE
+        assert prediction.reasons[0].code == "RC_ARTIFACT_INTEGRITY_FAIL"
+
+    def test_dev_mode_fallback_works(self) -> None:
+        """DEV mode: missing model → fallback to baseline (default behavior)."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        config = MLRunnerConfig(
+            strictness=InferenceStrictness.DEV,
+            fallback_to_baseline=True,
+            # No model_path → fallback
+        )
+        runner = MLRunner(config)
+
+        # Should be using fallback (DEV allows it)
+        assert runner.is_using_fallback
+        assert not runner.has_artifact_error
+
+        # predict() should work via baseline
+        snapshot = make_feature_snapshot()
+        prediction = runner.predict(snapshot)
+
+        # Should get a valid prediction (not DATA_ISSUE)
+        assert prediction.status in (
+            PredictionStatus.TRADEABLE,
+            PredictionStatus.WATCH,
+            PredictionStatus.DEAD,
+            PredictionStatus.TRAP,
+        )
+
+    def test_dev_mode_missing_calibration_allowed(self, tmp_path: Path) -> None:
+        """DEV mode: missing calibration with require_calibration=False works."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        # Create a valid model file
+        model_path = tmp_path / "model.pkl"
+        import pickle
+
+        with model_path.open("wb") as f:
+            pickle.dump(MockSklearnModel(), f)
+
+        config = MLRunnerConfig(
+            model_path=model_path,
+            strictness=InferenceStrictness.DEV,
+            require_calibration=False,
+            # No calibration_path but not required
+        )
+        runner = MLRunner(config)
+
+        # Should not have error (model loaded, calibration optional)
+        assert not runner.has_artifact_error
+        assert not runner.has_calibration
+        assert not runner.is_using_fallback  # Has model, not falling back
+        assert runner.strictness == InferenceStrictness.DEV
+
+    def test_strictness_property(self) -> None:
+        """strictness property returns configured value."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        config_dev = MLRunnerConfig(strictness=InferenceStrictness.DEV)
+        config_prod = MLRunnerConfig(strictness=InferenceStrictness.PROD)
+
+        runner_dev = MLRunner(config_dev)
+        runner_prod = MLRunner(config_prod)
+
+        assert runner_dev.strictness == InferenceStrictness.DEV
+        assert runner_prod.strictness == InferenceStrictness.PROD
+
+    def test_prod_mode_calibration_hash_mismatch(self, tmp_path: Path) -> None:
+        """PROD mode: calibration hash mismatch → DATA_ISSUE with RC_ARTIFACT_INTEGRITY_FAIL."""
+        from cryptoscreener.model_runner import InferenceStrictness
+
+        # Create valid model and calibration files
+        model_path = tmp_path / "model.pkl"
+        calibration_path = tmp_path / "calibration.json"
+        import json
+        import pickle
+
+        with model_path.open("wb") as f:
+            pickle.dump(MockSklearnModel(), f)
+
+        # Create minimal calibration artifact
+        calibration_data = {
+            "calibrators": {"p_inplay_2m": {"a": 1.0, "b": 0.0}},
+            "metadata": {
+                "schema_version": "1.0.0",
+                "git_sha": "abc1234",
+                "config_hash": "xyz",
+                "data_hash": "123",
+            },
+        }
+        with calibration_path.open("w") as f:
+            json.dump(calibration_data, f)
+
+        config = MLRunnerConfig(
+            model_path=model_path,
+            calibration_path=calibration_path,
+            calibration_sha256="0000000000000000000000000000000000000000000000000000000000000000",
+            strictness=InferenceStrictness.PROD,
+        )
+        runner = MLRunner(config)
+
+        # Should have artifact error with integrity code
+        assert runner.has_artifact_error
+        assert runner.artifact_error_code == "RC_ARTIFACT_INTEGRITY_FAIL"
+        assert runner.artifact_error_reason is not None
+        assert "hash mismatch" in runner.artifact_error_reason.lower()
+
+        # predict() should return DATA_ISSUE with correct reason code
+        snapshot = make_feature_snapshot()
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE
+        assert prediction.reasons[0].code == "RC_ARTIFACT_INTEGRITY_FAIL"
+
+
+class TestDataFreshnessThresholds:
+    """Tests for configurable data freshness thresholds (DEC-017).
+
+    Per DATA_FRESHNESS_RULES.md SSOT:
+    - Default book threshold: 1000ms
+    - Default trades threshold: 2000ms
+    """
+
+    def test_default_thresholds_match_ssot(self) -> None:
+        """Default thresholds match DATA_FRESHNESS_RULES.md SSOT."""
+        from cryptoscreener.model_runner import ModelRunnerConfig
+
+        config = ModelRunnerConfig()
+        assert config.stale_book_max_ms == 1000  # SSOT: 1000ms
+        assert config.stale_trades_max_ms == 2000  # SSOT: 2000ms
+
+    def test_custom_book_threshold(self) -> None:
+        """Custom book stale threshold is honored."""
+        from cryptoscreener.model_runner import ModelRunnerConfig
+
+        # With lenient threshold (5000ms) - should not trigger DATA_ISSUE
+        config = ModelRunnerConfig(stale_book_max_ms=5000)
+        runner = BaselineRunner(config)
+
+        snapshot = make_feature_snapshot(stale_book_ms=3000)  # 3s < 5s
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status != PredictionStatus.DATA_ISSUE
+
+    def test_custom_trades_threshold(self) -> None:
+        """Custom trades stale threshold is honored."""
+        from cryptoscreener.model_runner import ModelRunnerConfig
+
+        # With lenient threshold (30000ms) - should not trigger DATA_ISSUE
+        config = ModelRunnerConfig(stale_trades_max_ms=30000)
+        runner = BaselineRunner(config)
+
+        snapshot = make_feature_snapshot(stale_trades_ms=15000)  # 15s < 30s
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status != PredictionStatus.DATA_ISSUE
+
+    def test_strict_book_threshold_triggers_data_issue(self) -> None:
+        """Book exceeding strict threshold triggers DATA_ISSUE."""
+        from cryptoscreener.model_runner import ModelRunnerConfig
+
+        config = ModelRunnerConfig(stale_book_max_ms=1000)  # SSOT default
+        runner = BaselineRunner(config)
+
+        snapshot = make_feature_snapshot(stale_book_ms=1500)  # 1.5s > 1s
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE
+
+    def test_strict_trades_threshold_triggers_data_issue(self) -> None:
+        """Trades exceeding strict threshold triggers DATA_ISSUE."""
+        from cryptoscreener.model_runner import ModelRunnerConfig
+
+        config = ModelRunnerConfig(stale_trades_max_ms=2000)  # SSOT default
+        runner = BaselineRunner(config)
+
+        snapshot = make_feature_snapshot(stale_trades_ms=2500)  # 2.5s > 2s
+        prediction = runner.predict(snapshot)
+
+        assert prediction.status == PredictionStatus.DATA_ISSUE

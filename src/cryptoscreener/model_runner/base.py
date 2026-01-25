@@ -5,10 +5,33 @@ from __future__ import annotations
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cryptoscreener.contracts.events import FeatureSnapshot, PredictionSnapshot
+
+
+class InferenceStrictness(str, Enum):
+    """
+    Inference strictness level.
+
+    Controls fail-fast behavior when model/calibration artifacts are missing.
+
+    DEV: Lenient mode for development/testing
+        - Allows fallback to BaselineRunner when model unavailable
+        - Allows missing calibration (uses raw probabilities)
+        - Returns valid PredictionSnapshot even on artifact errors
+
+    PROD: Strict mode for production
+        - No fallback: missing model → DATA_ISSUE status (not exception)
+        - Requires calibration: missing → DATA_ISSUE status
+        - Hash mismatch → DATA_ISSUE status
+        - Never returns TRADEABLE without valid model+calibration
+    """
+
+    DEV = "dev"
+    PROD = "prod"
 
 
 @dataclass
@@ -39,6 +62,13 @@ class ModelRunnerConfig:
 
     # Impact gate: max impact in bps to allow TRADEABLE
     impact_max_bps: float = 20.0
+
+    # Data freshness thresholds (per DATA_FRESHNESS_RULES.md SSOT)
+    # Book stale: > 1000ms → DATA_ISSUE
+    stale_book_max_ms: int = 1000
+
+    # Trades stale: > 2000ms → DATA_ISSUE
+    stale_trades_max_ms: int = 2000
 
 
 @dataclass

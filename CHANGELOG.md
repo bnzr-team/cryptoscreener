@@ -9,6 +9,20 @@
 
 ### Added
 
+#### Production Profile Gates (DEC-017)
+- New `InferenceStrictness` enum (`DEV`/`PROD`) for controlling fail-fast behavior
+- PROD mode: artifact errors return `DATA_ISSUE` status (never raises, never fallback)
+- DEV mode: lenient behavior with fallback to BaselineRunner
+- Configurable data freshness thresholds aligned with SSOT:
+  - `stale_book_max_ms`: 1000ms (was hardcoded 5000ms)
+  - `stale_trades_max_ms`: 2000ms (was hardcoded 30000ms)
+- New artifact error reason codes for precise diagnostics:
+  - `RC_MODEL_UNAVAILABLE`: model artifact missing or failed to load
+  - `RC_CALIBRATION_MISSING`: calibration artifact missing or failed to load
+  - `RC_ARTIFACT_INTEGRITY_FAIL`: artifact hash mismatch (SHA256 verification failed)
+- `MLRunnerConfig.strictness` field (default: DEV)
+- 12 new tests for PROD/DEV behavior matrix
+
 #### SSOT Reason Codes Alignment (DEC-018)
 - Aligned all `RC_*` codes in `BaselineRunner` and `MLRunner` to `REASON_CODES_TAXONOMY.md`
 - Code renames:

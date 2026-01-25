@@ -795,6 +795,81 @@ Implementation in `BaselineRunner` and `MLRunner` used ad-hoc reason code names 
 
 ---
 
+## DEC-017: Production Profile Gates
+
+**Date:** 2026-01-25
+
+**Decision:** Add `InferenceStrictness` enum to control fail-fast behavior in DEV vs PROD modes, and align data freshness thresholds with SSOT.
+
+**Problem:**
+1. Data freshness thresholds in implementation (5000ms/30000ms) diverged from SSOT (`DATA_FRESHNESS_RULES.md`: 1000ms/2000ms)
+2. No distinction between development and production strictness
+3. MLRunner exceptions could crash the pipeline in production
+
+**Changes:**
+
+1. **InferenceStrictness enum** (`base.py`):
+   ```python
+   class InferenceStrictness(str, Enum):
+       DEV = "dev"   # Lenient: fallback allowed, calibration optional
+       PROD = "prod" # Strict: fail-safe, never fallback, never TRADEABLE without model
+   ```
+
+2. **Data freshness thresholds** (configurable, SSOT defaults):
+   - `stale_book_max_ms`: 1000 (per `DATA_FRESHNESS_RULES.md`)
+   - `stale_trades_max_ms`: 2000 (per `DATA_FRESHNESS_RULES.md`)
+
+3. **PROD mode behavior** (fail-safe, not fail-fast):
+   - Missing model → `DATA_ISSUE` status with `RC_MODEL_UNAVAILABLE`
+   - Missing calibration → `DATA_ISSUE` status with `RC_CALIBRATION_MISSING`
+   - Hash mismatch → `DATA_ISSUE` status with `RC_ARTIFACT_INTEGRITY_FAIL`
+   - Never raises exceptions (deterministic, auditable)
+   - Never returns `TRADEABLE` without valid model+calibration
+
+4. **DEV mode behavior** (lenient, default):
+   - `fallback_to_baseline` honored (default True)
+   - `require_calibration` honored (default True)
+   - Model/calibration errors → fallback to BaselineRunner
+
+**Behavior Matrix:**
+
+| Condition | DEV Mode | PROD Mode (Reason Code) |
+|-----------|----------|-------------------------|
+| Model missing | BaselineRunner fallback | DATA_ISSUE (`RC_MODEL_UNAVAILABLE`) |
+| Calibration missing | Raw probs (if allowed) | DATA_ISSUE (`RC_CALIBRATION_MISSING`) |
+| Hash mismatch | Fallback (if allowed) | DATA_ISSUE (`RC_ARTIFACT_INTEGRITY_FAIL`) |
+| Book stale > threshold | DATA_ISSUE | DATA_ISSUE |
+| Trades stale > threshold | DATA_ISSUE | DATA_ISSUE |
+
+**New Reason Codes (per REASON_CODES_TAXONOMY.md):**
+- `RC_MODEL_UNAVAILABLE` — model artifact missing or failed to load
+- `RC_CALIBRATION_MISSING` — calibration artifact missing or failed to load
+- `RC_ARTIFACT_INTEGRITY_FAIL` — artifact hash mismatch (SHA256 verification failed)
+
+**SSOT Updates:**
+- `REASON_CODES_TAXONOMY.md`: Added artifact error codes section
+- `CONFIG_SPEC.md`: Added `models.inference_strictness` key
+
+**Alternatives considered:**
+1. Raise exceptions in PROD → rejected: can crash pipeline, hard to debug
+2. Different threshold profiles → rejected: overcomplicates, thresholds are per SSOT
+3. Always require calibration → rejected: need flexibility for development
+
+**Rationale:**
+- PROD mode must never silently proceed without valid artifacts
+- Returning `DATA_ISSUE` instead of exceptions ensures deterministic, auditable behavior
+- SSOT-aligned thresholds prevent configuration drift
+- DEV mode allows rapid iteration without strict artifact requirements
+
+**Impact:**
+- `InferenceStrictness` enum added to `base.py`
+- `MLRunnerConfig.strictness` field (default: DEV)
+- Data freshness thresholds configurable in `ModelRunnerConfig`
+- 12 new tests for PROD/DEV behavior matrix (7 strictness + 5 freshness)
+- 728 total tests pass
+
+---
+
 ## DEC-014: MLRunner with Calibration Integration (PR-C)
 
 **Date:** 2026-01-25

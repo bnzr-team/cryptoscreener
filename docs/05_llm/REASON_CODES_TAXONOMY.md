@@ -36,6 +36,11 @@
 ### ML/Calibration (MLRunner-specific)
 - RC_CALIBRATION_ADJ — calibration adjustment applied to raw probability
 
+### Artifact Errors (PROD mode only)
+- RC_MODEL_UNAVAILABLE — model artifact missing or failed to load
+- RC_CALIBRATION_MISSING — calibration artifact missing or failed to load
+- RC_ARTIFACT_INTEGRITY_FAIL — artifact hash mismatch (SHA256 verification failed)
+
 ## Rule format
 Each code must have:
 - trigger condition (formula, thresholds)
