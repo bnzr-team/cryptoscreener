@@ -16,6 +16,7 @@ from cryptoscreener.contracts.events import (
     Features,
     FeatureSnapshot,
     PredictionStatus,
+    ReasonCode,
     RegimeTrend,
     RegimeVol,
 )
@@ -33,14 +34,13 @@ class MockSklearnModel:
     """Mock sklearn-style model for testing (must be module-level for pickle)."""
 
     def predict_proba(self, X):
-        import numpy as np
-
-        # Return multi-output format
+        # Use lists instead of numpy arrays for portability
+        # sklearn models accept list-of-lists format
         return [
-            np.array([[0.3, 0.7]]),  # p_inplay_30s
-            np.array([[0.4, 0.6]]),  # p_inplay_2m
-            np.array([[0.35, 0.65]]),  # p_inplay_5m
-            np.array([[0.1, 0.1]]),  # p_toxic
+            [[0.3, 0.7]],  # p_inplay_30s
+            [[0.4, 0.6]],  # p_inplay_2m
+            [[0.35, 0.65]],  # p_inplay_5m
+            [[0.1, 0.1]],  # p_toxic
         ]
 
 
@@ -618,7 +618,7 @@ class TestEvidenceNoDigitsPolicy:
 
     DIGIT_PATTERN = re.compile(r"\d")
 
-    def _assert_no_digits_in_evidence(self, reasons: list) -> None:
+    def _assert_no_digits_in_evidence(self, reasons: list[ReasonCode]) -> None:
         """Assert that no evidence string contains digits."""
         for reason in reasons:
             if self.DIGIT_PATTERN.search(reason.evidence):
