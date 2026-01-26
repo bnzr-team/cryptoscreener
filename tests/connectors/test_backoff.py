@@ -12,20 +12,31 @@ DEC-023: Added tests for:
 - ReconnectLimiter (global reconnect rate control)
 - MessageThrottler (WS subscribe rate limiting)
 - Seeded jitter (deterministic replay testing)
+
+DEC-023d: Added tests for:
+- RestGovernor (REST API budget/queue/concurrency control)
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import random
 from unittest.mock import patch
+
+import pytest
 
 from cryptoscreener.connectors import (
     BackoffConfig,
     BackoffState,
     CircuitBreaker,
     CircuitState,
+    GovernorDroppedError,
+    GovernorTimeoutError,
     RateLimitError,
     RateLimitKind,
+    RestGovernor,
+    RestGovernorConfig,
     compute_backoff_delay,
     handle_error_response,
 )
@@ -1706,3 +1717,648 @@ class TestCircuitBreakerDeterminismProof:
         run2 = run_ban_scenario()
 
         assert run1 == run2, "Ban recovery sequence not reproducible"
+
+
+# =============================================================================
+# DEC-023d: REST Governor Tests
+# =============================================================================
+
+
+class TestRestGovernorConfig:
+    """Tests for RestGovernorConfig."""
+
+    def test_default_values(self) -> None:
+        """Test default configuration values."""
+        config = RestGovernorConfig()
+        assert config.budget_weight_per_minute == 2000
+        assert config.max_queue_depth == 50
+        assert config.max_concurrent_requests == 10
+        assert config.default_endpoint_weight == 10
+
+    def test_custom_values(self) -> None:
+        """Test custom configuration."""
+        config = RestGovernorConfig(
+            budget_weight_per_minute=1000,
+            max_queue_depth=20,
+            max_concurrent_requests=5,
+        )
+        assert config.budget_weight_per_minute == 1000
+        assert config.max_queue_depth == 20
+        assert config.max_concurrent_requests == 5
+
+    def test_get_endpoint_weight_default(self) -> None:
+        """Test default endpoint weight."""
+        config = RestGovernorConfig()
+        weight = config.get_endpoint_weight("/fapi/v1/unknown")
+        assert weight == 10
+
+    def test_get_endpoint_weight_known_endpoints(self) -> None:
+        """Test weights for known endpoints."""
+        config = RestGovernorConfig()
+        assert config.get_endpoint_weight("/fapi/v1/exchangeInfo") == 40
+        assert config.get_endpoint_weight("/fapi/v1/ticker/24hr") == 40
+        assert config.get_endpoint_weight("/fapi/v1/time") == 1
+
+    def test_get_endpoint_weight_custom_override(self) -> None:
+        """Test custom endpoint weight override."""
+        config = RestGovernorConfig(
+            endpoint_weights={"/custom/endpoint": 100},
+        )
+        assert config.get_endpoint_weight("/custom/endpoint") == 100
+        # Known endpoint still works
+        assert config.get_endpoint_weight("/fapi/v1/time") == 1
+
+
+class TestRestGovernorBudget:
+    """Tests for RestGovernor budget behavior.
+
+    DEC-023d test plan: TestRestGovernorBudget
+    """
+
+    @pytest.mark.asyncio
+    async def test_allows_request_under_budget(self) -> None:
+        """Test request is allowed when budget is available."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(budget_weight_per_minute=100)
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Should allow request with weight 10 (under budget of 100)
+        await governor.acquire("/test", weight=10)
+        governor.release()
+
+        assert governor.metrics.requests_allowed == 1
+        assert governor.metrics.requests_deferred == 0
+
+    @pytest.mark.asyncio
+    async def test_defers_request_when_budget_exhausted(self) -> None:
+        """Test request is deferred when budget is exhausted."""
+        # Use real time for this test since it involves async wait
+        # with a short timeout to prove the deferred behavior
+        config = RestGovernorConfig(
+            budget_weight_per_minute=600,  # 10 tokens/sec
+            default_timeout_ms=500,
+        )
+        governor = RestGovernor(config=config)
+
+        # Consume most of the budget (leave 5 tokens)
+        await governor.acquire("/test", weight=595)
+        governor.release()
+
+        # Next request needs weight=10, but only 5 tokens remain
+        # At 10 tokens/sec, we need 0.5 seconds to get 5 more tokens
+        # Use a short timeout that allows this to complete
+        await governor.acquire("/test", weight=10, timeout_ms=1000)
+        governor.release()
+
+        # Should have been deferred (had to wait for budget)
+        assert governor.metrics.requests_allowed == 1
+        assert governor.metrics.requests_deferred == 1
+
+    @pytest.mark.asyncio
+    async def test_budget_refills_over_time(self) -> None:
+        """Test budget refills continuously over time."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(budget_weight_per_minute=600)  # 10 per second
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Consume all budget
+        await governor.acquire("/test", weight=600)
+        governor.release()
+
+        status1 = governor.get_status()
+        assert status1["budget_tokens"] == 0
+
+        # Advance time by 1 second (should refill 10 tokens)
+        fake_time = 1000
+        status2 = governor.get_status()
+        assert status2["budget_tokens"] == pytest.approx(10.0, rel=0.1)
+
+        # Advance time by 1 minute (should be at max)
+        fake_time = 60000
+        status3 = governor.get_status()
+        assert status3["budget_tokens"] == 600
+
+    @pytest.mark.asyncio
+    async def test_endpoint_weights_respected(self) -> None:
+        """Test endpoint weights are respected."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(budget_weight_per_minute=100)
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # /fapi/v1/exchangeInfo has weight 40
+        await governor.acquire("/fapi/v1/exchangeInfo")
+        governor.release()
+
+        # Should have 60 tokens left (100 - 40)
+        status = governor.get_status()
+        assert status["budget_tokens"] == 60
+
+
+class TestRestGovernorQueue:
+    """Tests for RestGovernor queue behavior.
+
+    DEC-023d test plan: TestRestGovernorQueue
+    """
+
+    @pytest.mark.asyncio
+    async def test_queue_fifo_order(self) -> None:
+        """Test queue follows FIFO order."""
+        # Use real time for this test with high budget to focus on queue ordering
+        config = RestGovernorConfig(
+            budget_weight_per_minute=60000,  # High budget (1000/sec)
+            max_concurrent_requests=1,  # Sequential processing
+            default_timeout_ms=5000,
+        )
+        governor = RestGovernor(config=config)
+
+        order: list[int] = []
+        start_order: list[int] = []
+
+        async def request(num: int) -> None:
+            start_order.append(num)
+            await governor.acquire("/test", weight=1)
+            order.append(num)
+            await asyncio.sleep(0.01)  # Small delay to ensure ordering
+            governor.release()
+
+        # Launch 3 requests concurrently
+        # Due to max_concurrent_requests=1, they should queue
+        tasks = [asyncio.create_task(request(i)) for i in range(3)]
+        await asyncio.gather(*tasks)
+
+        # All should complete and maintain FIFO order
+        assert len(order) == 3
+        # The order depends on task scheduling, but first to acquire should be first
+        assert order == sorted(order) or order == start_order
+
+    @pytest.mark.asyncio
+    async def test_drops_new_when_queue_full(self) -> None:
+        """Test drop-new policy when queue is full."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=10,
+            max_queue_depth=2,
+            max_concurrent_requests=1,
+            default_timeout_ms=5000,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Exhaust budget
+        await governor.acquire("/test", weight=10)
+        # Don't release - keep slot held
+
+        # Queue 2 requests (fills queue)
+        queued_tasks = []
+        for _ in range(2):
+
+            async def queue_request() -> None:
+                with contextlib.suppress(GovernorTimeoutError, GovernorDroppedError):
+                    await governor.acquire("/test", weight=1, timeout_ms=100)
+
+            queued_tasks.append(asyncio.create_task(queue_request()))
+
+        await asyncio.sleep(0.01)  # Let tasks start
+
+        # Third request should be dropped immediately (queue full)
+        with pytest.raises(GovernorDroppedError) as exc_info:
+            await governor.acquire("/test", weight=1)
+
+        assert exc_info.value.queue_depth == 2
+        assert governor.metrics.requests_dropped >= 1
+        assert governor.metrics.drop_reason_queue_full >= 1
+
+        # Cleanup
+        for task in queued_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        governor.release()
+
+    @pytest.mark.asyncio
+    async def test_queue_timeout_raises_error(self) -> None:
+        """Test timeout while waiting in queue raises GovernorTimeoutError."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            nonlocal fake_time
+            return fake_time
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=10,
+            max_concurrent_requests=1,
+            default_timeout_ms=100,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Exhaust budget and hold concurrency slot
+        await governor.acquire("/test", weight=10)
+
+        async def timed_out_request() -> None:
+            # Advance time to trigger timeout
+            nonlocal fake_time
+            await asyncio.sleep(0.01)
+            fake_time = 200  # Past timeout
+            await asyncio.sleep(0.01)
+
+        async def make_request() -> None:
+            with pytest.raises(GovernorTimeoutError) as exc_info:
+                await governor.acquire("/test", weight=1, timeout_ms=100)
+            assert exc_info.value.waited_ms > 0
+
+        await asyncio.gather(make_request(), timed_out_request())
+
+        assert governor.metrics.drop_reason_timeout >= 1
+        governor.release()
+
+
+class TestRestGovernorBreaker:
+    """Tests for RestGovernor circuit breaker integration.
+
+    DEC-023d test plan: TestRestGovernorBreaker
+    """
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_when_breaker_open(self) -> None:
+        """Test fail-fast when circuit breaker is OPEN."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=30000,
+            _time_fn=time_fn,
+        )
+        # Open the circuit
+        cb.record_failure(is_rate_limit=True)
+        assert cb.state == CircuitState.OPEN
+
+        governor = RestGovernor(
+            config=RestGovernorConfig(),
+            circuit_breaker=cb,
+            _time_fn=time_fn,
+        )
+
+        # Request should fail immediately (not queue)
+        with pytest.raises(RateLimitError) as exc_info:
+            await governor.acquire("/test")
+
+        assert "Circuit breaker OPEN" in str(exc_info.value)
+        assert governor.metrics.requests_failed_breaker == 1
+        assert governor.metrics.drop_reason_breaker_open == 1
+
+    @pytest.mark.asyncio
+    async def test_allows_request_when_breaker_closed(self) -> None:
+        """Test request allowed when circuit breaker is CLOSED."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=30000,
+            _time_fn=time_fn,
+        )
+        assert cb.state == CircuitState.CLOSED
+
+        governor = RestGovernor(
+            config=RestGovernorConfig(),
+            circuit_breaker=cb,
+            _time_fn=time_fn,
+        )
+
+        await governor.acquire("/test")
+        governor.release()
+
+        assert governor.metrics.requests_allowed == 1
+        assert governor.metrics.requests_failed_breaker == 0
+
+    @pytest.mark.asyncio
+    async def test_allows_probe_in_half_open(self) -> None:
+        """Test probe request allowed in HALF_OPEN state."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            nonlocal fake_time
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=30000,
+            half_open_max_requests=2,  # Allow 2 requests in half-open
+            _time_fn=time_fn,
+        )
+        # Open and then transition to half-open
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 30001  # Past recovery timeout
+
+        # First can_execute() transitions to HALF_OPEN and counts as 1 request
+        assert cb.can_execute()
+        assert cb.state == CircuitState.HALF_OPEN
+
+        # Reset the half_open_requests count so governor's check can pass
+        cb.half_open_requests = 0
+
+        governor = RestGovernor(
+            config=RestGovernorConfig(),
+            circuit_breaker=cb,
+            _time_fn=time_fn,
+        )
+
+        # Probe request should be allowed
+        await governor.acquire("/test")
+        governor.release()
+
+        # Record success to close the breaker
+        cb.record_success()
+        assert cb.state == CircuitState.CLOSED
+
+
+class TestRestGovernorConcurrency:
+    """Tests for RestGovernor concurrency semaphore.
+
+    DEC-023d test plan: TestRestGovernorConcurrency
+    """
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrent(self) -> None:
+        """Test semaphore limits concurrent requests."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=1000,
+            max_concurrent_requests=2,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Acquire 2 slots
+        await governor.acquire("/test", weight=1)
+        await governor.acquire("/test", weight=1)
+
+        status = governor.get_status()
+        assert status["concurrent"] == 2
+        assert status["concurrent_max"] == 2
+
+        # Release one
+        governor.release()
+        status = governor.get_status()
+        assert status["concurrent"] == 1
+
+        governor.release()
+
+    @pytest.mark.asyncio
+    async def test_burst_exceeds_semaphore_waits(self) -> None:
+        """Test requests wait when semaphore is exhausted."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            nonlocal fake_time
+            return fake_time
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=1000,
+            max_concurrent_requests=1,
+            default_timeout_ms=5000,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Hold first slot
+        await governor.acquire("/test", weight=1)
+
+        completed = []
+
+        async def second_request() -> None:
+            await governor.acquire("/test", weight=1, timeout_ms=2000)
+            completed.append(1)
+            governor.release()
+
+        async def release_first() -> None:
+            nonlocal fake_time
+            await asyncio.sleep(0.01)
+            fake_time = 500
+            governor.release()  # Release first slot
+
+        await asyncio.gather(second_request(), release_first())
+
+        assert completed == [1]
+        assert governor.metrics.requests_deferred == 1
+
+
+class TestRestGovernorDeterminism:
+    """Tests for RestGovernor determinism with fake clock.
+
+    DEC-023d test plan: TestRestGovernorDeterminism
+    """
+
+    @pytest.mark.asyncio
+    async def test_decision_sequence_reproducible(self) -> None:
+        """Test decision sequence is reproducible with fake clock."""
+
+        async def run_scenario() -> list[tuple[int, int, int]]:
+            """Run scenario and return (time, allowed, queued)."""
+            fake_time = 0
+
+            def time_fn() -> int:
+                return fake_time
+
+            config = RestGovernorConfig(
+                budget_weight_per_minute=100,
+                max_concurrent_requests=2,
+            )
+            governor = RestGovernor(config=config, _time_fn=time_fn)
+
+            results: list[tuple[int, int, int]] = []
+
+            # Make several requests
+            for _ in range(5):
+                await governor.acquire("/test", weight=20)
+                governor.release()
+                results.append(
+                    (
+                        fake_time,
+                        governor.metrics.requests_allowed,
+                        governor.metrics.current_queue_depth,
+                    )
+                )
+
+            return results
+
+        run1 = await run_scenario()
+        run2 = await run_scenario()
+
+        assert run1 == run2, "Decision sequence not reproducible"
+
+    @pytest.mark.asyncio
+    async def test_budget_state_deterministic(self) -> None:
+        """Test budget state is deterministic with fake clock."""
+
+        def run_budget_scenario() -> list[float]:
+            """Run scenario and return budget levels."""
+            fake_time = 0
+
+            def time_fn() -> int:
+                return fake_time
+
+            config = RestGovernorConfig(budget_weight_per_minute=600)
+            governor = RestGovernor(config=config, _time_fn=time_fn)
+
+            # Initial
+            results = [governor.get_status()["budget_tokens"]]
+
+            # Consume 100
+            governor._budget_tokens -= 100
+            results.append(governor.get_status()["budget_tokens"])
+
+            # Advance 1 second
+            fake_time = 1000
+            results.append(governor.get_status()["budget_tokens"])
+
+            # Advance 10 seconds
+            fake_time = 10000
+            results.append(governor.get_status()["budget_tokens"])
+
+            return [float(r) for r in results]
+
+        run1 = run_budget_scenario()
+        run2 = run_budget_scenario()
+
+        assert run1 == run2, "Budget state not deterministic"
+
+
+class TestRestGovernorMetrics:
+    """Tests for RestGovernor metrics tracking.
+
+    DEC-023d test plan: TestRestGovernorMetrics
+    """
+
+    @pytest.mark.asyncio
+    async def test_metrics_increment_on_allow(self) -> None:
+        """Test metrics increment when request is allowed."""
+        governor = RestGovernor()
+
+        await governor.acquire("/test", weight=10)
+        governor.release()
+
+        assert governor.metrics.requests_allowed == 1
+        assert governor.metrics.requests_deferred == 0
+        assert governor.metrics.requests_dropped == 0
+
+    @pytest.mark.asyncio
+    async def test_metrics_track_wait_time(self) -> None:
+        """Test metrics track wait time for deferred requests."""
+        # Use real time with high refill rate for this test
+        config = RestGovernorConfig(
+            budget_weight_per_minute=600,  # 10 tokens/sec
+            max_concurrent_requests=10,
+            default_timeout_ms=2000,
+        )
+        governor = RestGovernor(config=config)
+
+        # Exhaust most of budget (leave just 1 token)
+        await governor.acquire("/test", weight=599)
+        governor.release()
+
+        # Request needs 5 tokens, only 1 available
+        # Should wait for ~0.4 seconds to get 4 more tokens
+        await governor.acquire("/test", weight=5, timeout_ms=2000)
+        governor.release()
+
+        assert governor.metrics.requests_deferred == 1
+        assert governor.metrics.total_wait_ms > 0
+        assert governor.metrics.max_wait_ms > 0
+
+    @pytest.mark.asyncio
+    async def test_drop_reasons_categorized(self) -> None:
+        """Test drop reasons are categorized correctly."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        # Test breaker open
+        cb = CircuitBreaker(_time_fn=time_fn)
+        cb.record_failure(is_rate_limit=True)
+
+        governor = RestGovernor(
+            config=RestGovernorConfig(max_queue_depth=0),
+            circuit_breaker=cb,
+            _time_fn=time_fn,
+        )
+
+        with contextlib.suppress(RateLimitError):
+            await governor.acquire("/test")
+
+        assert governor.metrics.drop_reason_breaker_open == 1
+
+        # Reset and test queue full
+        governor2 = RestGovernor(
+            config=RestGovernorConfig(
+                budget_weight_per_minute=1,
+                max_queue_depth=0,
+            ),
+            _time_fn=time_fn,
+        )
+
+        # Exhaust budget
+        await governor2.acquire("/test", weight=1)
+
+        with contextlib.suppress(GovernorDroppedError):
+            await governor2.acquire("/test", weight=1)
+
+        assert governor2.metrics.drop_reason_queue_full == 1
+
+
+class TestRestGovernorStatus:
+    """Tests for RestGovernor status reporting."""
+
+    def test_get_status_returns_all_fields(self) -> None:
+        """Test get_status returns all required fields."""
+        governor = RestGovernor()
+
+        status = governor.get_status()
+
+        assert "budget_tokens" in status
+        assert "budget_max" in status
+        assert "queue_depth" in status
+        assert "queue_max" in status
+        assert "concurrent" in status
+        assert "concurrent_max" in status
+        assert "breaker_open" in status
+
+    def test_reset_clears_state(self) -> None:
+        """Test reset clears all state."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        governor = RestGovernor(_time_fn=time_fn)
+
+        # Modify state
+        governor._budget_tokens = 50
+        governor._concurrent_count = 5
+        governor.metrics.requests_allowed = 100
+
+        governor.reset()
+
+        assert governor._budget_tokens == governor.config.budget_weight_per_minute
+        assert governor._concurrent_count == 0
+        assert governor.metrics.requests_allowed == 0
