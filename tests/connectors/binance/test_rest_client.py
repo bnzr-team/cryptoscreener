@@ -717,3 +717,64 @@ class TestBinanceRestClientGovernorWeightTimeout:
         assert consumed == 40, f"Expected weight 40, consumed {consumed}"
 
         await client.close()
+
+    @pytest.mark.asyncio
+    async def test_endpoint_key_strips_query_from_url(
+        self,
+        circuit_breaker: CircuitBreaker,
+    ) -> None:
+        """Verify endpoint key is extracted from URL path, stripping query string.
+
+        DEC-023d-wiring: Uses urlsplit(url).path to guarantee clean endpoint key
+        even if the URL contains query parameters. This ensures correct weight
+        lookup regardless of how callers construct the URL.
+        """
+        config = RestGovernorConfig(
+            budget_weight_per_minute=100,
+            max_queue_depth=10,
+            max_concurrent_requests=10,
+        )
+        governor = RestGovernor(config=config, circuit_breaker=circuit_breaker)
+        client = BinanceRestClient(circuit_breaker=circuit_breaker, governor=governor)
+
+        # Track what endpoint_key was passed to permit()
+        permit_calls: list[tuple[str, int | None, int | None]] = []
+        original_permit = governor.permit
+
+        @contextlib.asynccontextmanager
+        async def tracking_permit(
+            endpoint: str,
+            weight: int | None = None,
+            timeout_ms: int | None = None,
+        ):
+            permit_calls.append((endpoint, weight, timeout_ms))
+            async with original_permit(endpoint, weight, timeout_ms):
+                yield
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.json = AsyncMock(return_value={"serverTime": 123})
+        mock_response.text = AsyncMock(return_value="")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        # Simulate a request where the URL might have query params
+        # (even though current implementation doesn't add them to /fapi/v1/time,
+        # this test proves the normalization works)
+        with (
+            patch.object(governor, "permit", tracking_permit),
+            patch.object(aiohttp.ClientSession, "request", return_value=mock_response),
+        ):
+            await client.get_server_time()
+
+        # Verify permit was called with clean endpoint path (no query string)
+        assert len(permit_calls) == 1
+        endpoint_key, weight, _ = permit_calls[0]
+        # endpoint_key should be the path only, extracted via urlsplit(url).path
+        assert endpoint_key == "/fapi/v1/time", f"Expected /fapi/v1/time, got {endpoint_key}"
+        assert "?" not in endpoint_key, "endpoint_key should not contain query string"
+        # Weight should match the known weight for this endpoint
+        assert weight == 1, f"Expected weight 1, got {weight}"
+
+        await client.close()

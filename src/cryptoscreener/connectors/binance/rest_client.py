@@ -14,6 +14,7 @@ import contextlib
 import logging
 import time
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -186,12 +187,13 @@ class BinanceRestClient:
         """
         assert self._governor is not None  # Type narrowing
 
-        # DEC-023d: Compute weight from endpoint and pass explicit weight + timeout
-        # Normalization happens at client boundary (endpoint is already clean path)
-        weight = self._governor.config.get_endpoint_weight(endpoint)
+        # DEC-023d: Normalize endpoint at client boundary using URL path
+        # This guarantees clean path even if endpoint or url contains query strings
+        endpoint_key = urlsplit(url).path
+        weight = self._governor.config.get_endpoint_weight(endpoint_key)
         timeout_ms = self._config.request_timeout_ms
 
-        async with self._governor.permit(endpoint, weight=weight, timeout_ms=timeout_ms):
+        async with self._governor.permit(endpoint_key, weight=weight, timeout_ms=timeout_ms):
             session = await self._get_session()
             async with session.request(method, url, params=params) as response:
                 # Parse Retry-After header if present
