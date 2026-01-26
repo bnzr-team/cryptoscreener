@@ -41,6 +41,7 @@ from cryptoscreener.connectors import (
     handle_error_response,
 )
 from cryptoscreener.connectors.backoff import (
+    DEFAULT_WEIGHT,
     MessageThrottler,
     MessageThrottlerConfig,
     ReconnectLimiter,
@@ -1767,6 +1768,29 @@ class TestRestGovernorConfig:
         assert config.get_endpoint_weight("/custom/endpoint") == 100
         # Known endpoint still works
         assert config.get_endpoint_weight("/fapi/v1/time") == 1
+
+    def test_get_endpoint_weight_exact_match_only(self) -> None:
+        """Test endpoint weight lookup uses exact match (no normalization).
+
+        DEC-023d-wiring: Normalization (stripping query strings) happens at
+        the client boundary, not inside get_endpoint_weight(). This ensures
+        clean separation of concerns.
+        """
+        config = RestGovernorConfig()
+        # Exact match works
+        assert config.get_endpoint_weight("/fapi/v1/time") == 1
+        assert config.get_endpoint_weight("/fapi/v1/exchangeInfo") == 40
+        # With query string does NOT match (returns default weight)
+        # because normalization is done at client boundary, not here
+        assert config.get_endpoint_weight("/fapi/v1/time?foo=bar") == DEFAULT_WEIGHT
+        assert config.get_endpoint_weight("/fapi/v1/exchangeInfo?x=1") == DEFAULT_WEIGHT
+        # Custom endpoint exact match
+        custom_config = RestGovernorConfig(
+            endpoint_weights={"/custom/endpoint": 100},
+        )
+        assert custom_config.get_endpoint_weight("/custom/endpoint") == 100
+        # Custom endpoint with query string returns default (no normalization)
+        assert custom_config.get_endpoint_weight("/custom/endpoint?token=abc") == DEFAULT_WEIGHT
 
 
 class TestRestGovernorBudget:
