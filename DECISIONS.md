@@ -1177,3 +1177,74 @@ response = self._client.messages.create(
 - Modified `src/cryptoscreener/explain_llm/explainer.py` (1 line)
 - Added 2 tests in `tests/explain_llm/test_explainer.py`
 - LLM calls now respect configured timeout
+
+---
+
+## DEC-021: Model Package E2E Smoke (Offline)
+
+**Date:** 2026-01-26
+
+**Decision:** Add offline E2E smoke tests to validate the full path: ModelPackage → MLRunner load → calibration → inference.
+
+**Problem:**
+1. Registry package loading (DEC-016) and MLRunner (DEC-014) were tested in isolation
+2. No integration test proving the complete path: package validation → artifact loading → inference
+3. Need determinism proof for the package-loaded inference path
+
+**Test Coverage:**
+
+1. **Package Integrity Tests** (`TestPackageIntegrity`):
+   - Valid package passes validation
+   - Valid package loads successfully
+   - Checksum mismatch fails validation
+   - Missing required file (features.json) fails validation
+   - Missing checksums.txt fails validation
+   - `load_package(validate=True)` raises on invalid package
+
+2. **MLRunner Loads from Package Tests** (`TestMLRunnerLoadsFromPackage`):
+   - MLRunner loads model from package without fallback
+   - Predictions are not DATA_ISSUE (actual model inference)
+   - `model_version` matches package manifest
+   - Calibration is applied (`calibration_version` set)
+   - Pipeline produces RankEvents (not empty)
+
+3. **Determinism Tests** (`TestPackageDeterminism`):
+   - Same input produces same output across two runs
+   - RankEvent digest stable across runs
+   - Prediction digest stable across runs
+   - Generate replay proof with all digests
+
+4. **JSON Examples** (`TestJSONExamples`):
+   - Print example PredictionSnapshot JSON
+   - Print example RankEvent JSON
+
+**Fixtures Strategy:**
+- Model artifacts generated on-the-fly (no binary files in git)
+- Uses `DeterministicModel` from `tests/fixtures/mlrunner_model/`
+- Package assembled in temp directory per test
+- Checksums computed dynamically
+
+**Test File:**
+- `tests/replay/test_modelpackage_e2e_smoke.py`
+- Uses MLRunner in PROD mode (`InferenceStrictness.PROD`) to prevent fallback
+
+**CI Gate:**
+- Located in `tests/replay/` to trigger replay determinism verification via `acceptance_packet.sh`
+- When PR touches `tests/replay/`, acceptance-packet runs full replay proof (2 runs + digest comparison)
+- Consistent with DEC-019 (MLRunner E2E) replay gate convention
+
+**Alternatives considered:**
+1. Store model.bin in git — rejected: avoid binaries, on-the-fly generation is deterministic
+2. Test in DEV mode — rejected: PROD mode ensures no silent fallback to baseline
+3. Single integration test — rejected: separate concerns (integrity/load/determinism) for clarity
+
+**Rationale:**
+- Proves complete E2E path works offline without external dependencies
+- Uses PROD mode to ensure actual model inference (not baseline fallback)
+- Determinism proof enables replay verification
+- On-the-fly artifact generation avoids binary pollution in git
+
+**Impact:**
+- New `tests/registry/test_package_e2e_smoke.py` with 15 tests
+- Validates registry → MLRunner integration path
+- Provides reproducible digest proof for auditing
