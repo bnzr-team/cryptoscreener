@@ -135,10 +135,6 @@ class WebSocketShard:
         self._request_id: int = 0
         self._background_tasks: set[asyncio.Task[None]] = set()
 
-        # DEC-023b: Lock to serialize WS send operations (throttle check + consume + send)
-        # This prevents race conditions where concurrent subscribes both see wait_ms=0
-        self._send_lock = asyncio.Lock()
-
     @property
     def shard_id(self) -> int:
         """Get shard ID."""
@@ -420,8 +416,7 @@ class WebSocketShard:
         Send SUBSCRIBE command to WebSocket.
 
         DEC-023b: Checks MessageThrottler before sending to respect
-        10 msg/sec per-connection limit. Uses _send_lock to prevent
-        race conditions with concurrent subscribe/unsubscribe calls.
+        10 msg/sec per-connection limit.
         """
         if not self._ws or self._ws.closed:
             return
@@ -430,55 +425,12 @@ class WebSocketShard:
         for i in range(0, len(streams), self._shard_config.subscribe_batch_size):
             batch = streams[i : i + self._shard_config.subscribe_batch_size]
 
-            # DEC-023b: Serialize throttle check + consume + send to prevent races
-            async with self._send_lock:
-                # DEC-023b: Check throttler before sending
-                wait_ms = self._message_throttler.get_wait_time_ms()
-                if wait_ms > 0:
-                    self._metrics.messages_delayed += 1
-                    logger.debug(
-                        "Subscribe delayed by throttler",
-                        extra={
-                            "shard_id": self._shard_id,
-                            "wait_ms": wait_ms,
-                            "delayed_count": self._metrics.messages_delayed,
-                        },
-                    )
-                    await asyncio.sleep(wait_ms / 1000)
-
-                # Record the outgoing message (consume token)
-                self._message_throttler.consume()
-
-                msg = {
-                    "method": "SUBSCRIBE",
-                    "params": batch,
-                    "id": self._next_request_id(),
-                }
-                await self._ws.send_json(msg)
-                logger.debug(
-                    "Sent SUBSCRIBE",
-                    extra={"shard_id": self._shard_id, "streams": len(batch)},
-                )
-
-    async def _send_unsubscribe(self, streams: list[str]) -> None:
-        """
-        Send UNSUBSCRIBE command to WebSocket.
-
-        DEC-023b: Checks MessageThrottler before sending to respect
-        10 msg/sec per-connection limit. Uses _send_lock to prevent
-        race conditions with concurrent subscribe/unsubscribe calls.
-        """
-        if not self._ws or self._ws.closed:
-            return
-
-        # DEC-023b: Serialize throttle check + consume + send to prevent races
-        async with self._send_lock:
             # DEC-023b: Check throttler before sending
             wait_ms = self._message_throttler.get_wait_time_ms()
             if wait_ms > 0:
                 self._metrics.messages_delayed += 1
                 logger.debug(
-                    "Unsubscribe delayed by throttler",
+                    "Subscribe delayed by throttler",
                     extra={
                         "shard_id": self._shard_id,
                         "wait_ms": wait_ms,
@@ -491,15 +443,53 @@ class WebSocketShard:
             self._message_throttler.consume()
 
             msg = {
-                "method": "UNSUBSCRIBE",
-                "params": streams,
+                "method": "SUBSCRIBE",
+                "params": batch,
                 "id": self._next_request_id(),
             }
             await self._ws.send_json(msg)
             logger.debug(
-                "Sent UNSUBSCRIBE",
-                extra={"shard_id": self._shard_id, "streams": len(streams)},
+                "Sent SUBSCRIBE",
+                extra={"shard_id": self._shard_id, "streams": len(batch)},
             )
+
+    async def _send_unsubscribe(self, streams: list[str]) -> None:
+        """
+        Send UNSUBSCRIBE command to WebSocket.
+
+        DEC-023b: Checks MessageThrottler before sending to respect
+        10 msg/sec per-connection limit.
+        """
+        if not self._ws or self._ws.closed:
+            return
+
+        # DEC-023b: Check throttler before sending
+        wait_ms = self._message_throttler.get_wait_time_ms()
+        if wait_ms > 0:
+            self._metrics.messages_delayed += 1
+            logger.debug(
+                "Unsubscribe delayed by throttler",
+                extra={
+                    "shard_id": self._shard_id,
+                    "wait_ms": wait_ms,
+                    "delayed_count": self._metrics.messages_delayed,
+                },
+            )
+            await asyncio.sleep(wait_ms / 1000)
+
+        # Record the outgoing message (consume token)
+        self._message_throttler.consume()
+
+        msg = {
+            "method": "UNSUBSCRIBE",
+            "params": streams,
+            "id": self._next_request_id(),
+        }
+        await self._ws.send_json(msg)
+        logger.debug(
+            "Sent UNSUBSCRIBE",
+            extra={"shard_id": self._shard_id, "streams": len(streams)},
+        )
 
     async def _receive_loop(self) -> None:
         """Main loop for receiving WebSocket messages."""
