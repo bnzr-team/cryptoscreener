@@ -176,9 +176,7 @@ def compute_impact_bps(
     avg_price = total_cost / total_qty
 
     # Compute slippage from mid
-    slippage = (
-        avg_price - orderbook.mid if side == "buy" else orderbook.mid - avg_price
-    )
+    slippage = avg_price - orderbook.mid if side == "buy" else orderbook.mid - avg_price
 
     impact_bps = (slippage / orderbook.mid) * 10000
 
@@ -230,11 +228,7 @@ class CostCalculator:
         Returns:
             Clip size in USD.
         """
-        k = (
-            self._config.clip_k_scalping
-            if style == "scalping"
-            else self._config.clip_k_intraday
-        )
+        k = self._config.clip_k_scalping if style == "scalping" else self._config.clip_k_intraday
         return k * usd_volume_60s
 
     def compute_costs(

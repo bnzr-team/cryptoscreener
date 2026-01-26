@@ -38,9 +38,7 @@ class TestPlattCalibrator:
             # Test full range including extreme values
             for p in [0.0, 0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999, 1.0]:
                 result = cal.transform(p)
-                assert 0.0 <= result <= 1.0, (
-                    f"a={a}, b={b}, p={p}: result={result} out of bounds"
-                )
+                assert 0.0 <= result <= 1.0, f"a={a}, b={b}, p={p}: result={result} out of bounds"
 
     def test_transform_batch(self) -> None:
         """Batch transform should match individual transforms."""
@@ -73,7 +71,7 @@ class TestPlattCalibrator:
         # Check monotonically increasing
         for i in range(len(results) - 1):
             assert results[i] < results[i + 1], (
-                f"Not monotonic at i={i}: {results[i]} >= {results[i+1]}"
+                f"Not monotonic at i={i}: {results[i]} >= {results[i + 1]}"
             )
 
 
@@ -154,18 +152,14 @@ class TestFitPlatt:
             labels.append(1 if (i % 100) < int(true_p * 100) else 0)
 
         # Compute Brier before
-        brier_before = sum(
-            (p - y) ** 2 for p, y in zip(probs_raw, labels, strict=True)
-        ) / n
+        brier_before = sum((p - y) ** 2 for p, y in zip(probs_raw, labels, strict=True)) / n
 
         # Fit and calibrate
         cal = fit_platt(labels, probs_raw, "test")
         probs_cal = cal.transform_batch(probs_raw)
 
         # Compute Brier after
-        brier_after = sum(
-            (p - y) ** 2 for p, y in zip(probs_cal, labels, strict=True)
-        ) / n
+        brier_after = sum((p - y) ** 2 for p, y in zip(probs_cal, labels, strict=True)) / n
 
         assert brier_after < brier_before, (
             f"Calibration should improve Brier: {brier_before:.4f} -> {brier_after:.4f}"
@@ -232,8 +226,7 @@ class TestRankingPreservation:
 
         # a must be positive for ranking preservation
         assert cal.a > 0, (
-            f"Fitted a={cal.a} is non-positive on well-ordered data. "
-            "This would invert rankings!"
+            f"Fitted a={cal.a} is non-positive on well-ordered data. This would invert rankings!"
         )
 
         # Verify ranking is actually preserved
@@ -243,7 +236,7 @@ class TestRankingPreservation:
         for i in range(len(calibrated) - 1):
             assert calibrated[i] < calibrated[i + 1], (
                 f"Ranking inverted: cal({test_probs[i]})={calibrated[i]} >= "
-                f"cal({test_probs[i+1]})={calibrated[i+1]}"
+                f"cal({test_probs[i + 1]})={calibrated[i + 1]}"
             )
 
     def test_ranking_preserved_after_calibration(self) -> None:
@@ -281,9 +274,7 @@ class TestRankingPreservation:
         result_high = cal.transform(0.8)
 
         # Ranking IS inverted with negative slope
-        assert result_low > result_high, (
-            "Expected ranking inversion with negative slope"
-        )
+        assert result_low > result_high, "Expected ranking inversion with negative slope"
 
 
 class TestNegativeSlopeRejection:

@@ -262,9 +262,7 @@ def main() -> int:
         # Report improvement
         brier_delta = after["brier"] - before["brier"]
         ece_delta = after["ece"] - before["ece"]
-        logger.info(
-            f"  Delta:  Brier={brier_delta:+.4f}, ECE={ece_delta:+.4f}"
-        )
+        logger.info(f"  Delta:  Brier={brier_delta:+.4f}, ECE={ece_delta:+.4f}")
 
     # Create metadata
     config = {

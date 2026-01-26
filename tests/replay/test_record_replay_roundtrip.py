@@ -170,9 +170,9 @@ class TestRecordReplayRoundtrip:
             )
 
             # Digests must match
-            assert (
-                record_digest == replay_digest
-            ), f"Digest mismatch: record={record_digest}, replay={replay_digest}"
+            assert record_digest == replay_digest, (
+                f"Digest mismatch: record={record_digest}, replay={replay_digest}"
+            )
             assert passed, "Replay determinism check should pass"
 
     def test_manifest_contains_required_fields(self) -> None:

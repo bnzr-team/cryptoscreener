@@ -184,9 +184,7 @@ class LivePipeline:
             ),
         )
 
-        self._model_runner = BaselineRunner(
-            config=ModelRunnerConfig()
-        )
+        self._model_runner = BaselineRunner(config=ModelRunnerConfig())
 
         self._ranker = Ranker(
             config=RankerConfig(
@@ -311,9 +309,7 @@ class LivePipeline:
             self._metrics.market_events_received += 1
             latency = event.recv_ts - event.ts
             self._metrics.total_event_latency_ms += latency
-            self._metrics.max_event_latency_ms = max(
-                self._metrics.max_event_latency_ms, latency
-            )
+            self._metrics.max_event_latency_ms = max(self._metrics.max_event_latency_ms, latency)
 
             # Route to feature engine
             await self._router.route(event)
@@ -357,9 +353,7 @@ class LivePipeline:
             symbols = self._config.symbols
         else:
             # Get top N by 24h quote volume (sorted descending)
-            symbols = await self._stream_manager.get_top_symbols_by_volume(
-                self._config.top_n
-            )
+            symbols = await self._stream_manager.get_top_symbols_by_volume(self._config.top_n)
 
         logger.info("Subscribing to %d symbols", len(symbols))
 
@@ -414,22 +408,36 @@ class LivePipeline:
         logger.info("Predictions: %d", m.predictions_made)
         logger.info("Rank events: %d", m.rank_events_emitted)
         logger.info("Alerts: %d", m.alerts_emitted)
-        logger.info("Latency: avg=%.1fms max=%dms", m.avg_event_latency_ms(), m.max_event_latency_ms)
+        logger.info(
+            "Latency: avg=%.1fms max=%dms", m.avg_event_latency_ms(), m.max_event_latency_ms
+        )
 
         # LLM metrics
         alerter_m = self._alerter.metrics
-        logger.info("LLM calls: %d (cache hits: %d, failures: %d)",
-                    alerter_m.llm_calls, alerter_m.llm_cache_hits, alerter_m.llm_failures)
+        logger.info(
+            "LLM calls: %d (cache hits: %d, failures: %d)",
+            alerter_m.llm_calls,
+            alerter_m.llm_cache_hits,
+            alerter_m.llm_failures,
+        )
 
         # Router metrics
         router_m = self._router.metrics
-        logger.info("Router: %d events, %d stale, %d late",
-                    router_m.events_routed, router_m.stale_events, router_m.late_events)
+        logger.info(
+            "Router: %d events, %d stale, %d late",
+            router_m.events_routed,
+            router_m.stale_events,
+            router_m.late_events,
+        )
 
         # Ranker metrics
         ranker_m = self._ranker.metrics
-        logger.info("Ranker: %d updates, %d enters, %d exits",
-                    ranker_m.updates_processed, ranker_m.enter_events, ranker_m.exit_events)
+        logger.info(
+            "Ranker: %d updates, %d enters, %d exits",
+            ranker_m.updates_processed,
+            ranker_m.enter_events,
+            ranker_m.exit_events,
+        )
         logger.info("=" * 60)
 
     def request_shutdown(self) -> None:
@@ -474,6 +482,7 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
     if config.llm_enabled:
         try:
             from cryptoscreener.explain_llm.explainer import AnthropicExplainer
+
             explainer = AnthropicExplainer()
             logger.info("LLM explainer enabled (Anthropic)")
         except ImportError:
