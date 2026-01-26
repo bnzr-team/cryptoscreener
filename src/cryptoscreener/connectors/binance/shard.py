@@ -5,6 +5,9 @@ Per BINANCE_LIMITS.md:
 - Max 1024 streams per connection (we use 800)
 - Max 10 incoming messages per second per connection
 - Exponential backoff + jitter for reconnects
+
+DEC-023b: Added MessageThrottler for subscribe/unsubscribe rate limiting
+          and ReconnectLimiter integration for reconnect storm protection.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
@@ -23,6 +26,9 @@ from cryptoscreener.connectors.backoff import (
     BackoffConfig,
     BackoffState,
     CircuitBreaker,
+    MessageThrottler,
+    MessageThrottlerConfig,
+    ReconnectLimiter,
     compute_backoff_delay,
 )
 from cryptoscreener.connectors.binance.types import (
@@ -33,6 +39,9 @@ from cryptoscreener.connectors.binance.types import (
     ShardMetrics,
     StreamSubscription,
 )
+
+if TYPE_CHECKING:
+    import random
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +67,11 @@ class WebSocketShard:
         circuit_breaker: CircuitBreaker,
         on_message: MessageCallback,
         on_state_change: Callable[[int, ConnectionState], None] | None = None,
+        *,
+        reconnect_limiter: ReconnectLimiter | None = None,
+        message_throttler: MessageThrottler | None = None,
+        rng: random.Random | None = None,
+        time_fn: Callable[[], int] | None = None,
     ) -> None:
         """
         Initialize the WebSocket shard.
@@ -68,6 +82,10 @@ class WebSocketShard:
             circuit_breaker: Shared circuit breaker for protection.
             on_message: Async callback for received messages.
             on_state_change: Optional callback for state changes.
+            reconnect_limiter: Global reconnect limiter (DEC-023b).
+            message_throttler: Per-shard message throttler (DEC-023b).
+            rng: Seeded RNG for deterministic jitter in replay mode (DEC-023b).
+            time_fn: Time provider for deterministic testing (DEC-023b).
         """
         self._shard_id = shard_id
         self._config = config
@@ -75,6 +93,30 @@ class WebSocketShard:
         self._circuit_breaker = circuit_breaker
         self._on_message = on_message
         self._on_state_change = on_state_change
+
+        # DEC-023b: Global reconnect limiter (shared across shards)
+        self._reconnect_limiter = reconnect_limiter
+
+        # DEC-023b: Per-shard message throttler (10 msg/sec per connection)
+        if message_throttler is not None:
+            self._message_throttler = message_throttler
+        else:
+            # Create default throttler with config-derived settings
+            throttler_config = MessageThrottlerConfig(
+                max_messages_per_second=self._shard_config.max_messages_per_second,
+                safety_margin=0.8,
+                burst_allowance=5,
+            )
+            self._message_throttler = MessageThrottler(
+                config=throttler_config,
+                _time_fn=time_fn,
+            )
+
+        # DEC-023b: Seeded RNG for deterministic jitter in replay mode
+        self._rng = rng
+
+        # DEC-023b: Time provider for deterministic testing
+        self._time_fn = time_fn
 
         self._subscriptions: set[StreamSubscription] = set()
         self._active_streams: set[str] = set()
@@ -243,7 +285,32 @@ class WebSocketShard:
         Reconnect with exponential backoff.
 
         Per BINANCE_LIMITS.md: exponential backoff + jitter for reconnects.
+        DEC-023b: Checks ReconnectLimiter before attempting reconnect.
         """
+        # DEC-023b: Check reconnect limiter before attempting
+        if self._reconnect_limiter is not None:
+            if not self._reconnect_limiter.can_reconnect(self._shard_id):
+                wait_ms = self._reconnect_limiter.get_wait_time_ms(self._shard_id)
+                self._metrics.reconnect_denied += 1
+                logger.warning(
+                    "Reconnect denied by limiter",
+                    extra={
+                        "shard_id": self._shard_id,
+                        "wait_ms": wait_ms,
+                        "denied_count": self._metrics.reconnect_denied,
+                    },
+                )
+                # Schedule delayed reconnect
+                if wait_ms > 0:
+                    await asyncio.sleep(wait_ms / 1000)
+                    task = asyncio.create_task(self.reconnect())
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
+                return
+
+            # Record reconnect attempt
+            self._reconnect_limiter.record_reconnect(self._shard_id)
+
         self._set_state(ConnectionState.RECONNECTING)
         self._metrics.reconnect_count += 1
 
@@ -252,9 +319,13 @@ class WebSocketShard:
             await self._ws.close()
             self._ws = None
 
-        # Compute backoff delay
+        # Compute backoff delay with optional seeded RNG for determinism
         self._backoff_state.record_error()
-        delay_ms = compute_backoff_delay(self._backoff_config, self._backoff_state)
+        delay_ms = compute_backoff_delay(
+            self._backoff_config,
+            self._backoff_state,
+            rng=self._rng,  # DEC-023b: seeded jitter for replay
+        )
 
         logger.info(
             "Reconnecting with backoff",
@@ -341,13 +412,36 @@ class WebSocketShard:
         return removed
 
     async def _send_subscribe(self, streams: list[str]) -> None:
-        """Send SUBSCRIBE command to WebSocket."""
+        """
+        Send SUBSCRIBE command to WebSocket.
+
+        DEC-023b: Checks MessageThrottler before sending to respect
+        10 msg/sec per-connection limit.
+        """
         if not self._ws or self._ws.closed:
             return
 
         # Batch subscriptions
         for i in range(0, len(streams), self._shard_config.subscribe_batch_size):
             batch = streams[i : i + self._shard_config.subscribe_batch_size]
+
+            # DEC-023b: Check throttler before sending
+            wait_ms = self._message_throttler.get_wait_time_ms()
+            if wait_ms > 0:
+                self._metrics.messages_delayed += 1
+                logger.debug(
+                    "Subscribe delayed by throttler",
+                    extra={
+                        "shard_id": self._shard_id,
+                        "wait_ms": wait_ms,
+                        "delayed_count": self._metrics.messages_delayed,
+                    },
+                )
+                await asyncio.sleep(wait_ms / 1000)
+
+            # Record the outgoing message (consume token)
+            self._message_throttler.consume()
+
             msg = {
                 "method": "SUBSCRIBE",
                 "params": batch,
@@ -360,9 +454,31 @@ class WebSocketShard:
             )
 
     async def _send_unsubscribe(self, streams: list[str]) -> None:
-        """Send UNSUBSCRIBE command to WebSocket."""
+        """
+        Send UNSUBSCRIBE command to WebSocket.
+
+        DEC-023b: Checks MessageThrottler before sending to respect
+        10 msg/sec per-connection limit.
+        """
         if not self._ws or self._ws.closed:
             return
+
+        # DEC-023b: Check throttler before sending
+        wait_ms = self._message_throttler.get_wait_time_ms()
+        if wait_ms > 0:
+            self._metrics.messages_delayed += 1
+            logger.debug(
+                "Unsubscribe delayed by throttler",
+                extra={
+                    "shard_id": self._shard_id,
+                    "wait_ms": wait_ms,
+                    "delayed_count": self._metrics.messages_delayed,
+                },
+            )
+            await asyncio.sleep(wait_ms / 1000)
+
+        # Record the outgoing message (consume token)
+        self._message_throttler.consume()
 
         msg = {
             "method": "UNSUBSCRIBE",

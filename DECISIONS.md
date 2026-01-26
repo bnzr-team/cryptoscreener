@@ -1436,3 +1436,138 @@ delay = compute_backoff_delay(config, state, rng=rng)
 2. Integrate `MessageThrottler` into `WebSocketShard.subscribe()` / `unsubscribe()`
 3. Add integration tests proving rate limiting works end-to-end
 4. Add metrics for throttle events (reconnect denied, message delayed)
+
+---
+
+## DEC-023b: Binance Operational Safety Hardening (Phase 2: Wiring)
+
+**Date:** 2026-01-26
+
+**Decision:** Wire DEC-023 utility classes (`ReconnectLimiter`, `MessageThrottler`) into Binance connector runtime paths.
+
+**Scope:**
+This is **Phase 2** — wiring utilities from DEC-023 into production code paths.
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| ReconnectLimiter wired to shard | ✅ Implemented | `shard.py:reconnect()` |
+| MessageThrottler wired to subscribe | ✅ Implemented | `shard.py:_send_subscribe()` |
+| MessageThrottler wired to unsubscribe | ✅ Implemented | `shard.py:_send_unsubscribe()` |
+| StreamManager owns ReconnectLimiter | ✅ Implemented | `stream_manager.py` |
+| Metrics aggregation | ✅ Implemented | `stream_manager.py:get_metrics()` |
+| Integration tests (fake clock) | ✅ Implemented | `test_shard.py`, `test_stream_manager.py` |
+
+**Wiring Details:**
+
+1. **WebSocketShard** (`src/cryptoscreener/connectors/binance/shard.py`):
+   - Constructor accepts `reconnect_limiter`, `message_throttler`, `rng`, `time_fn`
+   - `reconnect()`: Checks `ReconnectLimiter.can_reconnect()` before attempting
+   - `_send_subscribe()`: Checks `MessageThrottler.get_wait_time_ms()` and delays if needed
+   - `_send_unsubscribe()`: Same throttling as subscribe
+   - Default `MessageThrottler` created if none provided (per-shard/per-connection)
+   - `ShardMetrics` tracks `reconnect_denied` and `messages_delayed` counters
+
+2. **BinanceStreamManager** (`src/cryptoscreener/connectors/binance/stream_manager.py`):
+   - Constructor accepts `reconnect_limiter` and `time_fn` for injection
+   - Owns a **global** `ReconnectLimiter` shared across all shards
+   - Passes limiter and time_fn to new shards in `_get_or_create_shard_for_subscription()`
+   - `get_metrics()` aggregates DEC-023b metrics:
+     - `reconnect_limiter_in_cooldown`: Whether global limiter is blocking
+     - `total_reconnects_denied`: Sum across all shards
+     - `total_messages_delayed`: Sum across all shards
+
+3. **ConnectorMetrics** (`src/cryptoscreener/connectors/binance/types.py`):
+   - Added `reconnect_limiter_in_cooldown: bool`
+   - Added `total_reconnects_denied: int`
+   - Added `total_messages_delayed: int`
+
+4. **ShardMetrics** (`src/cryptoscreener/connectors/binance/types.py`):
+   - Added `reconnect_denied: int`
+   - Added `messages_delayed: int`
+
+**Injection Pattern:**
+```python
+# For deterministic testing
+manager = BinanceStreamManager(
+    config=config,
+    reconnect_limiter=custom_limiter,  # Optional injection
+    time_fn=lambda: fake_time,         # For fake clock
+)
+
+# Shards automatically receive the injected limiter
+shard = WebSocketShard(
+    ...,
+    reconnect_limiter=limiter,     # Global, shared
+    message_throttler=throttler,    # Per-shard (1:1 with connection)
+    rng=random.Random(42),          # For deterministic jitter
+    time_fn=lambda: fake_time,      # For deterministic time
+)
+```
+
+**MessageThrottler is Per-Connection:**
+Per BINANCE_LIMITS.md §2: "10 incoming messages per second **per connection**"
+- Each `WebSocketShard` = one WS connection
+- Each shard creates its own `MessageThrottler` if not injected
+- Throttler limits subscribe/unsubscribe message rate
+
+**ReconnectLimiter is Global:**
+Per BINANCE_LIMITS.md §4: "avoid reconnect storms during volatility"
+- Single `ReconnectLimiter` owned by `StreamManager`
+- Passed to all shards
+- Prevents all shards from reconnecting simultaneously
+
+**Integration Tests Added:**
+- `TestWebSocketShardReconnectLimiterIntegration`: 3 tests
+  - Reconnect denied when limiter blocks
+  - Reconnect allowed when limiter permits
+  - Seeded RNG produces deterministic jitter
+- `TestWebSocketShardMessageThrottlerIntegration`: 5 tests
+  - Subscribe delayed when throttler limits
+  - Unsubscribe delayed when throttler limits
+  - Subscribe not delayed when throttler permits
+  - Default throttler created when none provided
+  - time_fn passed to default throttler
+- `TestStreamManagerReconnectLimiterIntegration`: 5 tests
+  - Default reconnect limiter created
+  - Custom reconnect limiter used
+  - time_fn passed to default limiter
+  - get_metrics includes limiter status
+  - get_metrics aggregates shard throttle metrics
+
+**Replay Determinism:**
+All limiters/throttlers accept `_time_fn` for fake clock injection:
+```python
+fake_time = 0
+def time_fn() -> int:
+    return fake_time
+
+limiter = ReconnectLimiter(_time_fn=time_fn)
+throttler = MessageThrottler(_time_fn=time_fn)
+
+# Advance fake time
+fake_time = 5000
+
+# Limiter/throttler use fake time for all decisions
+```
+
+**Alternatives considered:**
+1. Throttle at StreamManager level only — rejected: violates per-connection requirement
+2. Global MessageThrottler — rejected: BINANCE_LIMITS says per-connection
+3. Blocking delays (asyncio.sleep) — implemented: necessary for rate compliance
+4. Drop messages instead of delay — rejected: could cause missing subscriptions
+
+**Rationale:**
+- BINANCE_LIMITS.md §2 requires per-connection message throttling
+- BINANCE_LIMITS.md §4 requires global reconnect storm protection
+- Injection pattern enables deterministic testing
+- Metrics enable observability of throttle events
+- Integration tests prove wiring is correct
+
+**Impact:**
+- `WebSocketShard` constructor extended with 4 new optional parameters
+- `BinanceStreamManager` constructor extended with 2 new optional parameters
+- `ShardMetrics` extended with 2 new fields
+- `ConnectorMetrics` extended with 3 new fields
+- 13 new integration tests in test_shard.py and test_stream_manager.py
+- Total connector tests: 150 (all passing)
+- Total project tests: 859 (all passing)
