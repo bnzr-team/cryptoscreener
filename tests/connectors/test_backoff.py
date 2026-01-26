@@ -42,8 +42,10 @@ from cryptoscreener.connectors import (
 )
 from cryptoscreener.connectors.backoff import (
     DEFAULT_WEIGHT,
+    CircuitBreakerMetrics,
     MessageThrottler,
     MessageThrottlerConfig,
+    OpenReason,
     ReconnectLimiter,
     ReconnectLimiterConfig,
 )
@@ -2779,3 +2781,508 @@ class TestRestGovernorQueueProgress:
         assert order_acquired == order_started, (
             f"FIFO violated: started={order_started}, acquired={order_acquired}"
         )
+
+
+# =============================================================================
+# DEC-024: Observability Metrics Tests
+# =============================================================================
+
+
+class TestCircuitBreakerMetricsObservability:
+    """DEC-024: Tests for CircuitBreakerMetrics tracking."""
+
+    def test_initial_metrics_zeroed(self) -> None:
+        """Test metrics start at zero."""
+        cb = CircuitBreaker()
+        m = cb.metrics
+        assert m.transitions_closed_to_open == 0
+        assert m.transitions_open_to_half_open == 0
+        assert m.transitions_half_open_to_closed == 0
+        assert m.transitions_half_open_to_open == 0
+        assert m.open_reason_429 == 0
+        assert m.open_reason_418 == 0
+        assert m.open_reason_error_code == 0
+        assert m.open_reason_threshold == 0
+        assert m.open_reason_forced == 0
+        assert m.successes_recorded == 0
+        assert m.failures_recorded == 0
+        assert m.total_open_duration_ms == 0
+        assert m.last_open_duration_ms == 0
+
+    def test_429_transition_counter_increments(self) -> None:
+        """Test CLOSED → OPEN transition on 429 increments counter."""
+        cb = CircuitBreaker(failure_threshold=10)
+        cb.record_failure(is_rate_limit=True)
+
+        assert cb.metrics.transitions_closed_to_open == 1
+        assert cb.metrics.open_reason_429 == 1
+        assert cb.metrics.failures_recorded == 1
+
+    def test_418_transition_counter_increments(self) -> None:
+        """Test CLOSED → OPEN transition on 418 increments counter and reason."""
+        cb = CircuitBreaker(failure_threshold=10)
+        cb.record_failure(is_ip_ban=True)
+
+        assert cb.metrics.transitions_closed_to_open == 1
+        assert cb.metrics.open_reason_418 == 1
+        assert cb.metrics.failures_recorded == 1
+
+    def test_error_code_transition_counter_increments(self) -> None:
+        """Test CLOSED → OPEN transition on error code increments counter."""
+        cb = CircuitBreaker(failure_threshold=10)
+        cb.record_failure(is_error_code=True)
+
+        assert cb.metrics.transitions_closed_to_open == 1
+        assert cb.metrics.open_reason_error_code == 1
+        assert cb.metrics.failures_recorded == 1
+
+    def test_threshold_transition_counter_increments(self) -> None:
+        """Test CLOSED → OPEN on threshold failures."""
+        cb = CircuitBreaker(failure_threshold=3)
+
+        # Record failures up to threshold
+        for _ in range(3):
+            cb.record_failure()
+
+        assert cb.metrics.transitions_closed_to_open == 1
+        assert cb.metrics.open_reason_threshold == 1
+        assert cb.metrics.failures_recorded == 3
+
+    def test_force_open_transition_counter_increments(self) -> None:
+        """Test force_open increments CLOSED → OPEN and forced reason."""
+        cb = CircuitBreaker()
+        cb.force_open(duration_ms=10000, reason="test")
+
+        assert cb.metrics.transitions_closed_to_open == 1
+        assert cb.metrics.open_reason_forced == 1
+
+    def test_open_to_half_open_transition_counter(self) -> None:
+        """Test OPEN → HALF_OPEN transition after recovery timeout."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=10000,
+            _time_fn=time_fn,
+        )
+
+        # Trigger OPEN
+        cb.record_failure(is_rate_limit=True)
+        assert cb.metrics.transitions_closed_to_open == 1
+
+        # Advance time past recovery timeout
+        fake_time = 10001
+        assert cb.can_execute()  # This triggers the transition
+
+        assert cb.metrics.transitions_open_to_half_open == 1
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+    def test_half_open_to_closed_transition_counter(self) -> None:
+        """Test HALF_OPEN → CLOSED transition on success."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=10000,
+            _time_fn=time_fn,
+        )
+
+        # CLOSED → OPEN → HALF_OPEN → CLOSED sequence
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 10001
+        cb.can_execute()  # OPEN → HALF_OPEN
+        cb.record_success()  # HALF_OPEN → CLOSED
+
+        assert cb.metrics.transitions_half_open_to_closed == 1
+        assert cb.metrics.successes_recorded == 1
+        assert cb.state.value == CircuitState.CLOSED.value
+
+    def test_half_open_to_open_transition_counter(self) -> None:
+        """Test HALF_OPEN → OPEN transition on failure."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=10000,
+            _time_fn=time_fn,
+        )
+
+        # CLOSED → OPEN → HALF_OPEN → OPEN sequence
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 10001
+        cb.can_execute()  # OPEN → HALF_OPEN
+        cb.record_failure()  # HALF_OPEN → OPEN
+
+        assert cb.metrics.transitions_half_open_to_open == 1
+        # Note: transitions_closed_to_open only counts CLOSED → OPEN
+        assert cb.metrics.transitions_closed_to_open == 1
+
+    def test_open_duration_tracked(self) -> None:
+        """Test duration of OPEN state is tracked."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=10000,
+            _time_fn=time_fn,
+        )
+
+        # Enter OPEN state at t=0
+        cb.record_failure(is_rate_limit=True)
+        assert cb.metrics._open_started_ms == 0
+
+        # Exit OPEN state at t=10001 (via HALF_OPEN)
+        fake_time = 10001
+        cb.can_execute()
+
+        # Duration should be recorded
+        assert cb.metrics.last_open_duration_ms == 10001
+        assert cb.metrics.total_open_duration_ms == 10001
+
+    def test_cumulative_open_duration(self) -> None:
+        """Test total_open_duration_ms accumulates across multiple OPEN periods."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=5000,
+            _time_fn=time_fn,
+        )
+
+        # First OPEN period: 5001ms
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 5001
+        cb.can_execute()  # OPEN → HALF_OPEN
+        cb.record_success()  # HALF_OPEN → CLOSED
+
+        first_duration = cb.metrics.total_open_duration_ms
+        assert first_duration == 5001
+
+        # Second OPEN period: 3000ms
+        fake_time = 10000
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 15001  # 5001ms after OPEN (exceeds recovery_timeout)
+        cb.can_execute()  # OPEN → HALF_OPEN
+
+        # Total should accumulate
+        assert cb.metrics.last_open_duration_ms == 5001
+        assert cb.metrics.total_open_duration_ms == first_duration + 5001
+
+    def test_success_counter_increments(self) -> None:
+        """Test successes_recorded counter."""
+        cb = CircuitBreaker()
+        cb.record_success()
+        cb.record_success()
+        cb.record_success()
+
+        assert cb.metrics.successes_recorded == 3
+
+    def test_failure_counter_increments(self) -> None:
+        """Test failures_recorded counter."""
+        cb = CircuitBreaker(failure_threshold=10)
+        cb.record_failure()
+        cb.record_failure()
+
+        assert cb.metrics.failures_recorded == 2
+
+    def test_reset_clears_metrics(self) -> None:
+        """Test reset() clears all metrics."""
+        cb = CircuitBreaker(failure_threshold=10)
+        cb.record_failure(is_rate_limit=True)
+        cb.record_success()
+
+        assert cb.metrics.transitions_closed_to_open == 1
+        assert cb.metrics.failures_recorded == 1
+
+        cb.reset()
+
+        assert cb.metrics.transitions_closed_to_open == 0
+        assert cb.metrics.failures_recorded == 0
+        assert cb.metrics.successes_recorded == 0
+
+    def test_metrics_deterministic_with_fake_clock(self) -> None:
+        """Test metrics are deterministic across identical runs with fake clock."""
+
+        def run_scenario() -> CircuitBreakerMetrics:
+            fake_time = 0
+
+            def time_fn() -> int:
+                return fake_time
+
+            cb = CircuitBreaker(
+                failure_threshold=3,
+                recovery_timeout_ms=10000,
+                _time_fn=time_fn,
+            )
+
+            # Scenario: 429 → HALF_OPEN → success → 418 → recovery
+            cb.record_failure(is_rate_limit=True)
+            fake_time = 10001
+            cb.can_execute()
+            cb.record_success()
+
+            fake_time = 20000
+            cb.record_failure(is_ip_ban=True)
+            fake_time = 320001  # 5 min ban recovery
+            cb.can_execute()
+            cb.record_success()
+
+            return CircuitBreakerMetrics(
+                transitions_closed_to_open=cb.metrics.transitions_closed_to_open,
+                transitions_open_to_half_open=cb.metrics.transitions_open_to_half_open,
+                transitions_half_open_to_closed=cb.metrics.transitions_half_open_to_closed,
+                transitions_half_open_to_open=cb.metrics.transitions_half_open_to_open,
+                open_reason_429=cb.metrics.open_reason_429,
+                open_reason_418=cb.metrics.open_reason_418,
+                open_reason_threshold=cb.metrics.open_reason_threshold,
+                open_reason_forced=cb.metrics.open_reason_forced,
+                successes_recorded=cb.metrics.successes_recorded,
+                failures_recorded=cb.metrics.failures_recorded,
+                total_open_duration_ms=cb.metrics.total_open_duration_ms,
+                last_open_duration_ms=cb.metrics.last_open_duration_ms,
+            )
+
+        # Run twice
+        result1 = run_scenario()
+        result2 = run_scenario()
+
+        # All counters must match
+        assert result1.transitions_closed_to_open == result2.transitions_closed_to_open == 2
+        assert result1.transitions_open_to_half_open == result2.transitions_open_to_half_open == 2
+        assert (
+            result1.transitions_half_open_to_closed == result2.transitions_half_open_to_closed == 2
+        )
+        assert result1.open_reason_429 == result2.open_reason_429 == 1
+        assert result1.open_reason_418 == result2.open_reason_418 == 1
+        assert result1.successes_recorded == result2.successes_recorded == 2
+        assert result1.failures_recorded == result2.failures_recorded == 2
+
+
+class TestRestGovernorMetricsObservability:
+    """DEC-024: Tests for RestGovernorMetrics tracking."""
+
+    @pytest.mark.asyncio
+    async def test_allowed_counter_increments(self) -> None:
+        """Test requests_allowed counter increments on immediate permit."""
+        governor = RestGovernor()
+
+        async with governor.permit("/test", weight=1):
+            pass
+
+        assert governor.metrics.requests_allowed == 1
+
+    @pytest.mark.asyncio
+    async def test_deferred_counter_and_wait_ms(self) -> None:
+        """Test requests_deferred and wait_ms tracking."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=10,
+            max_concurrent_requests=1,
+            max_queue_depth=10,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Acquire first permit to exhaust concurrency
+        await governor.acquire("/test1", weight=1)
+
+        # Second request should queue
+        async def second_request() -> None:
+            await governor.acquire("/test2", weight=1)
+
+        # Start second request (will queue)
+        task = asyncio.create_task(second_request())
+        await asyncio.sleep(0.01)  # Let it queue
+
+        # Verify still queued
+        assert governor.metrics.current_queue_depth == 1
+
+        # Release first permit and advance time
+        fake_time = 1000
+        await governor.release()
+
+        # Wait for second request to complete
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert governor.metrics.requests_deferred == 1
+        assert governor.metrics.total_wait_ms > 0
+
+    @pytest.mark.asyncio
+    async def test_drop_reasons_categorized(self) -> None:
+        """Test drop reason counters are correctly categorized."""
+        config = RestGovernorConfig(
+            max_queue_depth=0,  # Force immediate drops when can't proceed
+            max_concurrent_requests=1,  # Only one concurrent
+            budget_weight_per_minute=1000,
+        )
+        governor = RestGovernor(config=config)
+
+        # First request succeeds (concurrency slot available)
+        await governor.acquire("/test1", weight=1)
+
+        # Second request should be dropped (queue full, since max_queue_depth=0)
+        with pytest.raises(GovernorDroppedError):
+            await governor.acquire("/test2", weight=1)
+
+        assert governor.metrics.drop_reason_queue_full == 1
+        assert governor.metrics.requests_dropped == 1
+        await governor.release()
+
+    @pytest.mark.asyncio
+    async def test_breaker_open_drop_reason(self) -> None:
+        """Test drop_reason_breaker_open counter."""
+        cb = CircuitBreaker()
+        cb.force_open(duration_ms=10000)
+
+        governor = RestGovernor(circuit_breaker=cb)
+
+        with pytest.raises(RateLimitError):
+            await governor.acquire("/test", weight=1)
+
+        assert governor.metrics.drop_reason_breaker_open == 1
+        assert governor.metrics.requests_failed_breaker == 1
+
+    @pytest.mark.asyncio
+    async def test_timeout_drop_reason(self) -> None:
+        """Test drop_reason_timeout counter."""
+        config = RestGovernorConfig(
+            budget_weight_per_minute=1000,
+            max_queue_depth=10,
+            max_concurrent_requests=1,
+            default_timeout_ms=1,  # Very short timeout
+        )
+        governor = RestGovernor(config=config)
+
+        # Occupy the slot
+        await governor.acquire("/test1", weight=1)
+
+        # Second request should timeout
+        with pytest.raises(GovernorTimeoutError):
+            await governor.acquire("/test2", weight=1, timeout_ms=1)
+
+        assert governor.metrics.drop_reason_timeout == 1
+        await governor.release()
+
+
+class TestShardMetricsDEC024:
+    """DEC-024: Tests for ShardMetrics extensions."""
+
+    def test_new_fields_default_to_zero(self) -> None:
+        """Test DEC-024 fields default to zero."""
+        from cryptoscreener.connectors.binance.types import ShardMetrics
+
+        m = ShardMetrics(shard_id=1)
+        assert m.subscribe_delayed == 0
+        assert m.cooldown_active_count == 0
+        assert m.connection_errors == 0
+        assert m.ping_timeouts == 0
+
+    def test_fields_can_be_set(self) -> None:
+        """Test DEC-024 fields can be set."""
+        from cryptoscreener.connectors.binance.types import ShardMetrics
+
+        m = ShardMetrics(shard_id=1)
+        m.subscribe_delayed = 5
+        m.cooldown_active_count = 3
+        m.connection_errors = 2
+        m.ping_timeouts = 1
+
+        assert m.subscribe_delayed == 5
+        assert m.cooldown_active_count == 3
+        assert m.connection_errors == 2
+        assert m.ping_timeouts == 1
+
+
+class TestConnectorMetricsDEC024:
+    """DEC-024: Tests for ConnectorMetrics extensions."""
+
+    def test_new_fields_default_to_zero(self) -> None:
+        """Test DEC-024 fields default to zero."""
+        from cryptoscreener.connectors.binance.types import ConnectorMetrics
+
+        m = ConnectorMetrics()
+        assert m.total_subscribe_delayed == 0
+        assert m.total_connection_errors == 0
+        assert m.total_ping_timeouts == 0
+
+    def test_fields_can_be_set(self) -> None:
+        """Test DEC-024 fields can be set."""
+        from cryptoscreener.connectors.binance.types import ConnectorMetrics
+
+        m = ConnectorMetrics()
+        m.total_subscribe_delayed = 10
+        m.total_connection_errors = 5
+        m.total_ping_timeouts = 3
+
+        assert m.total_subscribe_delayed == 10
+        assert m.total_connection_errors == 5
+        assert m.total_ping_timeouts == 3
+
+
+class TestStreamManagerMetricsDEC024:
+    """DEC-024: Tests for StreamManagerMetrics dataclass."""
+
+    def test_default_values(self) -> None:
+        """Test all fields default to zero."""
+        from cryptoscreener.connectors.binance.types import StreamManagerMetrics
+
+        m = StreamManagerMetrics()
+        assert m.active_shards == 0
+        assert m.total_shards_created == 0
+        assert m.total_messages_routed == 0
+        assert m.total_events_queued == 0
+        assert m.total_reconnect_denied == 0
+        assert m.total_messages_delayed == 0
+        assert m.total_subscribe_delayed == 0
+
+    def test_fields_can_be_set(self) -> None:
+        """Test fields can be set and retrieved."""
+        from cryptoscreener.connectors.binance.types import StreamManagerMetrics
+
+        m = StreamManagerMetrics(
+            active_shards=3,
+            total_shards_created=5,
+            total_messages_routed=1000,
+            total_events_queued=500,
+            total_reconnect_denied=2,
+            total_messages_delayed=10,
+            total_subscribe_delayed=3,
+        )
+
+        assert m.active_shards == 3
+        assert m.total_shards_created == 5
+        assert m.total_messages_routed == 1000
+        assert m.total_events_queued == 500
+        assert m.total_reconnect_denied == 2
+        assert m.total_messages_delayed == 10
+        assert m.total_subscribe_delayed == 3
+
+
+class TestOpenReasonEnum:
+    """DEC-024: Tests for OpenReason enum."""
+
+    def test_enum_values(self) -> None:
+        """Test OpenReason enum has expected values."""
+        assert OpenReason.HTTP_429.value == "429"
+        assert OpenReason.HTTP_418.value == "418"
+        assert OpenReason.ERROR_CODE.value == "error_code"
+        assert OpenReason.THRESHOLD.value == "threshold"
+        assert OpenReason.FORCED.value == "forced"
+
+    def test_enum_string_representation(self) -> None:
+        """Test enum values are strings."""
+        assert isinstance(OpenReason.HTTP_429.value, str)
+        assert isinstance(OpenReason.FORCED.value, str)

@@ -200,8 +200,16 @@ class ShardMetrics:
         last_message_ts: Timestamp of last message.
         reconnect_count: Number of reconnections.
         reconnect_denied: Number of reconnects blocked by limiter (DEC-023b).
-        messages_delayed: Number of messages delayed by throttler (DEC-023b).
+        messages_delayed: Number of INBOUND messages delayed by throttler (DEC-023b).
+        subscribe_delayed: Number of OUTBOUND subscribe requests delayed (DEC-024).
+        cooldown_active_count: Times cooldown was active when checked (DEC-024).
+        connection_errors: WS connection failures (DEC-024).
+        ping_timeouts: Ping/pong failures (DEC-024).
         state: Current connection state.
+
+    DEC-024 semantic distinction:
+    - messages_delayed: Throttler delayed INBOUND message delivery to prevent callback overload
+    - subscribe_delayed: Throttler delayed OUTBOUND subscribe request to prevent burst subscriptions
     """
 
     shard_id: int
@@ -211,7 +219,12 @@ class ShardMetrics:
     last_message_ts: int = 0
     reconnect_count: int = 0
     reconnect_denied: int = 0  # DEC-023b: blocked by ReconnectLimiter
-    messages_delayed: int = 0  # DEC-023b: delayed by MessageThrottler
+    messages_delayed: int = 0  # DEC-023b: delayed INBOUND message delivery
+    # === DEC-024 additions ===
+    subscribe_delayed: int = 0  # DEC-024: delayed OUTBOUND subscribe request
+    cooldown_active_count: int = 0  # DEC-024: times cooldown was active when checked
+    connection_errors: int = 0  # DEC-024: WS connection failures
+    ping_timeouts: int = 0  # DEC-024: ping/pong failures
     state: ConnectionState = ConnectionState.DISCONNECTED
 
 
@@ -228,7 +241,10 @@ class ConnectorMetrics:
         circuit_breaker_open: Whether circuit breaker is open.
         reconnect_limiter_in_cooldown: Whether global reconnect limiter is in cooldown (DEC-023b).
         total_reconnects_denied: Total reconnects denied across all shards (DEC-023b).
-        total_messages_delayed: Total messages delayed across all shards (DEC-023b).
+        total_messages_delayed: Total INBOUND messages delayed across all shards (DEC-023b).
+        total_subscribe_delayed: Total OUTBOUND subscribe requests delayed (DEC-024).
+        total_connection_errors: Total WS connection errors across all shards (DEC-024).
+        total_ping_timeouts: Total ping/pong failures across all shards (DEC-024).
         last_error: Last error message if any.
     """
 
@@ -239,5 +255,36 @@ class ConnectorMetrics:
     circuit_breaker_open: bool = False
     reconnect_limiter_in_cooldown: bool = False  # DEC-023b
     total_reconnects_denied: int = 0  # DEC-023b
-    total_messages_delayed: int = 0  # DEC-023b
+    total_messages_delayed: int = 0  # DEC-023b: INBOUND messages delayed
+    # === DEC-024 additions ===
+    total_subscribe_delayed: int = 0  # DEC-024: OUTBOUND subscribe requests delayed
+    total_connection_errors: int = 0  # DEC-024: WS connection errors
+    total_ping_timeouts: int = 0  # DEC-024: ping/pong failures
     last_error: str | None = None
+
+
+@dataclass
+class StreamManagerMetrics:
+    """
+    Stream manager aggregate metrics (DEC-024).
+
+    Tracks high-level stream manager operations and aggregates shard metrics.
+
+    Attributes:
+        active_shards: Current active shard count.
+        total_shards_created: Cumulative shards created over lifetime.
+        total_messages_routed: Messages dispatched to callbacks.
+        total_events_queued: Events added to internal queue.
+        total_reconnect_denied: Aggregate reconnects denied across all shards.
+        total_messages_delayed: Aggregate INBOUND messages delayed.
+        total_subscribe_delayed: Aggregate OUTBOUND subscribe requests delayed.
+    """
+
+    active_shards: int = 0
+    total_shards_created: int = 0
+    total_messages_routed: int = 0
+    total_events_queued: int = 0
+    # Aggregates from all shards
+    total_reconnect_denied: int = 0
+    total_messages_delayed: int = 0
+    total_subscribe_delayed: int = 0
