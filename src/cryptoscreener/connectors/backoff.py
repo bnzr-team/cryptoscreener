@@ -16,6 +16,7 @@ DEC-023 additions:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 import time
 from collections import deque
@@ -24,7 +25,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
 
 class RateLimitKind(str, Enum):
@@ -955,10 +956,45 @@ class RestGovernor:
         Release a concurrency slot after request completes.
 
         Must be called after acquire() completes and the HTTP request is done.
+        Prefer using `permit()` context manager for automatic release.
         """
         if self._concurrent_count > 0:
             self._concurrent_count -= 1
             self.metrics.current_concurrent = self._concurrent_count
+
+    @contextlib.asynccontextmanager
+    async def permit(
+        self,
+        endpoint: str,
+        weight: int | None = None,
+        timeout_ms: int | None = None,
+    ) -> AsyncIterator[None]:
+        """
+        Async context manager for safe acquire/release.
+
+        DEC-023d: Guarantees release even on exception.
+
+        Usage:
+            async with governor.permit("/fapi/v1/exchangeInfo"):
+                response = await session.get(url)
+                # ... process response ...
+            # Slot automatically released here
+
+        Args:
+            endpoint: API endpoint path.
+            weight: Request weight override (None = use endpoint default).
+            timeout_ms: Maximum time to wait in queue.
+
+        Raises:
+            RateLimitError: If circuit breaker is OPEN.
+            GovernorTimeoutError: If timeout expires while waiting.
+            GovernorDroppedError: If queue is full.
+        """
+        await self.acquire(endpoint, weight, timeout_ms)
+        try:
+            yield
+        finally:
+            self.release()
 
     def get_status(self) -> dict[str, int | float | bool]:
         """Get current governor status for observability."""

@@ -1796,23 +1796,39 @@ class TestRestGovernorBudget:
     @pytest.mark.asyncio
     async def test_defers_request_when_budget_exhausted(self) -> None:
         """Test request is deferred when budget is exhausted."""
-        # Use real time for this test since it involves async wait
-        # with a short timeout to prove the deferred behavior
+        # Use a mutable time that we control
+        current_time = [0]
+
+        def time_fn() -> int:
+            return current_time[0]
+
         config = RestGovernorConfig(
             budget_weight_per_minute=600,  # 10 tokens/sec
-            default_timeout_ms=500,
         )
-        governor = RestGovernor(config=config)
+        governor = RestGovernor(config=config, _time_fn=time_fn)
 
         # Consume most of the budget (leave 5 tokens)
         await governor.acquire("/test", weight=595)
         governor.release()
 
-        # Next request needs weight=10, but only 5 tokens remain
-        # At 10 tokens/sec, we need 0.5 seconds to get 5 more tokens
-        # Use a short timeout that allows this to complete
-        await governor.acquire("/test", weight=10, timeout_ms=1000)
-        governor.release()
+        # Now we have 5 tokens. Next request needs weight=10.
+        # Start the acquire in a task, but it will block waiting for budget.
+        # We'll advance time to allow it to proceed.
+        async def delayed_acquire() -> None:
+            await governor.acquire("/test", weight=10, timeout_ms=2000)
+            governor.release()
+
+        # Start the task
+        task = asyncio.create_task(delayed_acquire())
+
+        # Let the task start and enter the queue
+        await asyncio.sleep(0.01)
+
+        # Advance time by 1 second (should refill 10 tokens)
+        current_time[0] = 1000
+
+        # Wait for the task to complete
+        await asyncio.wait_for(task, timeout=1.0)
 
         # Should have been deferred (had to wait for budget)
         assert governor.metrics.requests_allowed == 1
@@ -2086,7 +2102,7 @@ class TestRestGovernorBreaker:
 
         # Record success to close the breaker
         cb.record_success()
-        assert cb.state == CircuitState.CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
 
 
 class TestRestGovernorConcurrency:
@@ -2362,3 +2378,71 @@ class TestRestGovernorStatus:
         assert governor._budget_tokens == governor.config.budget_weight_per_minute
         assert governor._concurrent_count == 0
         assert governor.metrics.requests_allowed == 0
+
+
+class TestRestGovernorPermitContextManager:
+    """Tests for RestGovernor.permit() async context manager.
+
+    DEC-023d: Ensures slot is released even on exception.
+    """
+
+    @pytest.mark.asyncio
+    async def test_permit_releases_on_normal_exit(self) -> None:
+        """Test permit() releases slot on normal exit."""
+        governor = RestGovernor()
+
+        async with governor.permit("/test", weight=10):
+            assert governor._concurrent_count == 1
+
+        # Slot released after context exit
+        assert governor._concurrent_count == 0
+
+    @pytest.mark.asyncio
+    async def test_permit_releases_on_exception(self) -> None:
+        """Test permit() releases slot even when exception is raised."""
+        governor = RestGovernor()
+
+        with pytest.raises(ValueError, match="test error"):
+            async with governor.permit("/test", weight=10):
+                assert governor._concurrent_count == 1
+                raise ValueError("test error")
+
+        # Slot MUST be released even after exception
+        assert governor._concurrent_count == 0
+
+    @pytest.mark.asyncio
+    async def test_permit_propagates_acquire_errors(self) -> None:
+        """Test permit() propagates errors from acquire()."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(_time_fn=time_fn)
+        cb.record_failure(is_rate_limit=True)  # Open breaker
+
+        governor = RestGovernor(circuit_breaker=cb, _time_fn=time_fn)
+
+        with pytest.raises(RateLimitError):
+            async with governor.permit("/test"):
+                pass  # Should not reach here
+
+        # No slot should be held (acquire failed)
+        assert governor._concurrent_count == 0
+
+    @pytest.mark.asyncio
+    async def test_permit_with_custom_weight_and_timeout(self) -> None:
+        """Test permit() respects custom weight and timeout."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = RestGovernorConfig(budget_weight_per_minute=100)
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        async with governor.permit("/test", weight=50, timeout_ms=1000):
+            # 50 weight consumed
+            assert governor._budget_tokens == 50
+
+        assert governor._concurrent_count == 0
