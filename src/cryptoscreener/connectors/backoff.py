@@ -11,12 +11,17 @@ DEC-023 additions:
 - ReconnectLimiter: Global reconnect rate control to prevent storms
 - MessageThrottler: Rate limit WS subscribe/unsubscribe operations
 - Seeded jitter: Deterministic backoff for replay testing
+
+DEC-024 additions:
+- Structured logging for circuit breaker state transitions
+- Structured logging for RestGovernor decisions (allow/defer/drop)
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import random
 import time
 from collections import deque
@@ -26,6 +31,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimitKind(str, Enum):
@@ -275,6 +282,16 @@ class CircuitBreaker:
         elif reason == OpenReason.FORCED:
             self.metrics.open_reason_forced += 1
 
+        # DEC-024: Log state transition
+        logger.warning(
+            "Circuit breaker OPEN",
+            extra={
+                "transition": "CLOSED->OPEN",
+                "reason": reason.value,
+                "total_opens": self.metrics.transitions_closed_to_open,
+            },
+        )
+
     def _record_open_duration(self) -> None:
         """Record duration of OPEN period when transitioning out (DEC-024)."""
         if self.metrics._open_started_ms >= 0:  # -1 means not started
@@ -283,6 +300,15 @@ class CircuitBreaker:
             self.metrics.last_open_duration_ms = duration_ms
             self.metrics.total_open_duration_ms += duration_ms
             self.metrics._open_started_ms = -1
+
+            # DEC-024: Log duration when exiting OPEN state
+            logger.info(
+                "Circuit breaker exiting OPEN",
+                extra={
+                    "open_duration_ms": duration_ms,
+                    "total_open_ms": self.metrics.total_open_duration_ms,
+                },
+            )
 
     def can_execute(self) -> bool:
         """
@@ -331,6 +357,14 @@ class CircuitBreaker:
             self.metrics.transitions_half_open_to_closed += 1
             # Recovery confirmed, close circuit
             self.state = CircuitState.CLOSED
+            # DEC-024: Log recovery
+            logger.info(
+                "Circuit breaker CLOSED (recovered)",
+                extra={
+                    "transition": "HALF_OPEN->CLOSED",
+                    "total_recoveries": self.metrics.transitions_half_open_to_closed,
+                },
+            )
         self.failure_count = 0
         self._is_banned = False
         self._open_until_ms = 0
@@ -1009,6 +1043,14 @@ class RestGovernor:
         if self.circuit_breaker is not None and not self.circuit_breaker.can_execute():
             self.metrics.requests_failed_breaker += 1
             self.metrics.drop_reason_breaker_open += 1
+            # DEC-024: Log rejection (endpoint only, no query params for cardinality)
+            logger.warning(
+                "Governor rejected: circuit breaker OPEN",
+                extra={
+                    "endpoint": endpoint,
+                    "decision": "reject_breaker",
+                },
+            )
             raise RateLimitError(
                 "Circuit breaker OPEN, request rejected",
                 retry_after_ms=self.circuit_breaker.recovery_timeout_ms,
@@ -1030,6 +1072,15 @@ class RestGovernor:
             if len(self._queue) >= self.config.max_queue_depth:
                 self.metrics.requests_dropped += 1
                 self.metrics.drop_reason_queue_full += 1
+                # DEC-024: Log drop
+                logger.warning(
+                    "Governor dropped: queue full",
+                    extra={
+                        "endpoint": endpoint,
+                        "decision": "drop_queue_full",
+                        "queue_depth": len(self._queue),
+                    },
+                )
                 raise GovernorDroppedError(
                     f"Queue full ({self.config.max_queue_depth}), request dropped",
                     queue_depth=len(self._queue),
@@ -1059,6 +1110,15 @@ class RestGovernor:
                         self.metrics.requests_dropped += 1
                         self.metrics.drop_reason_timeout += 1
                         waited_ms = now_ms - wait_start_ms
+                        # DEC-024: Log timeout
+                        logger.warning(
+                            "Governor timeout: queue wait exceeded",
+                            extra={
+                                "endpoint": endpoint,
+                                "decision": "timeout",
+                                "waited_ms": waited_ms,
+                            },
+                        )
                         raise GovernorTimeoutError(
                             f"Timeout after {waited_ms}ms waiting in queue",
                             waited_ms=waited_ms,
@@ -1078,6 +1138,16 @@ class RestGovernor:
                         self.metrics.requests_deferred += 1
                         self.metrics.total_wait_ms += waited_ms
                         self.metrics.max_wait_ms = max(self.metrics.max_wait_ms, waited_ms)
+                        # DEC-024: Log deferred allow (only if waited significantly)
+                        if waited_ms > 100:
+                            logger.debug(
+                                "Governor deferred: allowed after wait",
+                                extra={
+                                    "endpoint": endpoint,
+                                    "decision": "deferred",
+                                    "waited_ms": waited_ms,
+                                },
+                            )
                         return
 
                     # Wait for signal (release) or periodic recheck for budget refill
