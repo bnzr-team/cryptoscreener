@@ -3,8 +3,11 @@
 DEC-023b: Added integration tests for:
 - ReconnectLimiter wiring and metrics aggregation
 - Limiter injection for deterministic testing
+
+DEC-023e: Fixed async resource cleanup to prevent "Event loop is closed" warning.
 """
 
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -126,9 +129,11 @@ class TestMessageParsing:
     """Tests for raw message to MarketEvent parsing."""
 
     @pytest.fixture
-    def manager(self) -> BinanceStreamManager:
-        """Create stream manager."""
-        return BinanceStreamManager()
+    async def manager(self) -> AsyncGenerator[BinanceStreamManager, None]:
+        """Create stream manager with cleanup."""
+        manager = BinanceStreamManager()
+        yield manager
+        await manager.stop()
 
     def test_parse_agg_trade(self, manager: BinanceStreamManager) -> None:
         """Parse aggTrade message."""
@@ -305,10 +310,11 @@ class TestSubscriptionManagement:
     """Tests for subscription management."""
 
     @pytest.fixture
-    def manager(self) -> BinanceStreamManager:
-        """Create stream manager with mocked shard creation."""
+    async def manager(self) -> AsyncGenerator[BinanceStreamManager, None]:
+        """Create stream manager with cleanup."""
         manager = BinanceStreamManager()
-        return manager
+        yield manager
+        await manager.stop()
 
     @pytest.mark.asyncio
     async def test_subscribe_creates_shard(
@@ -424,46 +430,50 @@ class TestEventCallback:
             received_events.append(event)
 
         manager = BinanceStreamManager(on_event=on_event)
+        try:
+            # Simulate receiving a message
+            raw = RawMessage(
+                data={
+                    "e": "aggTrade",
+                    "E": 1234567890,
+                    "s": "BTCUSDT",
+                    "p": "50000.00",
+                    "q": "1.5",
+                },
+                recv_ts=1234567891,
+                shard_id=0,
+            )
 
-        # Simulate receiving a message
-        raw = RawMessage(
-            data={
-                "e": "aggTrade",
-                "E": 1234567890,
-                "s": "BTCUSDT",
-                "p": "50000.00",
-                "q": "1.5",
-            },
-            recv_ts=1234567891,
-            shard_id=0,
-        )
+            await manager._handle_raw_message(raw)
 
-        await manager._handle_raw_message(raw)
-
-        assert len(received_events) == 1
-        assert received_events[0].symbol == "BTCUSDT"
+            assert len(received_events) == 1
+            assert received_events[0].symbol == "BTCUSDT"
+        finally:
+            await manager.stop()
 
     @pytest.mark.asyncio
     async def test_event_added_to_queue(self) -> None:
         """Events are added to the queue."""
         manager = BinanceStreamManager()
+        try:
+            raw = RawMessage(
+                data={
+                    "e": "aggTrade",
+                    "E": 1234567890,
+                    "s": "BTCUSDT",
+                },
+                recv_ts=1234567891,
+                shard_id=0,
+            )
 
-        raw = RawMessage(
-            data={
-                "e": "aggTrade",
-                "E": 1234567890,
-                "s": "BTCUSDT",
-            },
-            recv_ts=1234567891,
-            shard_id=0,
-        )
+            await manager._handle_raw_message(raw)
 
-        await manager._handle_raw_message(raw)
-
-        # Event should be in queue
-        assert not manager._event_queue.empty()
-        event = await manager._event_queue.get()
-        assert event.symbol == "BTCUSDT"
+            # Event should be in queue
+            assert not manager._event_queue.empty()
+            event = await manager._event_queue.get()
+            assert event.symbol == "BTCUSDT"
+        finally:
+            await manager.stop()
 
 
 # =============================================================================
