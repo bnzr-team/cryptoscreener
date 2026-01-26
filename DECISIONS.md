@@ -1310,11 +1310,27 @@ require_replay() {
 
 ---
 
-## DEC-023: Binance Operational Safety Hardening
+## DEC-023: Binance Operational Safety Hardening (Phase 1: Utilities)
 
 **Date:** 2026-01-26
 
-**Decision:** Add operational safety components to prevent WebSocket reconnect storms and rate limit violations per BINANCE_LIMITS.md.
+**Decision:** Add operational safety utility classes to prevent WebSocket reconnect storms and rate limit violations per BINANCE_LIMITS.md.
+
+**Scope Clarification:**
+This is **Phase 1** — utility classes only. Wiring into connectors is deferred to **DEC-023b**.
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| ReconnectLimiter class | ✅ Implemented | `backoff.py` |
+| MessageThrottler class | ✅ Implemented | `backoff.py` |
+| Seeded jitter | ✅ Implemented | `compute_backoff_delay()` |
+| Wire into WebSocketShard | ❌ Deferred | DEC-023b |
+| Wire into StreamManager | ❌ Deferred | DEC-023b |
+
+**Pre-existing (before DEC-023):**
+- `CircuitBreaker` with 429/418/-1003 handling (already wired into REST client)
+- `ShardConfig.max_streams = 800` (80% of 1024 cap, already enforced)
+- Exponential backoff + jitter for reconnects (already in `WebSocketShard`)
 
 **Problem:**
 1. During market volatility, multiple shards can disconnect simultaneously
@@ -1323,7 +1339,7 @@ require_replay() {
 4. WS subscribe/unsubscribe operations must respect 10 msg/sec/connection limit
 5. Non-deterministic jitter in backoff makes replay testing difficult
 
-**Components Added:**
+**Components Added (Phase 1):**
 
 1. **ReconnectLimiter** (`src/cryptoscreener/connectors/backoff.py`):
    - Sliding window rate limiting for global reconnect attempts
@@ -1406,10 +1422,17 @@ delay = compute_backoff_delay(config, state, rng=rng)
 - Fake time injection enables fast, deterministic unit tests
 - Seeded jitter completes determinism story for replay testing
 
-**Impact:**
+**Impact (Phase 1):**
 - New `ReconnectLimiter` and `ReconnectLimiterConfig` classes
 - New `MessageThrottler` and `MessageThrottlerConfig` classes
 - Updated `compute_backoff_delay()` signature (backward compatible)
 - Updated `src/cryptoscreener/connectors/__init__.py` exports
 - 23 new tests in `tests/connectors/test_backoff.py`
 - Total backoff tests: 68 (all passing)
+- **NOT wired into runtime paths** — utilities only, ready for DEC-023b
+
+**Deferred to DEC-023b (Wiring):**
+1. Integrate `ReconnectLimiter` into `StreamManager._handle_shard_disconnect()`
+2. Integrate `MessageThrottler` into `WebSocketShard.subscribe()` / `unsubscribe()`
+3. Add integration tests proving rate limiting works end-to-end
+4. Add metrics for throttle events (reconnect denied, message delayed)
