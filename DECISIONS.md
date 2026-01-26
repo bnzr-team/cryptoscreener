@@ -214,6 +214,10 @@ PR requires replay proof if it touches any of:
 - `scripts/run_record.py`
 - `tests/replay/*`
 - `tests/fixtures/*`
+- `src/cryptoscreener/registry/*` (DEC-022)
+- `src/cryptoscreener/model_runner/*` (DEC-022)
+- `src/cryptoscreener/calibration/*` (DEC-022)
+- `src/cryptoscreener/training/*` (DEC-022)
 
 **Exit codes:**
 - `0` — All checks passed, ready for ACCEPT
@@ -1248,3 +1252,58 @@ response = self._client.messages.create(
 - New `tests/registry/test_package_e2e_smoke.py` with 15 tests
 - Validates registry → MLRunner integration path
 - Provides reproducible digest proof for auditing
+
+---
+
+## DEC-022: Replay Gate Trigger Expansion
+
+**Date:** 2026-01-26
+
+**Decision:** Expand `require_replay()` trigger logic to include critical inference modules, not just replay scripts and test directories.
+
+**Problem:**
+The replay verification gate in `acceptance_packet.sh` only triggered when PRs touched:
+- `scripts/run_replay.py`
+- `scripts/run_record.py`
+- `tests/replay/`
+- `tests/fixtures/`
+
+This meant changes to core inference modules (registry, model_runner, calibration, training) could bypass replay determinism verification, even though they directly affect inference output.
+
+**Expanded Trigger Paths:**
+
+| Path | Reason | DEC Reference |
+|------|--------|---------------|
+| `scripts/run_replay.py` | Replay execution logic | DEC-007 |
+| `scripts/run_record.py` | Record execution logic | DEC-007 |
+| `tests/replay/` | Replay test infrastructure | DEC-015, DEC-019 |
+| `tests/fixtures/` | Test fixtures | DEC-015, DEC-019, DEC-021 |
+| `src/cryptoscreener/registry/` | Model package loading | DEC-016, DEC-021 |
+| `src/cryptoscreener/model_runner/` | MLRunner inference | DEC-014, DEC-019 |
+| `src/cryptoscreener/calibration/` | Probability calibration | DEC-013 |
+| `src/cryptoscreener/training/` | Dataset split (affects artifacts) | DEC-012 |
+
+**Updated Function:**
+```bash
+require_replay() {
+  local files="$1"
+  echo "${files}" | grep -qE '^(scripts/run_replay\.py|scripts/run_record\.py|tests/replay/|tests/fixtures/|src/cryptoscreener/registry/|src/cryptoscreener/model_runner/|src/cryptoscreener/calibration/|src/cryptoscreener/training/)' && return 0
+  return 1
+}
+```
+
+**Alternatives considered:**
+1. Separate CI workflow for inference modules — rejected: fragmented, same determinism concern
+2. Manual trigger (workflow_dispatch only) — rejected: easy to forget, defeats purpose
+3. Include all `src/cryptoscreener/` — rejected: too broad, many modules don't affect inference
+
+**Rationale:**
+- Changes to registry/model_runner/calibration directly affect inference output
+- Replay verification catches non-determinism in these critical paths
+- Training module affects artifact generation (split metadata, data hashes)
+- Unified trigger ensures consistent verification policy
+
+**Impact:**
+- Modified `scripts/acceptance_packet.sh` require_replay() function
+- DEC-008 replay-required detection updated
+- PRs touching inference modules now trigger full replay verification

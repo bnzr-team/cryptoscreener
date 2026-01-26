@@ -9,6 +9,16 @@
 
 ### Added
 
+#### Replay Gate Trigger Expansion (DEC-022)
+- Expanded `require_replay()` in `acceptance_packet.sh` to include critical inference modules
+- New trigger paths:
+  - `src/cryptoscreener/registry/` — model package loading
+  - `src/cryptoscreener/model_runner/` — MLRunner inference
+  - `src/cryptoscreener/calibration/` — probability calibration
+  - `src/cryptoscreener/training/` — dataset split (affects artifacts)
+- PRs touching these paths now trigger full replay determinism verification
+- Updated DEC-008 replay-required detection documentation
+
 #### Model Package E2E Smoke (DEC-021)
 - New `tests/registry/test_package_e2e_smoke.py` with 15 tests
 - Full path validation: ModelPackage → MLRunner load → calibration → inference
