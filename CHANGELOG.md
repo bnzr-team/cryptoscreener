@@ -9,6 +9,16 @@
 
 ### Added
 
+#### Model Package E2E Smoke (DEC-021)
+- New `tests/registry/test_package_e2e_smoke.py` with 15 tests
+- Full path validation: ModelPackage → MLRunner load → calibration → inference
+- Test coverage:
+  - Package integrity: manifest valid, checksums match, required files exist
+  - MLRunner loads: PROD mode (no fallback), actual inference (not DATA_ISSUE)
+  - Determinism: double run produces identical digests
+- Fixtures generated on-the-fly (no binaries in git)
+- JSON examples for PredictionSnapshot and RankEvent
+
 #### LLM Timeout Enforcement (DEC-020)
 - Fixed: `timeout_s` config now passed to Anthropic API call
 - Timeout → fallback (per DEC-004 contract)
