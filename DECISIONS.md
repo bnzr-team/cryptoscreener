@@ -1686,3 +1686,318 @@ Per BINANCE_LIMITS.md: "respect Retry-After header when provided"
 - 15+ new deterministic tests in test_backoff.py
 - All REST governor behavior is now provably correct with fake clock
 - Completes DEC-023 trilogy: utilities (a) → wiring (b) → proofing (c)
+
+---
+
+## DEC-023d: REST Governor Budgeting/Queuing (PLANNING)
+
+**Date:** 2026-01-26
+
+**Status:** PLANNING — awaiting design approval before implementation.
+
+**Decision:** Add proactive request budgeting and bounded queue to REST governor to prevent burst concurrency and ensure fair scheduling.
+
+**Problem:**
+CircuitBreaker (DEC-023c) is **reactive** — it opens only *after* hitting 429/418. Without proactive budgeting:
+1. Burst concurrency can overwhelm Binance before breaker reacts
+2. No visibility into queue depth or wait times before failure
+3. No backpressure signal to callers when system is overloaded
+
+**Scope:**
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| `RestGovernor` | Central gatekeeper before all REST requests | `backoff.py` |
+| `RequestQueue` | Bounded FIFO queue with drop-new policy | `backoff.py` |
+| `BudgetConfig` | Weight/concurrency limits per endpoint | `backoff.py` |
+| Metrics | allow/defer/drop counters, queue depth, wait_ms | `backoff.py` |
+| Integration | Wire into `BinanceRestClient._request()` | `rest_client.py` |
+
+---
+
+### Architecture
+
+```
++------------------------------------------------------------------+
+|                        BinanceRestClient                          |
+|                                                                   |
+|  request() --+---> RestGovernor.acquire() --+--> HTTP call        |
+|              |                              |                     |
+|              |    +----------------------+  |                     |
+|              |    |     RestGovernor     |  |                     |
+|              |    +----------------------+  |                     |
+|              |    | CircuitBreaker       |<-+ record_success/     |
+|              |    | BudgetTracker        |    record_failure      |
+|              |    | RequestQueue         |                        |
+|              |    | ConcurrencySemaphore |                        |
+|              |    +----------------------+                        |
+|              |                                                    |
+|              +---> OPEN? fail-fast ---> RateLimitError            |
+|                    BUDGET_EXHAUSTED? ---> queue or raise          |
+|                    QUEUE_FULL? ---> GovernorDroppedError          |
++------------------------------------------------------------------+
+```
+
+---
+
+### Governor Entry Point
+
+```python
+async def acquire(
+    self,
+    endpoint: str,
+    weight: int | None = None,
+    timeout_ms: int | None = None,
+) -> None:
+    """
+    Acquire permission for a REST request. Blocks until allowed or raises.
+
+    This is a **blocking call** (bounded by timeout_ms). The caller awaits
+    until budget is available or timeout expires. This is NOT a "check and
+    return status" API — it either succeeds or raises.
+
+    Args:
+        endpoint: REST endpoint path (for weight lookup and metrics).
+        weight: Override endpoint weight (None = lookup from config).
+        timeout_ms: Max wait time in queue (None = use default from config).
+
+    Raises:
+        RateLimitError: If circuit breaker is OPEN (fail-fast, no queue).
+        GovernorTimeoutError: If timeout expires while waiting in queue.
+        GovernorDroppedError: If queue is full and request is rejected.
+
+    Usage:
+        await governor.acquire("/fapi/v1/exchangeInfo")
+        # If we get here, permission granted — proceed with HTTP call
+        response = await session.get(url)
+    """
+```
+
+**Blocking semantics:**
+- `acquire()` **awaits** until budget available (bounded by `timeout_ms`)
+- Caller is blocked but bounded — no unbounded waits
+- On success: returns `None`, caller proceeds with HTTP call
+- On failure: raises exception, caller handles error
+
+**Decision flow:**
+1. **CircuitBreaker OPEN?** → raise `RateLimitError` immediately (no queueing)
+2. **Budget available + semaphore available?** → return immediately (allowed)
+3. **Budget exhausted or semaphore full?** → enqueue, await until budget refills or timeout
+4. **Queue full?** → raise `GovernorDroppedError` immediately (drop-new)
+5. **Timeout in queue?** → raise `GovernorTimeoutError`
+
+---
+
+### Queue Policy: Drop-New
+
+**Decision:** When queue is full, reject the *incoming* request — don't evict queued requests.
+
+**Alternatives considered:**
+1. **Drop-old** — evict oldest queued request to make room
+   - Rejected: unfair, penalizes callers who arrived first
+2. **Unbounded blocking** — wait indefinitely until queue has space
+   - Rejected: can cause cascading stalls under load; we use bounded timeout instead
+3. **Priority queue** — high-priority endpoints jump queue
+   - Rejected: adds complexity; all current REST calls are bootstrap-only, similar priority
+
+**Rationale:**
+- Simple FIFO is predictable (arrival-order fairness)
+- Bounded await with timeout prevents indefinite stalls
+- Drop-new on queue full gives clear signal: "system overloaded"
+
+---
+
+### Budget Model
+
+**Global budget:**
+- `max_weight_per_minute: int = 2000` (conservative vs Binance 2400)
+- Token bucket refill: continuous (not burst-refill)
+
+**Per-endpoint weights (from Binance docs):**
+
+| Endpoint | Weight | Notes |
+|----------|--------|-------|
+| `/fapi/v1/exchangeInfo` | 40 | Heavy, cached |
+| `/fapi/v1/ticker/24hr` | 40 | All symbols |
+| `/fapi/v1/time` | 1 | Lightweight |
+| Default | 10 | Unknown endpoints |
+
+**Concurrency cap:**
+- `max_concurrent_requests: int = 10`
+- Semaphore-based; prevents burst even with budget headroom
+
+**Configuration:**
+
+```python
+@dataclass
+class BudgetConfig:
+    """REST request budget configuration."""
+
+    max_weight_per_minute: int = 2000
+    max_concurrent_requests: int = 10
+    queue_max_size: int = 50
+    queue_timeout_ms: int = 30000
+
+    # Per-endpoint weights
+    endpoint_weights: dict[str, int] = field(default_factory=lambda: {
+        "/fapi/v1/exchangeInfo": 40,
+        "/fapi/v1/ticker/24hr": 40,
+        "/fapi/v1/time": 1,
+    })
+    default_weight: int = 10
+```
+
+---
+
+### CircuitBreaker Integration
+
+| Breaker State | Governor Behavior |
+|---------------|-------------------|
+| `CLOSED` | Normal: budget check → queue if needed |
+| `OPEN` | **Fail-fast**: raise `RateLimitError` immediately, no queueing |
+| `HALF_OPEN` | Allow one "probe" request (existing CB behavior) |
+
+**Rationale:**
+- No point queueing if breaker is OPEN — Binance is actively rejecting
+- Fail-fast surfaces errors to caller immediately
+- HALF_OPEN probe is already limited by `half_open_max_requests`
+
+---
+
+### Determinism Requirements
+
+For replay testing, `RestGovernor` must be deterministic:
+
+1. **Fake clock** (`_time_fn: Callable[[], int] | None`)
+   - Inject into governor, budget tracker, queue timeout logic
+   - Pattern already proven in DEC-023/023b/023c
+
+2. **No randomization** in governor logic
+   - Queue order is FIFO (deterministic)
+   - Budget refill is time-based only (no jitter)
+   - Drop/defer decisions are deterministic given clock
+
+3. **Seeded RNG for jitter** (if added later)
+   - Not planned for DEC-023d; backoff jitter is in BackoffState, not governor
+
+---
+
+### Metrics Specification
+
+```python
+@dataclass
+class GovernorMetrics:
+    """REST governor metrics for observability."""
+
+    # Counters
+    requests_allowed: int = 0
+    requests_deferred: int = 0  # Queued, later allowed
+    requests_dropped: int = 0   # Rejected due to queue full
+    requests_failed_breaker: int = 0  # Rejected due to breaker OPEN
+
+    # Current state
+    queue_depth: int = 0
+    budget_remaining: int = 0
+    concurrent_requests: int = 0
+
+    # Timing (ms)
+    total_wait_ms: int = 0  # Sum of queue wait times
+    max_wait_ms: int = 0
+
+    # Reason breakdown
+    drop_reasons: dict[str, int] = field(default_factory=lambda: {
+        "breaker_open": 0,
+        "budget_exhausted": 0,
+        "queue_full": 0,
+        "timeout": 0,
+    })
+```
+
+**Metrics exposed via `RestGovernor.get_status()`:**
+- `requests_allowed`, `requests_deferred`, `requests_dropped`
+- `queue_depth`, `budget_remaining`, `concurrent_requests`
+- `avg_wait_ms`, `max_wait_ms`
+- `drop_reason_*` labels
+
+---
+
+### Test Plan
+
+**Unit tests (in `test_backoff.py`):**
+
+| Test Class | Test Name | What it Proves |
+|------------|-----------|----------------|
+| `TestRestGovernorBudget` | `test_allows_request_under_budget` | Normal allow path |
+| | `test_defers_request_when_budget_exhausted` | Queue on budget exhaustion |
+| | `test_budget_refills_over_time` | Token bucket refill with fake clock |
+| | `test_endpoint_weights_respected` | Custom weights deduct correctly |
+| `TestRestGovernorQueue` | `test_queue_fifo_order` | Requests served in arrival order |
+| | `test_drops_new_when_queue_full` | Drop-new policy |
+| | `test_queue_timeout_returns_dropped` | Timeout in queue → dropped |
+| `TestRestGovernorBreaker` | `test_fail_fast_when_breaker_open` | No queue, immediate error |
+| | `test_allows_probe_in_half_open` | HALF_OPEN allows limited requests |
+| `TestRestGovernorConcurrency` | `test_semaphore_limits_concurrent` | Max N concurrent enforced |
+| | `test_burst_exceeds_semaphore_queued` | Burst N+1 waits |
+| `TestRestGovernorDeterminism` | `test_decision_sequence_reproducible` | Same clock → same decisions |
+| | `test_digest_stable_across_runs` | SHA256 proof (2× runs) |
+| `TestRestGovernorMetrics` | `test_metrics_increment_on_allow` | Counter checks |
+| | `test_metrics_track_wait_time` | Wait time recorded |
+| | `test_drop_reasons_categorized` | Reason labels correct |
+
+**Integration tests (in `test_rest_client.py`):**
+
+| Test Name | What it Proves |
+|-----------|----------------|
+| `test_governor_wired_to_client` | Governor created/injected |
+| `test_request_acquires_before_http` | `acquire()` called before HTTP |
+| `test_429_opens_breaker_and_blocks_queue` | 429 → OPEN → fail-fast |
+
+**Determinism proof script (`scripts/proof_dec023d_determinism.py`):**
+- Simulate 100 requests with fake clock
+- Run 2×, compare SHA256 digests of (decision, wait_ms, queue_depth) sequence
+- Assert digests match
+
+---
+
+### Alternatives Considered
+
+| Alternative | Why Rejected |
+|-------------|--------------|
+| Global RPS limiter only | Doesn't handle burst; 10 concurrent requests can hit at once |
+| Priority queue | Complexity; all bootstrap endpoints are similar priority |
+| Adaptive budget | ML/heuristic tuning adds complexity; fixed budget is predictable |
+| Drop-old policy | Unfair to earlier callers; drop-new is standard |
+| In-request sleep | Blocks caller; async queue is more efficient |
+
+---
+
+### Implementation Order
+
+1. **DEC-023d-design (this PR):** Design approval — no code, DECISIONS.md only
+2. **DEC-023d-core:** Core governor (`RestGovernor`, `BudgetConfig`, metrics) + unit tests
+3. **DEC-023d-wiring:** Wire into `BinanceRestClient` + integration tests + determinism proof
+
+---
+
+### Non-Goals (Out of Scope for DEC-023d)
+
+- **Order placement limits** — not using REST for orders
+- **Per-account limits** — single account, single IP
+- **Distributed rate limiting** — single process
+- **Adaptive budgets** — fixed config is sufficient for bootstrap-only REST
+
+---
+
+**Rationale:**
+- Proactive budgeting prevents hitting Binance limits in the first place
+- Bounded queue with timeout provides backpressure without indefinite stalls
+- Drop-new policy on queue full is predictable (arrival-order fairness within queue)
+- Semaphore prevents burst concurrency even with budget headroom
+- Fake clock enables deterministic replay testing (DEC-023 pattern)
+
+**Impact:**
+- New `RestGovernor` class in `backoff.py`
+- `BinanceRestClient._request()` gains `governor.acquire()` call
+- ~15 new tests for governor logic
+- Determinism proof script for replay verification
+- Extends DEC-023 series: utilities (a) → wiring (b) → proofing (c) → **budgeting (d)**
