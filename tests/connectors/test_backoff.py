@@ -2442,6 +2442,7 @@ class TestRestGovernorConcurrencyStress:
     """Stress tests for RestGovernor concurrency cap (atomic enforcement).
 
     DEC-023d: Proves that concurrency cap is never exceeded even under contention.
+    Uses get_concurrent_count() to read state under lock for accurate invariant checks.
     """
 
     @pytest.mark.asyncio
@@ -2450,6 +2451,8 @@ class TestRestGovernorConcurrencyStress:
 
         This is the critical atomicity test: many tasks try to acquire simultaneously,
         and we verify that at no point does concurrent_count exceed max.
+
+        Uses get_concurrent_count() which acquires lock for safe read.
         """
         config = RestGovernorConfig(
             budget_weight_per_minute=100000,  # High budget to focus on concurrency
@@ -2459,7 +2462,7 @@ class TestRestGovernorConcurrencyStress:
         governor = RestGovernor(config=config)
 
         max_observed_concurrent = 0
-        violations = []
+        violations: list[tuple[int, int]] = []
         num_tasks = 25
         completed = 0
 
@@ -2468,7 +2471,8 @@ class TestRestGovernorConcurrencyStress:
             for _ in range(3):  # Each worker does 3 acquire/release cycles
                 await governor.acquire("/test", weight=1)
                 try:
-                    current = governor._concurrent_count
+                    # Use safe accessor that acquires lock
+                    current = await governor.get_concurrent_count()
                     if current > max_observed_concurrent:
                         max_observed_concurrent = current
                     if current > config.max_concurrent_requests:
@@ -2487,11 +2491,16 @@ class TestRestGovernorConcurrencyStress:
         assert violations == [], f"Concurrency cap violated: {violations}"
         assert max_observed_concurrent <= config.max_concurrent_requests
         assert completed == num_tasks
-        assert governor._concurrent_count == 0  # All released
+        # Final check with safe accessor
+        final_count = await governor.get_concurrent_count()
+        assert final_count == 0, "All slots should be released"
 
     @pytest.mark.asyncio
     async def test_permit_concurrency_stress(self) -> None:
-        """Test permit() context manager under stress - slots always released."""
+        """Test permit() context manager under stress - slots always released.
+
+        Uses get_concurrent_count() which acquires lock for safe read.
+        """
         config = RestGovernorConfig(
             budget_weight_per_minute=100000,
             max_concurrent_requests=3,
@@ -2499,7 +2508,7 @@ class TestRestGovernorConcurrencyStress:
         )
         governor = RestGovernor(config=config)
 
-        errors_during_work = []
+        errors_during_work: list[str] = []
         completed_count = 0
         max_observed = 0
 
@@ -2507,7 +2516,8 @@ class TestRestGovernorConcurrencyStress:
             nonlocal completed_count, max_observed
             for iteration in range(5):
                 async with governor.permit("/test", weight=1):
-                    current = governor._concurrent_count
+                    # Use safe accessor that acquires lock
+                    current = await governor.get_concurrent_count()
                     if current > max_observed:
                         max_observed = current
                     if current > config.max_concurrent_requests:
@@ -2523,68 +2533,144 @@ class TestRestGovernorConcurrencyStress:
         assert errors_during_work == []
         assert max_observed <= config.max_concurrent_requests
         assert completed_count == 20 * 5
-        assert governor._concurrent_count == 0
+        # Final check with safe accessor
+        final_count = await governor.get_concurrent_count()
+        assert final_count == 0, "All slots should be released"
 
 
 class TestRestGovernorQueueProgress:
     """Tests for queue progress - timeout of first doesn't block others.
 
     DEC-023d: Proves event-driven queue allows progress when resources free.
+    Uses fake time + notify_waiters() for fully deterministic testing.
     """
 
     @pytest.mark.asyncio
     async def test_timeout_of_first_doesnt_block_second(self) -> None:
         """Test that when first request times out, second can proceed.
 
-        Uses real time with high refill rate to demonstrate queue progress.
-        First request times out quickly, second request succeeds after budget refills.
-        """
-        # High refill rate so we don't wait too long
-        config = RestGovernorConfig(
-            budget_weight_per_minute=60000,  # 1000 tokens/sec
-            max_concurrent_requests=10,
-            default_timeout_ms=500,
-        )
-        governor = RestGovernor(config=config)
+        Uses fake time + notify_waiters() for deterministic behavior:
+        1. First request queues with short timeout
+        2. Advance time past first's timeout
+        3. Notify waiters so first times out
+        4. Advance time for budget refill
+        5. Notify waiters so second can proceed
 
-        # Exhaust most of the budget
-        await governor.acquire("/test", weight=60000)
-        # Keep slot held, budget at 0
-        # Budget will refill at 1000/sec
+        No real asyncio.sleep() timing dependencies.
+        """
+        current_time = [0]
+
+        def time_fn() -> int:
+            return current_time[0]
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=600,  # 10 tokens/sec
+            max_concurrent_requests=10,
+            default_timeout_ms=5000,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Exhaust all budget
+        await governor.acquire("/test", weight=600)
+        # Budget at 0, slot held
 
         first_timed_out = False
         second_completed = False
+        first_started = asyncio.Event()
+        second_started = asyncio.Event()
 
         async def first_request() -> None:
-            """First request - needs 50000 tokens, times out quickly."""
+            """First request - times out waiting for budget."""
             nonlocal first_timed_out
+            first_started.set()
             try:
-                # This needs 50000 tokens but we only refill 1000/sec
-                # Would take 50 seconds to get enough, but timeout is 50ms
-                await governor.acquire("/test", weight=50000, timeout_ms=50)
+                # Needs 500 tokens, timeout 200ms - will timeout
+                await governor.acquire("/test", weight=500, timeout_ms=200)
             except GovernorTimeoutError:
                 first_timed_out = True
 
         async def second_request() -> None:
-            """Second request - needs only 10 tokens, should succeed quickly."""
+            """Second request - succeeds after time advances and budget refills."""
             nonlocal second_completed
-            # Small delay to ensure first request is queued first
-            await asyncio.sleep(0.01)
-            # This only needs 10 tokens, refills in ~10ms
-            await governor.acquire("/test", weight=10, timeout_ms=500)
+            # Wait for first to start first (deterministic ordering)
+            await first_started.wait()
+            second_started.set()
+            # Needs only 10 tokens, timeout 5000ms - will succeed after refill
+            await governor.acquire("/test", weight=10, timeout_ms=5000)
             await governor.release()
             second_completed = True
+
+        async def time_driver() -> None:
+            """Drive time forward and signal waiters."""
+            # Wait for both requests to start
+            await first_started.wait()
+            await second_started.wait()
+            # Give tasks a chance to enter wait loop
+            await asyncio.sleep(0)
+
+            # Advance time past first request's timeout (200ms)
+            current_time[0] = 300
+            await governor.notify_waiters()
+            await asyncio.sleep(0)  # Let first timeout process
+
+            # Advance time enough for budget refill (10 tokens/sec = 1 token per 100ms)
+            # Need 10 tokens = 1000ms of refill time
+            current_time[0] = 1500
+            await governor.notify_waiters()
 
         # Run all concurrently
         await asyncio.gather(
             first_request(),
             second_request(),
+            time_driver(),
         )
-        # Release the initial acquisition
+        # Release initial acquisition
         await governor.release()
 
         assert first_timed_out, "First request should have timed out"
-        assert second_completed, "Second request should have completed"
+        assert second_completed, "Second request should have completed after refill"
+
+    @pytest.mark.asyncio
+    async def test_release_wakes_waiters(self) -> None:
+        """Test that release() wakes up waiting requests.
+
+        Deterministic test using fake time.
+        """
+        current_time = [0]
+
+        def time_fn() -> int:
+            return current_time[0]
+
+        config = RestGovernorConfig(
+            budget_weight_per_minute=60000,  # High budget
+            max_concurrent_requests=1,  # Only 1 concurrent
+            default_timeout_ms=5000,
+        )
+        governor = RestGovernor(config=config, _time_fn=time_fn)
+
+        # Acquire the only slot
+        await governor.acquire("/test", weight=1)
+
+        waiter_completed = False
+        waiter_started = asyncio.Event()
+
+        async def waiter() -> None:
+            """Wait for slot to be released."""
+            nonlocal waiter_completed
+            waiter_started.set()
+            await governor.acquire("/test", weight=1)
+            await governor.release()
+            waiter_completed = True
+
+        async def releaser() -> None:
+            """Release the slot after waiter starts."""
+            await waiter_started.wait()
+            await asyncio.sleep(0)  # Let waiter enter queue
+            await governor.release()
+
+        await asyncio.gather(waiter(), releaser())
+
+        assert waiter_completed, "Waiter should complete after release"
 
     @pytest.mark.asyncio
     async def test_release_wakes_waiting_requests(self) -> None:

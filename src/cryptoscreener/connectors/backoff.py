@@ -987,6 +987,19 @@ class RestGovernor:
             # Wake up all waiting requests to check if they can proceed
             condition.notify_all()
 
+    async def notify_waiters(self) -> None:
+        """
+        Wake up all waiting requests to recheck conditions.
+
+        Use this in deterministic tests after advancing fake time via _time_fn.
+        In production, waiters are notified by release() and periodic timeout.
+
+        DEC-023d: Enables fully deterministic testing without real-time sleeps.
+        """
+        condition = self._get_condition()
+        async with condition:
+            condition.notify_all()
+
     @contextlib.asynccontextmanager
     async def permit(
         self,
@@ -1021,8 +1034,43 @@ class RestGovernor:
         finally:
             await self.release()
 
+    async def get_concurrent_count(self) -> int:
+        """Get current concurrent request count (thread-safe).
+
+        Acquires lock to ensure consistent read.
+        Use this in tests to verify concurrency invariants.
+        """
+        condition = self._get_condition()
+        async with condition:
+            return self._concurrent_count
+
+    async def get_status_async(self) -> dict[str, int | float | bool]:
+        """Get current governor status for observability (thread-safe).
+
+        Acquires lock to ensure consistent read of all counters.
+        """
+        condition = self._get_condition()
+        async with condition:
+            now_ms = self._now_ms()
+            self._refill_budget(now_ms)
+            return {
+                "budget_tokens": round(self._budget_tokens, 2),
+                "budget_max": self.config.budget_weight_per_minute,
+                "queue_depth": len(self._queue),
+                "queue_max": self.config.max_queue_depth,
+                "concurrent": self._concurrent_count,
+                "concurrent_max": self.config.max_concurrent_requests,
+                "breaker_open": self.circuit_breaker.state == CircuitState.OPEN
+                if self.circuit_breaker
+                else False,
+            }
+
     def get_status(self) -> dict[str, int | float | bool]:
-        """Get current governor status for observability."""
+        """Get current governor status (non-async, for non-critical reads).
+
+        WARNING: This reads state without lock. For test invariants,
+        use get_status_async() or get_concurrent_count() instead.
+        """
         now_ms = self._now_ms()
         self._refill_budget(now_ms)
         return {
