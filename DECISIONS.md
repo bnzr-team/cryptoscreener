@@ -2001,3 +2001,318 @@ class GovernorMetrics:
 - ~15 new tests for governor logic
 - Determinism proof script for replay verification
 - Extends DEC-023 series: utilities (a) → wiring (b) → proofing (c) → **budgeting (d)**
+
+---
+
+## DEC-024: Observability Hardening (PLANNING)
+
+**Date:** 2026-01-26
+
+**Status:** PLANNING — awaiting design approval before implementation.
+
+**Decision:** Add comprehensive metrics, structured logging, and alert thresholds for operational visibility into connector health.
+
+**Problem:**
+DEC-023 series added operational safety (limiters, throttlers, governor, circuit breaker), but these components lack:
+1. **Metrics exposure** — no counters/gauges for dashboards or alerting
+2. **Structured logging** — ad-hoc log messages, no consistent event IDs or fields
+3. **Alert thresholds** — no documented thresholds for when to page on-call
+
+Without observability, incidents are diagnosed reactively from user reports rather than proactively from metrics.
+
+---
+
+### Scope
+
+| Component | What | Location |
+|-----------|------|----------|
+| REST Governor metrics | Counters, gauges, timing | `backoff.py` |
+| CircuitBreaker metrics | State transitions, reasons | `backoff.py` |
+| WS Shard/Manager metrics | Reconnect, throttle, subscribe delays | `shard.py`, `stream_manager.py` |
+| Structured log events | Event IDs, standardized fields | All connector modules |
+| Alert thresholds | Documented values | This document |
+| Metrics tests | Deterministic counter verification | `test_backoff.py`, `test_shard.py` |
+
+**Non-goals (out of scope):**
+- Prometheus/StatsD/OpenTelemetry integration (metrics are in-memory dataclasses; export is separate concern)
+- Distributed tracing spans
+- ML/LLM observability (separate DEC)
+- Alerting infrastructure (PagerDuty/OpsGenie wiring)
+
+---
+
+### Metrics Specification
+
+#### REST Governor Metrics
+
+Already partially implemented in `RestGovernorMetrics`. This DEC formalizes and completes the spec.
+
+```python
+@dataclass
+class RestGovernorMetrics:
+    """REST governor metrics for observability (DEC-024)."""
+
+    # === Counters (monotonically increasing) ===
+    requests_allowed: int = 0       # Permitted immediately (budget + slot available)
+    requests_deferred: int = 0      # Queued, later permitted
+    requests_dropped: int = 0       # Rejected (queue full, timeout, breaker)
+    requests_failed_breaker: int = 0  # Subset of dropped: breaker OPEN
+
+    # === Drop reason breakdown (sum = requests_dropped) ===
+    drop_reason_queue_full: int = 0
+    drop_reason_timeout: int = 0
+    drop_reason_breaker_open: int = 0
+    drop_reason_budget_exhausted: int = 0  # If we add hard-fail on budget
+
+    # === Gauges (point-in-time) ===
+    # Exposed via get_status(), not stored as fields
+    # - queue_depth: int (current queue length)
+    # - budget_tokens: float (remaining budget)
+    # - concurrent_inflight: int (requests inside permit())
+
+    # === Timing (milliseconds) ===
+    total_wait_ms: int = 0          # Sum of all queue wait times
+    max_wait_ms: int = 0            # Maximum observed wait time
+
+    # === Derived (computed on read) ===
+    # - avg_wait_ms = total_wait_ms / requests_deferred (if deferred > 0)
+```
+
+**Labels (low cardinality only):**
+- `endpoint`: Clean path only (e.g., `/fapi/v1/time`), no query strings
+- `drop_reason`: Enum `{queue_full, timeout, breaker_open, budget_exhausted}`
+
+**Units:**
+- Time: milliseconds (ms)
+- Budget: weight units (dimensionless, per Binance docs)
+
+---
+
+#### CircuitBreaker Metrics
+
+```python
+@dataclass
+class CircuitBreakerMetrics:
+    """Circuit breaker metrics for observability (DEC-024)."""
+
+    # === State transition counters ===
+    transitions_closed_to_open: int = 0
+    transitions_open_to_half_open: int = 0
+    transitions_half_open_to_closed: int = 0
+    transitions_half_open_to_open: int = 0
+
+    # === Open reason breakdown ===
+    open_reason_429: int = 0        # HTTP 429 Too Many Requests
+    open_reason_418: int = 0        # HTTP 418 IP Ban
+    open_reason_error_code: int = 0 # Binance error codes (-1003, etc.)
+    open_reason_forced: int = 0     # Manual force_open() call
+
+    # === Timing ===
+    total_open_duration_ms: int = 0  # Cumulative time spent in OPEN state
+    last_open_duration_ms: int = 0   # Duration of most recent OPEN period
+
+    # === Success/failure counters ===
+    successes_recorded: int = 0
+    failures_recorded: int = 0
+```
+
+**Labels:**
+- `state`: Enum `{CLOSED, OPEN, HALF_OPEN}`
+- `open_reason`: Enum `{429, 418, error_code, forced}`
+
+---
+
+#### WebSocket Shard Metrics
+
+Already partially implemented in `ShardMetrics`. This DEC formalizes additions.
+
+```python
+@dataclass
+class ShardMetrics:
+    """WebSocket shard metrics (DEC-024 additions)."""
+
+    # === Existing (from DEC-023b) ===
+    reconnect_count: int = 0
+    reconnect_denied: int = 0       # Limiter rejected reconnect
+    messages_received: int = 0
+    messages_delayed: int = 0       # Throttler delayed delivery
+
+    # === DEC-024 additions ===
+    subscribe_delayed: int = 0      # Throttler delayed subscription
+    cooldown_active_count: int = 0  # Times cooldown was active when checked
+    connection_errors: int = 0      # WS connection failures
+    ping_timeouts: int = 0          # Ping/pong failures
+```
+
+---
+
+#### Stream Manager Metrics
+
+```python
+@dataclass
+class StreamManagerMetrics:
+    """Stream manager aggregate metrics (DEC-024)."""
+
+    active_shards: int = 0          # Current active shard count
+    total_shards_created: int = 0   # Cumulative shards created
+    total_messages_routed: int = 0  # Messages dispatched to callbacks
+    total_events_queued: int = 0    # Events added to internal queue
+
+    # Aggregate from all shards
+    total_reconnect_denied: int = 0
+    total_messages_delayed: int = 0
+    total_subscribe_delayed: int = 0
+```
+
+---
+
+### Structured Logging Specification
+
+#### Event ID Schema
+
+All log events use a consistent ID format for grep/search:
+
+```
+[{COMPONENT}:{EVENT}] {message}
+```
+
+| Component | Event ID Prefix |
+|-----------|-----------------|
+| REST Governor | `GOV:` |
+| CircuitBreaker | `CB:` |
+| WebSocket Shard | `WS:` |
+| Stream Manager | `SM:` |
+
+#### Event Catalog
+
+| Event ID | Level | When | Fields |
+|----------|-------|------|--------|
+| `GOV:ALLOWED` | DEBUG | Request permitted | `endpoint`, `weight`, `queue_depth` |
+| `GOV:DEFERRED` | INFO | Request queued | `endpoint`, `weight`, `queue_depth`, `wait_ms` |
+| `GOV:DROPPED` | WARNING | Request rejected | `endpoint`, `reason`, `queue_depth` |
+| `GOV:BUDGET_LOW` | WARNING | Budget < 20% | `budget_remaining`, `budget_max` |
+| `CB:OPENED` | WARNING | Breaker → OPEN | `reason`, `retry_after_ms`, `failures` |
+| `CB:HALF_OPEN` | INFO | Breaker → HALF_OPEN | `open_duration_ms` |
+| `CB:CLOSED` | INFO | Breaker → CLOSED | `probe_successes` |
+| `WS:CONNECTED` | INFO | Shard connected | `shard_id`, `url` |
+| `WS:DISCONNECTED` | INFO | Shard disconnected | `shard_id`, `reason` |
+| `WS:RECONNECT_DENIED` | WARNING | Limiter rejected | `shard_id`, `cooldown_remaining_ms` |
+| `WS:THROTTLED` | DEBUG | Message delayed | `shard_id`, `delay_ms` |
+| `SM:SHARD_CREATED` | INFO | New shard | `shard_id`, `symbols` |
+| `SM:SHARD_STOPPED` | INFO | Shard stopped | `shard_id`, `reason` |
+
+#### Forbidden Fields (Security)
+
+The following MUST NOT appear in logs:
+- API keys, secrets, tokens
+- Full URLs with query parameters (strip query)
+- Raw HTTP headers (may contain auth)
+- User IDs, account IDs (if multi-tenant in future)
+- IP addresses (privacy)
+
+#### Log Format
+
+```python
+logger.info(
+    "[GOV:DEFERRED] Request queued",
+    extra={
+        "event_id": "GOV:DEFERRED",
+        "endpoint": endpoint,      # Clean path only
+        "weight": weight,
+        "queue_depth": queue_depth,
+        "wait_ms": wait_ms,
+    },
+)
+```
+
+---
+
+### Alert Thresholds
+
+| Alert Name | Condition | Severity | Action |
+|------------|-----------|----------|--------|
+| `rest_queue_saturated` | `queue_depth >= 0.8 * max_queue_depth` for 1min | WARNING | Check load, consider scaling |
+| `rest_drops_sustained` | `requests_dropped > 0` for 5min | CRITICAL | Investigate breaker/budget |
+| `breaker_flapping` | `transitions_*_to_open > 3` in 10min | WARNING | Check Binance status |
+| `breaker_stuck_open` | `state == OPEN` for 10min | CRITICAL | Manual intervention |
+| `reconnect_storm` | `reconnect_denied > 10` in 5min | WARNING | Check WS health |
+| `message_delay_high` | `messages_delayed / messages_received > 0.1` for 5min | WARNING | Throttler overloaded |
+
+**Threshold rationale:**
+- Queue saturation at 80% gives headroom before drops
+- 5min sustained drops filters transient spikes
+- Breaker flapping (3×/10min) catches oscillation
+- 10min stuck open is long enough to be a real incident
+- 10% message delay is noticeable latency degradation
+
+---
+
+### Test Plan
+
+#### Unit Tests (Deterministic with Fake Clock)
+
+| Test Class | Test Name | What it Proves |
+|------------|-----------|----------------|
+| `TestRestGovernorMetricsObservability` | `test_allowed_counter_increments` | Counter accuracy |
+| | `test_deferred_counter_and_wait_ms` | Timing recorded correctly |
+| | `test_drop_reasons_categorized` | Breakdown sums to total |
+| | `test_metrics_deterministic_with_fake_clock` | Same clock → same metrics |
+| `TestCircuitBreakerMetricsObservability` | `test_transition_counters` | State machine tracked |
+| | `test_open_reason_recorded` | Reason categorization |
+| | `test_open_duration_tracked` | Time in OPEN measured |
+| `TestShardMetricsObservability` | `test_reconnect_denied_counter` | Limiter rejections counted |
+| | `test_throttle_delay_recorded` | Throttler metrics |
+| `TestStructuredLogging` | `test_event_ids_in_logs` | Event ID format |
+| | `test_no_secrets_in_logs` | Security redaction |
+
+#### Integration Tests
+
+| Test Name | What it Proves |
+|-----------|----------------|
+| `test_governor_metrics_wired_to_client` | Client exposes governor metrics |
+| `test_stream_manager_aggregates_shard_metrics` | SM sums child metrics |
+
+#### Determinism Proof
+
+Extend `scripts/proof_dec023d_determinism.py` to include metrics:
+- Capture metrics snapshot after each simulated request
+- Compare SHA256 of metrics sequence across 2 runs
+- Assert match
+
+---
+
+### Implementation Order
+
+1. **DEC-024-planning (this PR):** Design approval — DECISIONS.md only
+2. **DEC-024-metrics:** Add metrics dataclasses + counter increments + unit tests
+3. **DEC-024-logging:** Add structured log events + security tests
+4. **DEC-024-thresholds:** Document alert rules (no infra, just thresholds)
+
+---
+
+### Alternatives Considered
+
+| Alternative | Why Rejected |
+|-------------|--------------|
+| OpenTelemetry SDK | Adds dependency; in-memory dataclass is simpler for now |
+| Histogram for wait times | Complexity; avg/max sufficient for v1 |
+| Per-endpoint metrics | High cardinality; aggregate by reason instead |
+| Trace IDs | Out of scope; no distributed tracing yet |
+| Log sampling | Not needed at current scale |
+
+---
+
+**Rationale:**
+- In-memory metrics dataclasses are simple, testable, and deterministic
+- Structured logs with event IDs enable efficient incident search
+- Documented thresholds prevent "magic number" alerts
+- Fake-clock testing ensures metrics are reproducible for replay
+
+**Impact:**
+- New `CircuitBreakerMetrics` dataclass in `backoff.py`
+- Extended `RestGovernorMetrics` (already exists, add fields)
+- Extended `ShardMetrics` (already exists, add fields)
+- New `StreamManagerMetrics` dataclass
+- Structured log calls in all connector modules
+- ~20 new observability tests
+- Extends operational safety: DEC-023 (safety) → **DEC-024 (visibility)**
