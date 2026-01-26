@@ -2383,7 +2383,8 @@ Environments:
 
 **Traffic Gating (MANDATORY)**
 - All rate/ratio-based alerts MUST include traffic gating to suppress false positives on low volume.
-- Gating threshold: alert only fires when `request_rate > N` (e.g., `> 10 req/min`) or equivalent denominator exists.
+- Gating threshold: alert only fires when `request_rate > N` (e.g., `> 10/min`) or equivalent denominator exists.
+- Definition: `request_rate = rate(requests_allowed + requests_dropped)` — total request attempts per time window.
 - Without gating: a single drop on 2 requests = 50% drop_ratio → false CRITICAL.
 - Rule: `(ratio > threshold) AND (traffic > min_threshold) for duration`
 
@@ -2399,7 +2400,7 @@ Environments:
 | Alert | Signal | WARNING | CRITICAL | Notes |
 |---|---|---:|---:|---|
 | GOV_QUEUE_SATURATED | `queue_depth / max_queue_depth` | `>= 0.80 for 1m` | `>= 0.95 for 2m` | Backpressure building; risk of drops/timeouts |
-| GOV_SUSTAINED_DROPS | drop_ratio + traffic gate | `drop_ratio > 0.1% for 10m AND req_rate > 10/min` | `drop_ratio > 1% for 5m AND req_rate > 10/min` | Traffic gating prevents false positives on low volume; use drop reason breakdown for routing |
+| GOV_SUSTAINED_DROPS | drop_ratio + traffic gate | `drop_ratio > 0.1% for 10m AND request_rate > 10/min` | `drop_ratio > 1% for 5m AND request_rate > 10/min` | Traffic gating prevents false positives on low volume; use drop reason breakdown for routing |
 | GOV_CONCURRENCY_PINNED | `concurrent_inflight == max_concurrent_requests` | `> 2m` | `> 10m` | Indicates inflight saturation / stuck requests |
 | CB_FLAPPING | `transitions_closed_to_open` rate | `>= 3 opens / 10m` | `>= 10 opens / 10m` | Use `open_reason_*` for cause |
 | CB_STUCK_OPEN | breaker OPEN duration (see State Source below) | `OPEN > 5m` | `OPEN > 10m` | Protects Binance; indicates sustained block. State source: proxy via `last_open_duration_ms` OR dedicated state gauge (follow-up PR must choose one) |
@@ -2604,11 +2605,11 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 3. Any new metric required for alerting MUST be added via separate PR with deterministic tests before being referenced in alert queries.
 4. Metric names in alert specs are **conceptual** — follow-up PR maps them to actual field names.
 
-**Current metric availability (DEC-024):**
+**Current metric availability (DEC-024 — exists in codebase):**
 | Conceptual Name | Actual Field | Dataclass |
 |-----------------|--------------|-----------|
-| `queue_depth` | `queue_depth` (needs adding) | `RestGovernorMetrics` |
 | `requests_dropped` | `requests_dropped` | `RestGovernorMetrics` |
+| `requests_allowed` | `requests_allowed` | `RestGovernorMetrics` |
 | `drop_reason_*` | `drop_reason_queue_full`, `drop_reason_timeout`, etc. | `RestGovernorMetrics` |
 | `concurrent_inflight` | `current_concurrent` | `RestGovernorMetrics` |
 | `transitions_closed_to_open` | `transitions_closed_to_open` | `CircuitBreakerMetrics` |
@@ -2618,11 +2619,13 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 | `ping_timeouts` | `total_ping_timeouts` | `ShardMetrics` |
 | `connection_errors` | `total_connection_errors` | `ShardMetrics` |
 
-**Missing metrics (to be added in follow-up):**
-- `queue_depth` gauge (current queue size) — needs adding to `RestGovernorMetrics`
-- `total_disconnects` counter — needs adding to `ShardMetrics`
-- `reconnect_attempts` counter — needs adding to `ShardMetrics`
-- `request_rate` (for traffic gating) — computed from `requests_allowed + requests_dropped` rate
+**Missing metrics (to be added in follow-up PRs):**
+| Conceptual Name | Target Dataclass | Notes |
+|-----------------|------------------|-------|
+| `queue_depth` | `RestGovernorMetrics` | Gauge: current queue size |
+| `total_disconnects` | `ShardMetrics` | Counter: WS disconnection events |
+| `reconnect_attempts` | `ShardMetrics` | Counter: reconnect attempts (before limiter) |
+| `request_rate` | computed | `rate(requests_allowed + requests_dropped)` — for traffic gating |
 
 ---
 
