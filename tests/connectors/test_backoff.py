@@ -184,7 +184,7 @@ class TestCircuitBreaker:
     def test_initial_state_closed(self) -> None:
         """Test circuit starts closed."""
         cb = CircuitBreaker()
-        assert cb.state == CircuitState.CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
         assert cb.can_execute()
 
     def test_opens_after_threshold_failures(self) -> None:
@@ -193,10 +193,10 @@ class TestCircuitBreaker:
 
         # Record failures up to threshold
         for _ in range(3):
-            assert cb.state == CircuitState.CLOSED
+            assert cb.state.value == CircuitState.CLOSED.value
             cb.record_failure()
 
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert not cb.can_execute()
 
     def test_429_immediate_open(self) -> None:
@@ -208,7 +208,7 @@ class TestCircuitBreaker:
 
         # Single 429 should immediately open
         cb.record_failure(is_rate_limit=True)
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
 
     def test_418_immediate_open_with_ban_flag(self) -> None:
         """Test 418 (IP ban) immediately opens circuit with ban flag.
@@ -219,7 +219,7 @@ class TestCircuitBreaker:
 
         # Single 418 should immediately open and set ban flag
         cb.record_failure(is_ip_ban=True)
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert cb.is_banned
 
     def test_ban_uses_extended_recovery_timeout(self) -> None:
@@ -232,7 +232,7 @@ class TestCircuitBreaker:
 
         # Open circuit with ban
         cb.record_failure(is_ip_ban=True)
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert cb.is_banned
 
         with patch("time.time") as mock_time:
@@ -241,7 +241,7 @@ class TestCircuitBreaker:
 
             # Should still be blocked (ban needs longer)
             assert not cb.can_execute()
-            assert cb.state == CircuitState.OPEN
+            assert cb.state.value == CircuitState.OPEN.value
 
             # After ban timeout
             mock_time.return_value = cb.last_failure_time_ms / 1000 + 0.6
@@ -261,7 +261,7 @@ class TestCircuitBreaker:
 
         cb.record_success()
         assert cb.failure_count == 0
-        assert cb.state == CircuitState.CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
 
     def test_half_open_after_recovery_timeout(self) -> None:
         """Test circuit goes half-open after recovery timeout."""
@@ -273,7 +273,7 @@ class TestCircuitBreaker:
         # Open the circuit
         cb.record_failure()
         cb.record_failure()
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert not cb.can_execute()
 
         # Mock time passing
@@ -299,7 +299,7 @@ class TestCircuitBreaker:
 
         # Success should close
         cb.record_success()
-        assert cb.state == CircuitState.CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
 
     def test_half_open_failure_reopens_circuit(self) -> None:
         """Test failure in half-open reopens circuit."""
@@ -310,7 +310,7 @@ class TestCircuitBreaker:
 
         # Failure should reopen
         cb.record_failure()
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
 
     def test_half_open_limits_requests(self) -> None:
         """Test half-open limits number of test requests."""
@@ -340,7 +340,7 @@ class TestCircuitBreaker:
         # Open circuit
         cb.record_failure()
         cb.record_failure()
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
 
         # First can_execute() triggers transition and counts as request
         assert cb.can_execute()
@@ -356,7 +356,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(recovery_timeout_ms=100)
 
         cb.force_open(duration_ms=500, reason="test")
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
 
         with patch("time.time") as mock_time:
             # Before duration expires
@@ -385,7 +385,7 @@ class TestCircuitBreaker:
         """Test circuit reset."""
         cb = CircuitBreaker(failure_threshold=2)
         cb.record_failure(is_ip_ban=True)
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert cb.is_banned
 
         cb.reset()
@@ -517,7 +517,7 @@ class TestBackoffIntegration:
         cb.record_failure(is_rate_limit=True)
 
         # Circuit should be open after single 429
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert not cb.can_execute()
 
         # Backoff should have delay
@@ -542,7 +542,7 @@ class TestBackoffIntegration:
         # Single 418 should immediately open and set ban
         cb.record_failure(is_ip_ban=error.is_ip_ban)
 
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert cb.is_banned
 
     def test_429_with_retry_after_respected(self) -> None:
@@ -574,7 +574,7 @@ class TestBackoffIntegration:
         state.record_error()
         cb.record_failure(is_rate_limit=True)
 
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
 
         # Transition to half-open (recovery_timeout_ms=0)
         assert cb.can_execute()
@@ -602,7 +602,7 @@ class TestBackoffIntegration:
         assert error is not None
         cb.record_failure(is_ip_ban=error.is_ip_ban)
 
-        assert cb.state == CircuitState.OPEN
+        assert cb.state.value == CircuitState.OPEN.value
         assert cb.is_banned
 
         with patch("time.time") as mock_time:
@@ -618,7 +618,7 @@ class TestBackoffIntegration:
 
             # Successful recovery
             cb.record_success()
-            assert cb.state == CircuitState.CLOSED
+            assert cb.state.value == CircuitState.CLOSED.value
 
 
 # =============================================================================
@@ -1130,3 +1130,579 @@ class TestMessageThrottler:
         assert "burst_allowance" in status
         assert status["effective_rate_per_sec"] == 8.0
         assert status["burst_allowance"] == 5
+
+
+# =============================================================================
+# DEC-023c: CircuitBreaker Deterministic State Machine Tests
+# =============================================================================
+
+
+class TestCircuitBreakerDeterministic:
+    """Deterministic CircuitBreaker tests with fake clock (DEC-023c)."""
+
+    def test_closed_to_open_on_429_deterministic(self) -> None:
+        """Test CLOSED → OPEN on single 429 with fake clock."""
+        fake_time = 1000000  # Start at 1 second
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            failure_threshold=10,  # High threshold
+            recovery_timeout_ms=30000,
+            _time_fn=time_fn,
+        )
+
+        # Initial state: CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
+        assert cb.can_execute()
+
+        # Single 429 → immediate OPEN
+        cb.record_failure(is_rate_limit=True)
+        assert cb.state.value == CircuitState.OPEN.value
+        assert not cb.can_execute()
+        assert cb.last_failure_time_ms == 1000000
+
+    def test_closed_to_open_on_418_deterministic(self) -> None:
+        """Test CLOSED → OPEN on single 418 with ban flag set."""
+        fake_time = 2000000
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            failure_threshold=10,
+            ban_recovery_timeout_ms=300000,  # 5 min
+            _time_fn=time_fn,
+        )
+
+        # Single 418 → immediate OPEN + ban flag
+        cb.record_failure(is_ip_ban=True)
+        assert cb.state.value == CircuitState.OPEN.value
+        assert cb.is_banned
+        assert cb.last_failure_time_ms == 2000000
+
+    def test_open_to_half_open_after_timeout_deterministic(self) -> None:
+        """Test OPEN → HALF_OPEN after recovery_timeout_ms passes."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout_ms=30000,  # 30 seconds
+            _time_fn=time_fn,
+        )
+
+        # Open circuit via 429
+        cb.record_failure(is_rate_limit=True)
+        assert cb.state.value == CircuitState.OPEN.value
+        assert cb.last_failure_time_ms == 0
+
+        # Before timeout: still blocked
+        fake_time = 29999
+        assert not cb.can_execute()
+        assert cb.state.value == CircuitState.OPEN.value
+
+        # At exactly timeout: still blocked (need to exceed)
+        fake_time = 30000
+        assert cb.can_execute()  # Transitions on >= timeout
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+    def test_half_open_to_closed_on_success_deterministic(self) -> None:
+        """Test HALF_OPEN → CLOSED on successful request."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=1000,
+            _time_fn=time_fn,
+        )
+
+        # Open and transition to HALF_OPEN
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 1001
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+        # Success closes circuit
+        cb.record_success()
+        assert cb.state.value == CircuitState.CLOSED.value
+        assert cb.failure_count == 0
+
+    def test_half_open_to_open_on_failure_deterministic(self) -> None:
+        """Test HALF_OPEN → OPEN on failed request."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=1000,
+            _time_fn=time_fn,
+        )
+
+        # Open and transition to HALF_OPEN
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 1001
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+        # Failure during HALF_OPEN reopens
+        cb.record_failure()
+        assert cb.state.value == CircuitState.OPEN.value
+        assert cb.last_failure_time_ms == 1001
+
+    def test_full_state_machine_cycle_deterministic(self) -> None:
+        """Test complete CLOSED → OPEN → HALF_OPEN → CLOSED cycle."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            failure_threshold=5,
+            recovery_timeout_ms=30000,
+            half_open_max_requests=1,
+            _time_fn=time_fn,
+        )
+
+        # Step 1: CLOSED
+        assert cb.state.value == CircuitState.CLOSED.value
+        assert cb.can_execute()
+
+        # Step 2: CLOSED → OPEN (via 429)
+        fake_time = 1000
+        cb.record_failure(is_rate_limit=True)
+        assert cb.state.value == CircuitState.OPEN.value
+        assert not cb.can_execute()
+
+        # Step 3: Wait in OPEN
+        fake_time = 20000
+        assert not cb.can_execute()
+        assert cb.state.value == CircuitState.OPEN.value
+
+        # Step 4: OPEN → HALF_OPEN (after timeout)
+        fake_time = 31001
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+        assert cb.half_open_requests == 1
+
+        # Step 5: HALF_OPEN blocks additional requests
+        assert not cb.can_execute()
+
+        # Step 6: HALF_OPEN → CLOSED (success)
+        cb.record_success()
+        assert cb.state.value == CircuitState.CLOSED.value
+        assert cb.can_execute()
+
+    def test_force_open_with_fake_clock(self) -> None:
+        """Test force_open respects duration with fake clock."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=1000,  # Short normal timeout
+            _time_fn=time_fn,
+        )
+
+        # Force open for 10 seconds
+        cb.force_open(duration_ms=10000, reason="test")
+        assert cb.state.value == CircuitState.OPEN.value
+        assert cb._open_until_ms == 10000
+
+        # Before duration: blocked
+        fake_time = 5000
+        assert not cb.can_execute()
+
+        # After duration: allowed (transitions to HALF_OPEN)
+        fake_time = 10001
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+
+# =============================================================================
+# DEC-023c: 418 Ban Recovery Tests (5 minute cooldown)
+# =============================================================================
+
+
+class TestCircuitBreaker418BanRecovery:
+    """Tests for 418 IP ban recovery with 5-minute cooldown (DEC-023c)."""
+
+    def test_418_uses_5_minute_recovery(self) -> None:
+        """Test 418 ban uses ban_recovery_timeout_ms (5 min default)."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=30000,  # 30 sec normal
+            ban_recovery_timeout_ms=300000,  # 5 min for ban
+            _time_fn=time_fn,
+        )
+
+        # 418 triggers ban
+        cb.record_failure(is_ip_ban=True)
+        assert cb.state.value == CircuitState.OPEN.value
+        assert cb.is_banned
+
+        # After normal timeout (30s): still blocked
+        fake_time = 31000
+        assert not cb.can_execute()
+        assert cb.state.value == CircuitState.OPEN.value
+
+        # After 4 min: still blocked
+        fake_time = 240000
+        assert not cb.can_execute()
+
+        # After 5 min: can recover
+        fake_time = 300001
+        assert cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+    def test_418_recovery_deterministic_full_cycle(self) -> None:
+        """Test complete 418 ban → recovery cycle with fake clock."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=30000,
+            ban_recovery_timeout_ms=300000,
+            _time_fn=time_fn,
+        )
+
+        # 418 ban at t=0
+        cb.record_failure(is_ip_ban=True)
+        assert cb.is_banned
+        assert cb.last_failure_time_ms == 0
+
+        # Various time checks
+        for check_time, should_block in [
+            (1000, True),  # 1 second
+            (60000, True),  # 1 minute
+            (180000, True),  # 3 minutes
+            (299999, True),  # Just before 5 min
+            (300000, False),  # At 5 min - can recover
+        ]:
+            fake_time = check_time
+            if should_block:
+                assert not cb.can_execute(), f"Should be blocked at {check_time}ms"
+            else:
+                assert cb.can_execute(), f"Should be allowed at {check_time}ms"
+
+        # Ban flag cleared on transition
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+        assert not cb.is_banned
+
+    def test_418_clears_ban_flag_on_half_open(self) -> None:
+        """Test ban flag is cleared when transitioning to HALF_OPEN."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            ban_recovery_timeout_ms=1000,
+            _time_fn=time_fn,
+        )
+
+        cb.record_failure(is_ip_ban=True)
+        assert cb.is_banned
+
+        fake_time = 1001
+        cb.can_execute()  # Triggers transition
+
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+        assert not cb.is_banned
+
+    def test_418_during_half_open_sets_ban_flag(self) -> None:
+        """Test 418 during HALF_OPEN reopens with ban flag."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            recovery_timeout_ms=1000,
+            ban_recovery_timeout_ms=300000,
+            _time_fn=time_fn,
+        )
+
+        # Get to HALF_OPEN
+        cb.record_failure(is_rate_limit=True)
+        fake_time = 1001
+        cb.can_execute()
+        assert cb.state.value == CircuitState.HALF_OPEN.value
+
+        # 418 during HALF_OPEN
+        cb.record_failure(is_ip_ban=True)
+        assert cb.state.value == CircuitState.OPEN.value
+        assert cb.is_banned
+
+        # Now needs 5 min to recover
+        fake_time = 2000
+        assert not cb.can_execute()
+
+        fake_time = 301002  # 1001 + 300001
+        assert cb.can_execute()
+
+
+# =============================================================================
+# DEC-023c: Retry-After Parsing Proof Tests
+# =============================================================================
+
+
+class TestRetryAfterParsing:
+    """Tests for Retry-After header handling (DEC-023c)."""
+
+    def test_retry_after_seconds_format(self) -> None:
+        """Test Retry-After in seconds format is respected."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+        state.record_error()  # attempt 1 → 1000ms base
+
+        # Server says wait 60 seconds (60000ms)
+        delay = compute_backoff_delay(config, state, retry_after_ms=60000)
+
+        # Should use server's value (larger than computed)
+        assert delay >= 60000
+
+    def test_retry_after_takes_max(self) -> None:
+        """Test delay is max(computed, retry_after)."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+
+        # Multiple retries → large computed delay
+        for _ in range(5):
+            state.record_error()  # attempt 5 → 16000ms base
+
+        # Server says 5000ms, but computed is larger
+        delay = compute_backoff_delay(config, state, retry_after_ms=5000)
+        assert delay == 16000  # Uses computed, not smaller retry_after
+
+        # Server says 100000ms, larger than computed
+        delay2 = compute_backoff_delay(config, state, retry_after_ms=100000)
+        assert delay2 >= 100000  # Uses retry_after
+
+    def test_retry_after_missing_uses_backoff(self) -> None:
+        """Test missing Retry-After uses exponential backoff."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+        state.record_error()
+
+        # No retry_after → uses computed backoff
+        delay = compute_backoff_delay(config, state, retry_after_ms=None)
+        assert delay == 1000
+
+    def test_retry_after_zero_uses_backoff(self) -> None:
+        """Test Retry-After: 0 uses exponential backoff."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+        state.record_error()
+
+        # retry_after=0 → uses computed backoff
+        delay = compute_backoff_delay(config, state, retry_after_ms=0)
+        assert delay == 1000
+
+    def test_retry_after_preserved_in_error(self) -> None:
+        """Test RateLimitError preserves retry_after_ms from response."""
+        error = handle_error_response(429, retry_after_ms=45000)
+        assert error is not None
+        assert error.retry_after_ms == 45000
+
+    def test_418_default_retry_after(self) -> None:
+        """Test 418 has default 5-minute retry_after when not provided."""
+        error = handle_error_response(418)
+        assert error is not None
+        assert error.retry_after_ms == 300000  # 5 minutes
+
+
+# =============================================================================
+# DEC-023c: -1003 Specific Tests
+# =============================================================================
+
+
+class TestMinus1003Handling:
+    """Tests for -1003 TOO_MANY_REQUESTS handling (DEC-023c)."""
+
+    def test_minus_1003_recognized(self) -> None:
+        """Test -1003 error code is recognized as rate limit."""
+        error = handle_error_response(200, error_code=-1003)
+        assert error is not None
+        assert isinstance(error, RateLimitError)
+        assert error.error_code == -1003
+        assert error.kind == RateLimitKind.TOO_MANY_REQUESTS
+
+    def test_minus_1003_opens_circuit(self) -> None:
+        """Test -1003 opens circuit (treated as rate limit)."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        cb = CircuitBreaker(
+            failure_threshold=10,
+            _time_fn=time_fn,
+        )
+
+        # -1003 should be treated as rate limit → immediate OPEN
+        error = handle_error_response(200, error_code=-1003)
+        assert error is not None
+
+        # Record as rate limit
+        cb.record_failure(is_rate_limit=True)
+        assert cb.state.value == CircuitState.OPEN.value
+
+    def test_minus_1003_with_retry_after(self) -> None:
+        """Test -1003 with Retry-After is respected."""
+        error = handle_error_response(200, error_code=-1003, retry_after_ms=30000)
+        assert error is not None
+        assert error.retry_after_ms == 30000
+
+        # Use in backoff
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.0)
+        state = BackoffState()
+        state.record_error()
+
+        delay = compute_backoff_delay(config, state, retry_after_ms=error.retry_after_ms)
+        assert delay >= 30000
+
+    def test_minus_1003_vs_429_vs_418_kinds(self) -> None:
+        """Test different error types have correct kinds."""
+        error_429 = handle_error_response(429)
+        error_418 = handle_error_response(418)
+        error_1003 = handle_error_response(200, error_code=-1003)
+
+        assert error_429 is not None
+        assert error_418 is not None
+        assert error_1003 is not None
+
+        assert error_429.kind == RateLimitKind.RATE_LIMIT
+        assert error_418.kind == RateLimitKind.IP_BAN
+        assert error_1003.kind == RateLimitKind.TOO_MANY_REQUESTS
+
+    def test_minus_1003_is_not_ip_ban(self) -> None:
+        """Test -1003 is not classified as IP ban."""
+        error = handle_error_response(200, error_code=-1003)
+        assert error is not None
+        assert not error.is_ip_ban
+
+
+# =============================================================================
+# DEC-023c: Determinism Proof Test
+# =============================================================================
+
+
+class TestCircuitBreakerDeterminismProof:
+    """Replay determinism proof for CircuitBreaker (DEC-023c)."""
+
+    def test_state_machine_sequence_is_reproducible(self) -> None:
+        """Test entire state machine sequence is reproducible with fake clock."""
+
+        def run_scenario() -> list[tuple[int, str, bool]]:
+            """Run scenario and return (time, state, can_execute) tuples."""
+            fake_time = 0
+
+            def time_fn() -> int:
+                return fake_time
+
+            cb = CircuitBreaker(
+                failure_threshold=3,
+                recovery_timeout_ms=10000,
+                ban_recovery_timeout_ms=50000,
+                half_open_max_requests=1,
+                _time_fn=time_fn,
+            )
+
+            results: list[tuple[int, str, bool]] = []
+
+            # Record initial state
+            results.append((fake_time, cb.state.value, cb.can_execute()))
+
+            # Simulate sequence of events
+            events = [
+                ("failure", 1000),
+                ("failure", 2000),
+                ("rate_limit", 3000),  # Opens circuit
+                ("check", 5000),
+                ("check", 10000),
+                ("check", 13001),  # Transitions to HALF_OPEN
+                ("failure", 13002),  # Back to OPEN
+                ("check", 20000),
+                ("check", 23003),  # Transitions to HALF_OPEN
+                ("success", 23004),  # Closes circuit
+                ("check", 25000),
+            ]
+
+            for event_type, event_time in events:
+                fake_time = event_time
+
+                if event_type == "failure":
+                    cb.record_failure()
+                elif event_type == "rate_limit":
+                    cb.record_failure(is_rate_limit=True)
+                elif event_type == "ban":
+                    cb.record_failure(is_ip_ban=True)
+                elif event_type == "success":
+                    cb.record_success()
+                elif event_type == "check":
+                    cb.can_execute()
+
+                results.append((fake_time, cb.state.value, cb.can_execute()))
+
+            return results
+
+        # Two runs should produce identical results
+        run1 = run_scenario()
+        run2 = run_scenario()
+
+        assert run1 == run2, "State machine sequence not reproducible"
+
+        # Verify specific states in sequence
+        # Final state should be CLOSED after success
+        assert run1[-1][1] == "CLOSED"
+        assert run1[-1][2] is True  # can_execute
+
+    def test_ban_recovery_sequence_is_reproducible(self) -> None:
+        """Test 418 ban recovery sequence is reproducible."""
+
+        def run_ban_scenario() -> list[tuple[int, str, bool, bool]]:
+            """Run ban scenario and return (time, state, can_execute, is_banned)."""
+            fake_time = 0
+
+            def time_fn() -> int:
+                return fake_time
+
+            cb = CircuitBreaker(
+                recovery_timeout_ms=30000,
+                ban_recovery_timeout_ms=300000,
+                _time_fn=time_fn,
+            )
+
+            results: list[tuple[int, str, bool, bool]] = []
+
+            # Ban at t=0
+            cb.record_failure(is_ip_ban=True)
+            results.append((fake_time, cb.state.value, cb.can_execute(), cb.is_banned))
+
+            # Check at various times
+            check_times = [1000, 60000, 180000, 299999, 300000, 300001]
+            for t in check_times:
+                fake_time = t
+                can_exec = cb.can_execute()
+                results.append((t, cb.state.value, can_exec, cb.is_banned))
+
+            return results
+
+        run1 = run_ban_scenario()
+        run2 = run_ban_scenario()
+
+        assert run1 == run2, "Ban recovery sequence not reproducible"
