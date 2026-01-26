@@ -232,9 +232,7 @@ class MinimalRecordPipeline:
                     symbol=symbol,
                     rank=0,  # Promoted to top
                     score=min(float(state["score"]) + 0.1, 0.95),
-                    payload=RankEventPayload(
-                        prediction={"status": "TRADEABLE"}, llm_text=""
-                    ),
+                    payload=RankEventPayload(prediction={"status": "TRADEABLE"}, llm_text=""),
                 )
 
     def record(self, events: list[MarketEvent]) -> list[RankEvent]:
@@ -261,9 +259,7 @@ class MinimalRecordPipeline:
         return rank_events
 
 
-def write_jsonl(
-    filepath: Path, events: list[MarketEvent] | list[RankEvent]
-) -> int:
+def write_jsonl(filepath: Path, events: list[MarketEvent] | list[RankEvent]) -> int:
     """
     Write events to JSONL file.
 
@@ -318,9 +314,7 @@ def run_record(
         market_events = list(generator.generate(start_ts, duration_ms))
     else:
         # Live mode - placeholder for future implementation
-        raise NotImplementedError(
-            "Live recording not implemented. Use --source synthetic."
-        )
+        raise NotImplementedError("Live recording not implemented. Use --source synthetic.")
 
     # Sort events by timestamp for determinism
     market_events.sort(key=lambda e: (e.ts, e.recv_ts))
@@ -344,9 +338,7 @@ def run_record(
     digest = compute_rank_events_digest(rank_events)
 
     # Get time range
-    time_range_ms = (
-        [market_events[0].ts, market_events[-1].ts] if market_events else [0, 0]
-    )
+    time_range_ms = [market_events[0].ts, market_events[-1].ts] if market_events else [0, 0]
 
     # Build manifest
     manifest = {

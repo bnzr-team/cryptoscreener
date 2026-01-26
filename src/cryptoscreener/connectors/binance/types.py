@@ -199,6 +199,8 @@ class ShardMetrics:
         messages_per_second: Current message rate.
         last_message_ts: Timestamp of last message.
         reconnect_count: Number of reconnections.
+        reconnect_denied: Number of reconnects blocked by limiter (DEC-023b).
+        messages_delayed: Number of messages delayed by throttler (DEC-023b).
         state: Current connection state.
     """
 
@@ -208,6 +210,8 @@ class ShardMetrics:
     messages_per_second: float = 0.0
     last_message_ts: int = 0
     reconnect_count: int = 0
+    reconnect_denied: int = 0  # DEC-023b: blocked by ReconnectLimiter
+    messages_delayed: int = 0  # DEC-023b: delayed by MessageThrottler
     state: ConnectionState = ConnectionState.DISCONNECTED
 
 
@@ -222,6 +226,9 @@ class ConnectorMetrics:
         active_shards: Number of active shards.
         shard_metrics: Per-shard metrics.
         circuit_breaker_open: Whether circuit breaker is open.
+        reconnect_limiter_in_cooldown: Whether global reconnect limiter is in cooldown (DEC-023b).
+        total_reconnects_denied: Total reconnects denied across all shards (DEC-023b).
+        total_messages_delayed: Total messages delayed across all shards (DEC-023b).
         last_error: Last error message if any.
     """
 
@@ -230,4 +237,7 @@ class ConnectorMetrics:
     active_shards: int = 0
     shard_metrics: list[ShardMetrics] = field(default_factory=list)
     circuit_breaker_open: bool = False
+    reconnect_limiter_in_cooldown: bool = False  # DEC-023b
+    total_reconnects_denied: int = 0  # DEC-023b
+    total_messages_delayed: int = 0  # DEC-023b
     last_error: str | None = None

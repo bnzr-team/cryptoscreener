@@ -15,7 +15,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any
 
-from cryptoscreener.connectors.backoff import CircuitBreaker
+from cryptoscreener.connectors.backoff import CircuitBreaker, ReconnectLimiter
 from cryptoscreener.connectors.binance.rest_client import BinanceRestClient
 from cryptoscreener.connectors.binance.shard import WebSocketShard
 from cryptoscreener.connectors.binance.types import (
@@ -52,6 +52,9 @@ class BinanceStreamManager:
         self,
         config: ConnectorConfig | None = None,
         on_event: EventCallback | None = None,
+        *,
+        reconnect_limiter: ReconnectLimiter | None = None,
+        time_fn: Callable[[], int] | None = None,
     ) -> None:
         """
         Initialize the stream manager.
@@ -59,6 +62,8 @@ class BinanceStreamManager:
         Args:
             config: Connector configuration.
             on_event: Optional callback for MarketEvents.
+            reconnect_limiter: Global reconnect limiter (DEC-023b).
+            time_fn: Time provider for deterministic testing (DEC-023b).
         """
         self._config = config or ConnectorConfig()
         self._on_event = on_event
@@ -68,6 +73,15 @@ class BinanceStreamManager:
             config=self._config,
             circuit_breaker=self._circuit_breaker,
         )
+
+        # DEC-023b: Global reconnect limiter shared across all shards
+        if reconnect_limiter is not None:
+            self._reconnect_limiter = reconnect_limiter
+        else:
+            self._reconnect_limiter = ReconnectLimiter(_time_fn=time_fn)
+
+        # DEC-023b: Time provider for deterministic testing
+        self._time_fn = time_fn
 
         self._shards: dict[int, WebSocketShard] = {}
         self._next_shard_id = 0
@@ -146,10 +160,7 @@ class BinanceStreamManager:
         volumes = await self._rest_client.get_24h_tickers()
 
         # Filter to tradeable symbols and sort by volume
-        tradeable_volumes = [
-            (symbol, volumes.get(symbol, 0.0))
-            for symbol in self._symbols
-        ]
+        tradeable_volumes = [(symbol, volumes.get(symbol, 0.0)) for symbol in self._symbols]
         tradeable_volumes.sort(key=lambda x: x[1], reverse=True)
 
         top_symbols = [symbol for symbol, _ in tradeable_volumes[:top_n]]
@@ -272,6 +283,8 @@ class BinanceStreamManager:
         """
         Get existing shard with capacity or create a new one.
 
+        DEC-023b: Passes global ReconnectLimiter to new shards.
+
         Returns:
             WebSocketShard if available, None if max shards reached.
         """
@@ -287,12 +300,16 @@ class BinanceStreamManager:
         shard_id = self._next_shard_id
         self._next_shard_id += 1
 
+        # DEC-023b: Pass global reconnect_limiter to shard
+        # MessageThrottler is per-shard so shard creates its own
         shard = WebSocketShard(
             shard_id=shard_id,
             config=self._config,
             circuit_breaker=self._circuit_breaker,
             on_message=self._handle_raw_message,
             on_state_change=self._handle_shard_state_change,
+            reconnect_limiter=self._reconnect_limiter,
+            time_fn=self._time_fn,
         )
 
         self._shards[shard_id] = shard
@@ -430,6 +447,8 @@ class BinanceStreamManager:
         """
         Get current connector metrics.
 
+        DEC-023b: Includes aggregated throttle/limiter metrics.
+
         Returns:
             ConnectorMetrics with aggregated stats.
         """
@@ -437,12 +456,17 @@ class BinanceStreamManager:
         total_messages = 0
         total_streams = 0
         active_shards = 0
+        total_reconnects_denied = 0
+        total_messages_delayed = 0
 
         for shard in self._shards.values():
             metrics = shard.get_metrics()
             shard_metrics.append(metrics)
             total_messages += metrics.messages_received
             total_streams += metrics.stream_count
+            # DEC-023b: Aggregate throttle metrics
+            total_reconnects_denied += metrics.reconnect_denied
+            total_messages_delayed += metrics.messages_delayed
             if metrics.state == ConnectionState.CONNECTED:
                 active_shards += 1
 
@@ -452,4 +476,8 @@ class BinanceStreamManager:
             active_shards=active_shards,
             shard_metrics=shard_metrics,
             circuit_breaker_open=not self._circuit_breaker.can_execute(),
+            # DEC-023b: Limiter/throttler metrics
+            reconnect_limiter_in_cooldown=bool(self._reconnect_limiter.get_status()["in_cooldown"]),
+            total_reconnects_denied=total_reconnects_denied,
+            total_messages_delayed=total_messages_delayed,
         )

@@ -115,9 +115,7 @@ class CalibrationArtifact:
             raise KeyError(f"No calibrator for head: {head_name}")
         return self.calibrators[head_name].transform(p_raw)
 
-    def transform_batch(
-        self, head_name: str, probs: Sequence[float]
-    ) -> list[float]:
+    def transform_batch(self, head_name: str, probs: Sequence[float]) -> list[float]:
         """Apply calibration to a batch of probabilities.
 
         Args:
@@ -134,9 +132,7 @@ class CalibrationArtifact:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
-            "calibrators": {
-                name: cal.to_dict() for name, cal in self.calibrators.items()
-            },
+            "calibrators": {name: cal.to_dict() for name, cal in self.calibrators.items()},
             "metadata": self.metadata.to_dict(),
         }
 

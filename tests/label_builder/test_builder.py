@@ -76,7 +76,7 @@ class TestMFECalculation:
         mfe_2m = builder.compute_mfe_bps(entry_price, future_prices, Horizon.H_2M, entry_ts=0)
 
         assert mfe_30s == 100.0  # (101 - 100) / 100 * 10000
-        assert mfe_2m == 500.0   # (105 - 100) / 100 * 10000
+        assert mfe_2m == 500.0  # (105 - 100) / 100 * 10000
 
     def test_mfe_no_favorable_move(self) -> None:
         """Test MFE when price only goes down."""
@@ -132,9 +132,7 @@ class TestToxicityLabel:
 
     def test_toxic_event(self) -> None:
         """Test detection of toxic event."""
-        config = LabelBuilderConfig(
-            toxicity=ToxicityConfig(tau_ms=30_000, threshold_bps=10.0)
-        )
+        config = LabelBuilderConfig(toxicity=ToxicityConfig(tau_ms=30_000, threshold_bps=10.0))
         builder = LabelBuilder(config)
 
         entry_price = 100.0
@@ -143,17 +141,13 @@ class TestToxicityLabel:
             PricePoint(ts=10_000, mid=99.85),  # 15 bps adverse
         ]
 
-        y_toxic, severity = builder.compute_toxicity_label(
-            entry_price, future_prices, entry_ts=0
-        )
+        y_toxic, severity = builder.compute_toxicity_label(entry_price, future_prices, entry_ts=0)
         assert y_toxic == 1
         assert 14.0 < severity < 16.0
 
     def test_non_toxic_event(self) -> None:
         """Test non-toxic event (small adverse move)."""
-        config = LabelBuilderConfig(
-            toxicity=ToxicityConfig(tau_ms=30_000, threshold_bps=10.0)
-        )
+        config = LabelBuilderConfig(toxicity=ToxicityConfig(tau_ms=30_000, threshold_bps=10.0))
         builder = LabelBuilder(config)
 
         entry_price = 100.0
@@ -162,29 +156,23 @@ class TestToxicityLabel:
             PricePoint(ts=10_000, mid=99.95),  # 5 bps adverse
         ]
 
-        y_toxic, severity = builder.compute_toxicity_label(
-            entry_price, future_prices, entry_ts=0
-        )
+        y_toxic, severity = builder.compute_toxicity_label(entry_price, future_prices, entry_ts=0)
         assert y_toxic == 0
         assert 4.0 < severity < 6.0
 
     def test_toxic_outside_window(self) -> None:
         """Test that toxic move outside tau window is ignored."""
-        config = LabelBuilderConfig(
-            toxicity=ToxicityConfig(tau_ms=30_000, threshold_bps=10.0)
-        )
+        config = LabelBuilderConfig(toxicity=ToxicityConfig(tau_ms=30_000, threshold_bps=10.0))
         builder = LabelBuilder(config)
 
         entry_price = 100.0
         # Price drops significantly but after tau window
         future_prices = [
-            PricePoint(ts=10_000, mid=99.98),   # 2 bps within window
-            PricePoint(ts=50_000, mid=95.0),    # Big drop but outside tau
+            PricePoint(ts=10_000, mid=99.98),  # 2 bps within window
+            PricePoint(ts=50_000, mid=95.0),  # Big drop but outside tau
         ]
 
-        y_toxic, _severity = builder.compute_toxicity_label(
-            entry_price, future_prices, entry_ts=0
-        )
+        y_toxic, _severity = builder.compute_toxicity_label(entry_price, future_prices, entry_ts=0)
         assert y_toxic == 0
 
 

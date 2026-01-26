@@ -1,0 +1,233 @@
+== PROOF_BUNDLE_FILE ==
+artifacts/proof_bundle_pr67_20260126_013533.txt
+
+== PR URL ==
+{"url":"https://github.com/bnzr-team/cryptoscreener/pull/67"}
+
+== GH PR VIEW ==
+{"baseRefName":"main","headRefName":"feat/dec-022-replay-gate-expansion","headRepository":{"id":"R_kgDORAFtBA","name":"cryptoscreener"},"headRepositoryOwner":{"id":"O_kgDOD0_86g","login":"bnzr-team"},"mergeCommit":null,"mergedAt":null,"number":67,"state":"OPEN","title":"DEC-022: Expand replay gate trigger to include inference modules","url":"https://github.com/bnzr-team/cryptoscreener/pull/67"}
+
+== GH PR CHECKS ==
+proof-guard	fail	4s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21343379299/job/61426383551	
+checks	pass	38s	https://github.com/bnzr-team/cryptoscreener/actions/runs/21343379296/job/61426383528	
+acceptance-packet	pending	0	https://github.com/bnzr-team/cryptoscreener/actions/runs/21343379301/job/61426383532	
+
+== CHANGED FILES ==
+CHANGELOG.md
+DECISIONS.md
+scripts/acceptance_packet.sh
+
+== TOOLCHAIN VERSIONS ==
+Python 3.12.3
+ruff 0.14.14
+mypy 1.19.1 (compiled: yes)
+pytest 9.0.2
+
+== GIT SHOW --STAT ==
+commit 3679b66a7d94e29f526e52a0dd32d81169505805
+Author: CryptoScreener Dev <dev@cryptoscreener.local>
+Date:   Mon Jan 26 01:34:06 2026 +0000
+
+    DEC-022: Expand replay gate trigger to include inference modules
+    
+    Expand require_replay() in acceptance_packet.sh to trigger replay
+    verification when PRs touch critical inference modules:
+    
+    - src/cryptoscreener/registry/ (model package loading)
+    - src/cryptoscreener/model_runner/ (MLRunner inference)
+    - src/cryptoscreener/calibration/ (probability calibration)
+    - src/cryptoscreener/training/ (dataset split, affects artifacts)
+    
+    This ensures determinism verification runs for changes that could
+    affect inference output, not just replay scripts and test directories.
+    
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+
+ CHANGELOG.md                 | 10 ++++++++
+ DECISIONS.md                 | 59 ++++++++++++++++++++++++++++++++++++++++++++
+ scripts/acceptance_packet.sh | 10 +++++++-
+ 3 files changed, 78 insertions(+), 1 deletion(-)
+
+== GIT SHOW ==
+--- Full PR diff (gh pr diff 67) ---
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 269b392..5be1867 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,6 +9,16 @@
+ 
+ ### Added
+ 
++#### Replay Gate Trigger Expansion (DEC-022)
++- Expanded `require_replay()` in `acceptance_packet.sh` to include critical inference modules
++- New trigger paths:
++  - `src/cryptoscreener/registry/` — model package loading
++  - `src/cryptoscreener/model_runner/` — MLRunner inference
++  - `src/cryptoscreener/calibration/` — probability calibration
++  - `src/cryptoscreener/training/` — dataset split (affects artifacts)
++- PRs touching these paths now trigger full replay determinism verification
++- Updated DEC-008 replay-required detection documentation
++
+ #### Model Package E2E Smoke (DEC-021)
+ - New `tests/registry/test_package_e2e_smoke.py` with 15 tests
+ - Full path validation: ModelPackage → MLRunner load → calibration → inference
+diff --git a/DECISIONS.md b/DECISIONS.md
+index 0d7ac83..d8c5be6 100644
+--- a/DECISIONS.md
++++ b/DECISIONS.md
+@@ -214,6 +214,10 @@ PR requires replay proof if it touches any of:
+ - `scripts/run_record.py`
+ - `tests/replay/*`
+ - `tests/fixtures/*`
++- `src/cryptoscreener/registry/*` (DEC-022)
++- `src/cryptoscreener/model_runner/*` (DEC-022)
++- `src/cryptoscreener/calibration/*` (DEC-022)
++- `src/cryptoscreener/training/*` (DEC-022)
+ 
+ **Exit codes:**
+ - `0` — All checks passed, ready for ACCEPT
+@@ -1248,3 +1252,58 @@ response = self._client.messages.create(
+ - New `tests/registry/test_package_e2e_smoke.py` with 15 tests
+ - Validates registry → MLRunner integration path
+ - Provides reproducible digest proof for auditing
++
++---
++
++## DEC-022: Replay Gate Trigger Expansion
++
++**Date:** 2026-01-26
++
++**Decision:** Expand `require_replay()` trigger logic to include critical inference modules, not just replay scripts and test directories.
++
++**Problem:**
++The replay verification gate in `acceptance_packet.sh` only triggered when PRs touched:
++- `scripts/run_replay.py`
++- `scripts/run_record.py`
++- `tests/replay/`
++- `tests/fixtures/`
++
++This meant changes to core inference modules (registry, model_runner, calibration, training) could bypass replay determinism verification, even though they directly affect inference output.
++
++**Expanded Trigger Paths:**
++
++| Path | Reason | DEC Reference |
++|------|--------|---------------|
++| `scripts/run_replay.py` | Replay execution logic | DEC-007 |
++| `scripts/run_record.py` | Record execution logic | DEC-007 |
++| `tests/replay/` | Replay test infrastructure | DEC-015, DEC-019 |
++| `tests/fixtures/` | Test fixtures | DEC-015, DEC-019, DEC-021 |
++| `src/cryptoscreener/registry/` | Model package loading | DEC-016, DEC-021 |
++| `src/cryptoscreener/model_runner/` | MLRunner inference | DEC-014, DEC-019 |
++| `src/cryptoscreener/calibration/` | Probability calibration | DEC-013 |
++| `src/cryptoscreener/training/` | Dataset split (affects artifacts) | DEC-012 |
++
++**Updated Function:**
++```bash
++require_replay() {
++  local files="$1"
++  echo "${files}" | grep -qE '^(scripts/run_replay\.py|scripts/run_record\.py|tests/replay/|tests/fixtures/|src/cryptoscreener/registry/|src/cryptoscreener/model_runner/|src/cryptoscreener/calibration/|src/cryptoscreener/training/)' && return 0
++  return 1
++}
++```
++
++**Alternatives considered:**
++1. Separate CI workflow for inference modules — rejected: fragmented, same determinism concern
++2. Manual trigger (workflow_dispatch only) — rejected: easy to forget, defeats purpose
++3. Include all `src/cryptoscreener/` — rejected: too broad, many modules don't affect inference
++
++**Rationale:**
++- Changes to registry/model_runner/calibration directly affect inference output
++- Replay verification catches non-determinism in these critical paths
++- Training module affects artifact generation (split metadata, data hashes)
++- Unified trigger ensures consistent verification policy
++
++**Impact:**
++- Modified `scripts/acceptance_packet.sh` require_replay() function
++- DEC-008 replay-required detection updated
++- PRs touching inference modules now trigger full replay verification
+diff --git a/scripts/acceptance_packet.sh b/scripts/acceptance_packet.sh
+index 3c27c80..7c8a849 100755
+--- a/scripts/acceptance_packet.sh
++++ b/scripts/acceptance_packet.sh
+@@ -189,9 +189,17 @@ echo "${CHANGED_FILES}"
+ echo
+ 
+ # Detect if replay is required
++# DEC-022: Expanded trigger paths to include critical inference modules
+ require_replay() {
+   local files="$1"
+-  echo "${files}" | grep -qE '^(scripts/run_replay\.py|scripts/run_record\.py|tests/replay/|tests/fixtures/)' && return 0
++  # Trigger patterns:
++  # - scripts/run_replay.py, scripts/run_record.py: replay scripts
++  # - tests/replay/, tests/fixtures/: replay test infrastructure
++  # - src/cryptoscreener/registry/: model package loading (DEC-016)
++  # - src/cryptoscreener/model_runner/: MLRunner inference (DEC-014)
++  # - src/cryptoscreener/calibration/: probability calibration (DEC-013)
++  # - src/cryptoscreener/training/: training dataset/split (affects model artifacts)
++  echo "${files}" | grep -qE '^(scripts/run_replay\.py|scripts/run_record\.py|tests/replay/|tests/fixtures/|src/cryptoscreener/registry/|src/cryptoscreener/model_runner/|src/cryptoscreener/calibration/|src/cryptoscreener/training/)' && return 0
+   return 1
+ }
+ 
+
+== RUFF CHECK . ==
+All checks passed!
+
+== MYPY . ==
+Success: no issues found in 120 source files
+
+== PYTEST -Q ==
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/benya/Project/cryptoscreener
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.0.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 817 items
+
+tests/alerting/test_alerter.py ..................................        [  4%]
+tests/backtest/test_harness.py .........                                 [  5%]
+tests/backtest/test_metrics.py ................................          [  9%]
+tests/calibration/test_artifact.py .............                         [ 10%]
+tests/calibration/test_calibrator.py ......                              [ 11%]
+tests/calibration/test_platt.py .......................                  [ 14%]
+tests/connectors/binance/test_rest_client.py .........                   [ 15%]
+tests/connectors/binance/test_shard.py ...............                   [ 17%]
+tests/connectors/binance/test_stream_manager.py ......................   [ 19%]
+tests/connectors/binance/test_types.py ....................              [ 22%]
+tests/connectors/test_backoff.py ....................................... [ 27%]
+...                                                                      [ 27%]
+tests/contracts/test_contract_examples.py ..................             [ 29%]
+tests/contracts/test_contracts.py ...................................... [ 34%]
+..........                                                               [ 35%]
+tests/contracts/test_llm_float_edge_cases.py ...........                 [ 36%]
+tests/contracts/test_replay_determinism.py ..............                [ 38%]
+tests/cost_model/test_calculator.py .......................              [ 41%]
+tests/explain_llm/test_explainer.py ...................................  [ 45%]
+tests/features/test_engine.py .................                          [ 47%]
+tests/features/test_ring_buffer.py ...............                       [ 49%]
+tests/features/test_symbol_state.py ...................                  [ 52%]
+tests/label_builder/test_builder.py ....................                 [ 54%]
+tests/model_runner/test_base.py ..........                               [ 55%]
+tests/model_runner/test_baseline.py .................................... [ 60%]
+.                                                                        [ 60%]
+tests/model_runner/test_ml_runner.py ................................... [ 64%]
+.........                                                                [ 65%]
+tests/ranker/test_ranker.py .....................                        [ 68%]
+tests/registry/test_manifest.py .....................................    [ 72%]
+tests/registry/test_package.py ..............................            [ 76%]
+tests/registry/test_version.py ...............                           [ 78%]
+tests/replay/test_determinism.py ..........                              [ 79%]
+tests/replay/test_e2e_determinism.py .............                       [ 81%]
+tests/replay/test_mlrunner_e2e_determinism.py .......................... [ 84%]
+.                                                                        [ 84%]
+tests/replay/test_modelpackage_e2e_smoke.py .................            [ 86%]
+tests/replay/test_record_replay_roundtrip.py ................            [ 88%]
+tests/scoring/test_scorer.py ...................                         [ 90%]
+tests/stream_router/test_metrics.py ..............                       [ 92%]
+tests/stream_router/test_router.py ....................                  [ 94%]
+tests/training/test_dataset.py .................                         [ 96%]
+tests/training/test_split.py .........................                   [100%]
+
+============================= 817 passed in 1.78s ==============================
+
