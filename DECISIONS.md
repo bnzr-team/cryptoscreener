@@ -1700,8 +1700,8 @@ Per BINANCE_LIMITS.md: "respect Retry-After header when provided"
 **Problem:**
 CircuitBreaker (DEC-023c) is **reactive** — it opens only *after* hitting 429/418. Without proactive budgeting:
 1. Burst concurrency can overwhelm Binance before breaker reacts
-2. No fairness guarantee between endpoints (one can starve others)
-3. No visibility into queue depth or wait times before failure
+2. No visibility into queue depth or wait times before failure
+3. No backpressure signal to callers when system is overloaded
 
 **Scope:**
 
@@ -1718,24 +1718,24 @@ CircuitBreaker (DEC-023c) is **reactive** — it opens only *after* hitting 429/
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        BinanceRestClient                        │
-│                                                                 │
-│  request() ──┬──▶ RestGovernor.acquire() ──┬──▶ HTTP call       │
-│              │                              │                    │
-│              │    ┌──────────────────────┐  │                    │
-│              │    │     RestGovernor     │  │                    │
-│              │    ├──────────────────────┤  │                    │
-│              │    │ CircuitBreaker       │◀─┘ record_success/    │
-│              │    │ BudgetTracker        │    record_failure     │
-│              │    │ RequestQueue         │                       │
-│              │    │ ConcurrencySemaphore │                       │
-│              │    └──────────────────────┘                       │
-│              │                                                   │
-│              └──▶ OPEN? fail-fast ──▶ RateLimitError            │
-│                   BUDGET_EXHAUSTED? ──▶ queue or drop           │
-│                   QUEUE_FULL? ──▶ drop + metric                 │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|                        BinanceRestClient                          |
+|                                                                   |
+|  request() --+---> RestGovernor.acquire() --+--> HTTP call        |
+|              |                              |                     |
+|              |    +----------------------+  |                     |
+|              |    |     RestGovernor     |  |                     |
+|              |    +----------------------+  |                     |
+|              |    | CircuitBreaker       |<-+ record_success/     |
+|              |    | BudgetTracker        |    record_failure      |
+|              |    | RequestQueue         |                        |
+|              |    | ConcurrencySemaphore |                        |
+|              |    +----------------------+                        |
+|              |                                                    |
+|              +---> OPEN? fail-fast ---> RateLimitError            |
+|                    BUDGET_EXHAUSTED? ---> queue or raise          |
+|                    QUEUE_FULL? ---> GovernorDroppedError          |
++------------------------------------------------------------------+
 ```
 
 ---
@@ -1746,25 +1746,45 @@ CircuitBreaker (DEC-023c) is **reactive** — it opens only *after* hitting 429/
 async def acquire(
     self,
     endpoint: str,
-    weight: int = 1,
+    weight: int | None = None,
     timeout_ms: int | None = None,
-) -> AcquireResult:
+) -> None:
     """
-    Attempt to acquire permission for a REST request.
+    Acquire permission for a REST request. Blocks until allowed or raises.
 
-    Returns:
-        AcquireResult with status (ALLOWED/DEFERRED/DROPPED) and wait_ms.
+    This is a **blocking call** (bounded by timeout_ms). The caller awaits
+    until budget is available or timeout expires. This is NOT a "check and
+    return status" API — it either succeeds or raises.
+
+    Args:
+        endpoint: REST endpoint path (for weight lookup and metrics).
+        weight: Override endpoint weight (None = lookup from config).
+        timeout_ms: Max wait time in queue (None = use default from config).
 
     Raises:
         RateLimitError: If circuit breaker is OPEN (fail-fast, no queue).
+        GovernorTimeoutError: If timeout expires while waiting in queue.
+        GovernorDroppedError: If queue is full and request is rejected.
+
+    Usage:
+        await governor.acquire("/fapi/v1/exchangeInfo")
+        # If we get here, permission granted — proceed with HTTP call
+        response = await session.get(url)
     """
 ```
 
+**Blocking semantics:**
+- `acquire()` **awaits** until budget available (bounded by `timeout_ms`)
+- Caller is blocked but bounded — no unbounded waits
+- On success: returns `None`, caller proceeds with HTTP call
+- On failure: raises exception, caller handles error
+
 **Decision flow:**
-1. **CircuitBreaker OPEN?** → `RateLimitError` immediately (no queueing)
-2. **Budget available?** → allow, consume weight
-3. **Budget exhausted?** → enqueue if queue has capacity
-4. **Queue full?** → drop-new (reject caller, don't evict existing)
+1. **CircuitBreaker OPEN?** → raise `RateLimitError` immediately (no queueing)
+2. **Budget available + semaphore available?** → return immediately (allowed)
+3. **Budget exhausted or semaphore full?** → enqueue, await until budget refills or timeout
+4. **Queue full?** → raise `GovernorDroppedError` immediately (drop-new)
+5. **Timeout in queue?** → raise `GovernorTimeoutError`
 
 ---
 
@@ -1775,15 +1795,15 @@ async def acquire(
 **Alternatives considered:**
 1. **Drop-old** — evict oldest queued request to make room
    - Rejected: unfair, penalizes callers who arrived first
-2. **Block caller** — wait until queue has space
-   - Rejected: can cause cascading stalls under load
+2. **Unbounded blocking** — wait indefinitely until queue has space
+   - Rejected: can cause cascading stalls under load; we use bounded timeout instead
 3. **Priority queue** — high-priority endpoints jump queue
    - Rejected: adds complexity; all current REST calls are bootstrap-only, similar priority
 
 **Rationale:**
-- Simple FIFO is predictable and fair
-- Drop-new gives clear signal to caller: "system overloaded, try later"
-- Avoids head-of-line blocking
+- Simple FIFO is predictable (arrival-order fairness)
+- Bounded await with timeout prevents indefinite stalls
+- Drop-new on queue full gives clear signal: "system overloaded"
 
 ---
 
@@ -1953,9 +1973,9 @@ class GovernorMetrics:
 
 ### Implementation Order
 
-1. **PR #1 (this PR):** Design approval — no code, DECISIONS.md only
-2. **PR #2:** Core governor (`RestGovernor`, `BudgetConfig`, metrics) + unit tests
-3. **PR #3:** Wire into `BinanceRestClient` + integration tests + determinism proof
+1. **DEC-023d-design (this PR):** Design approval — no code, DECISIONS.md only
+2. **DEC-023d-core:** Core governor (`RestGovernor`, `BudgetConfig`, metrics) + unit tests
+3. **DEC-023d-wiring:** Wire into `BinanceRestClient` + integration tests + determinism proof
 
 ---
 
@@ -1970,8 +1990,8 @@ class GovernorMetrics:
 
 **Rationale:**
 - Proactive budgeting prevents hitting Binance limits in the first place
-- Bounded queue provides backpressure signal without blocking indefinitely
-- Drop-new policy is fair and predictable
+- Bounded queue with timeout provides backpressure without indefinite stalls
+- Drop-new policy on queue full is predictable (arrival-order fairness within queue)
 - Semaphore prevents burst concurrency even with budget headroom
 - Fake clock enables deterministic replay testing (DEC-023 pattern)
 
