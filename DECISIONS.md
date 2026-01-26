@@ -2322,3 +2322,283 @@ Extend `scripts/proof_dec023d_determinism.py` to include metrics:
 - Structured log calls in all connector modules
 - ~20 new observability tests
 - Extends operational safety: DEC-023 (safety) → **DEC-024 (visibility)**
+
+---
+
+## DEC-025: Alert Thresholds & Runbooks (PLANNING)
+
+### Goal
+Define production-grade alert thresholds and runbooks for CryptoScreener operational safety and observability (DEC-023/DEC-024 stack), with low-noise detection, low-cardinality labeling, and security-safe context.
+
+**Non-goals**
+- No new rate limiting / breaker logic changes (code behavior unchanged).
+- No new external exporters or monitoring stacks introduced here (this DEC defines thresholds + runbooks; wiring is separate if needed).
+
+---
+
+### Scope
+Components covered:
+- **REST Governor**: `RestGovernorMetrics`
+- **CircuitBreaker**: `CircuitBreakerMetrics`
+- **WebSocket Shard**: `ShardMetrics`
+- **Stream Manager / Aggregation**: `ConnectorMetrics`, `StreamManagerMetrics`
+- **Structured logging** (DEC-024): event IDs and safe fields only
+
+Environments:
+- Primary focus: **production**.
+- Staging/dev may use relaxed thresholds or shorter windows for testing.
+
+---
+
+### Signals & Sources
+**Metrics (preferred for alerting)**
+- Counters: `requests_allowed`, `requests_deferred`, `requests_dropped`, `transitions_*`, `open_reason_*`, etc.
+- Gauges: `queue_depth`, `budget_tokens/budget_remaining`, `concurrent_inflight/current_concurrent`, `cooldown_active_count`, etc.
+- Timing: `total_wait_ms`, `max_wait_ms`, `total_open_duration_ms`, `last_open_duration_ms`
+
+**Logs (for diagnosis, not for alert triggers)**
+- Event IDs (DEC-024):
+  - `[GOV:*]` RestGovernor decisions
+  - `[CB:*]` CircuitBreaker transitions
+  - `[WS:*]` WS shard events
+  - `[SM:*]` Stream manager aggregation/lifecycle
+- Security constraints:
+  - NEVER log: API keys, auth headers, tokens, query strings, IPs, emails, phone numbers.
+  - Avoid high-cardinality fields in structured logs/labels.
+
+---
+
+### Alerting Policy
+**Windows**
+- Short window: 1m (fast detection)
+- Medium window: 5m (stability checks)
+- Long window: 10m–30m (ban/recovery patterns)
+
+**Anti-noise**
+- Prefer `for:` durations on WARNING/CRITICAL to suppress spikes.
+- Prefer ratios (drops/total) over absolute numbers when traffic varies.
+- Avoid per-endpoint alert label explosion:
+  - Alerts are keyed by `(service, component, alert_name)` only.
+  - Endpoint breakdown appears in dashboards/annotations only.
+
+**Severities**
+- **WARNING**: degradation likely; investigate during business hours.
+- **CRITICAL**: sustained failure/impact; page/on-call action.
+
+---
+
+### Alert Specs (Draft)
+> NOTE: Detection queries are expressed conceptually; exact PromQL/Grafana queries should be implemented in follow-up PR(s) once metric names and exporter mapping are finalized.
+
+| Alert | Signal | WARNING | CRITICAL | Notes |
+|---|---|---:|---:|---|
+| GOV_QUEUE_SATURATED | `queue_depth / max_queue_depth` | `>= 0.80 for 1m` | `>= 0.95 for 2m` | Backpressure building; risk of drops/timeouts |
+| GOV_SUSTAINED_DROPS | drop rate and/or ratio | `drops > 0 for 5m` | `drops >= 10/min for 5m` OR `drop_ratio > 1% for 5m` | Use drop reason breakdown for routing |
+| GOV_CONCURRENCY_PINNED | `concurrent_inflight == max_concurrent_requests` | `> 2m` | `> 10m` | Indicates inflight saturation / stuck requests |
+| CB_FLAPPING | `transitions_closed_to_open` rate | `>= 3 opens / 10m` | `>= 10 opens / 10m` | Use `open_reason_*` for cause |
+| CB_STUCK_OPEN | breaker OPEN duration | `OPEN > 5m` | `OPEN > 10m` | Protects Binance; indicates sustained block |
+| WS_RECONNECT_STORM | reconnect denied or attempts | `>= 10 denied / 5m` | `>= 50 denied / 5m` | Network or Binance WS constraints |
+| WS_SUBSCRIBE_DELAY_HIGH | outbound subscribe delay | `>= 10% for 5m` | `>= 30% for 5m` | Requires attempts/denominator metric; else use absolute/min |
+| WS_PING_TIMEOUTS | ping/pong failures | `> 0 for 5m` | `>= 5 / 5m` | Connectivity/event loop stalls |
+
+---
+
+## Runbooks
+
+### Runbook: GOV_QUEUE_SATURATED
+**Alert:** `GOV_QUEUE_SATURATED`
+**Severity:** WARNING/CRITICAL
+
+#### Meaning
+The REST governor queue is close to full. Requests are increasingly deferred; drops/timeouts may follow. This typically means the system is producing REST demand faster than it can legally/physically execute (Binance limits, concurrency cap, or latency).
+
+#### Immediate checks (1–3 minutes)
+1. Open dashboards / metrics:
+   - `queue_depth`, `max_queue_depth`
+   - `requests_deferred`, `requests_dropped` (+ breakdown `drop_reason_*`)
+   - `budget_tokens` (or `budget_remaining`)
+   - `concurrent_inflight` (or `current_concurrent`) vs `max_concurrent_requests`
+2. Identify dominant drop reasons:
+   - `drop_reason_queue_full` vs `drop_reason_timeout` vs `drop_reason_breaker_open` vs `drop_reason_budget_exhausted`
+3. Check CircuitBreaker status:
+   - `transitions_closed_to_open`, `open_reason_*`, `last_open_duration_ms`
+
+#### Likely causes
+- **Traffic spike** (more symbols, more polling, more concurrent operations).
+- **Upstream latency** (requests taking longer → concurrency slots pinned).
+- **Budget too small / weights too high** for current workload.
+- **Breaker OPEN** causing fail-fast patterns that lead to retries upstream (if callers retry aggressively).
+- **Binance degradation** (429/418/-1003 events driving breaker and delays).
+
+#### Diagnosis steps
+- If `concurrent_inflight` pinned near cap:
+  - Inspect REST latency / timeouts at HTTP layer.
+  - Check any recent deployment affecting request batching or timeouts.
+- If `budget_tokens` stays near 0:
+  - Check which endpoints dominate. Confirm weights are correct.
+  - Look for unexpectedly heavy endpoints being called frequently (`exchangeInfo`, `ticker/24hr`).
+- If drops are mostly `queue_full`:
+  - Queue is too small *or* load is too high. Identify which component is generating requests.
+- If drops are mostly `timeout`:
+  - Wait time too high; indicates persistent over-demand or pinned concurrency.
+- Use logs for context (diagnosis only):
+  - Filter `[GOV:*]` events. Ensure endpoint values are path-only (no query strings).
+  - Look for repeated decisions: `drop_queue_full`, `timeout`, `reject_breaker`.
+
+#### Mitigations (safe)
+- Reduce request generation rate temporarily (lower polling frequency / batch size, reduce symbol universe, disable non-essential REST refresh tasks).
+- Prefer caching `exchangeInfo` and extending refresh interval if safe.
+- If concurrency is pinned: decrease client timeout to fail faster *only if* safe; otherwise investigate root latency.
+
+#### Mitigations (risky / requires approval)
+- Increase `max_queue_depth` (increases memory and latency; can hide real overload).
+- Increase `max_concurrent_requests` (risk: faster limit hits, breaker churn).
+- Increase budget (risk: violating Binance policies; should be justified by official limits).
+
+#### Escalation
+- If CRITICAL persists > 10 minutes:
+  - Escalate to on-call/dev lead.
+  - Capture: queue metrics, drop reason breakdown, breaker reasons, top endpoints.
+
+#### Close criteria
+- `queue_depth / max_queue_depth < 0.5` for 10 minutes
+- `requests_dropped` returns to near-zero baseline
+- `concurrent_inflight` not pinned for 10 minutes
+
+---
+
+### Runbook: CB_STUCK_OPEN
+**Alert:** `CB_STUCK_OPEN`
+**Severity:** WARNING/CRITICAL
+
+#### Meaning
+CircuitBreaker remained OPEN beyond expected recovery window, blocking or failing fast many REST requests. This indicates sustained rate limits, bans, or persistent failures.
+
+#### Immediate checks (1–3 minutes)
+1. Confirm breaker OPEN duration:
+   - `last_open_duration_ms`, `total_open_duration_ms`
+   - transition counters: `transitions_closed_to_open`, `transitions_open_to_half_open`, `transitions_half_open_to_closed`, `transitions_half_open_to_open`
+2. Identify open reason:
+   - `open_reason_429`, `open_reason_418`, `open_reason_error_code`, `open_reason_threshold`, `open_reason_forced`
+3. Governor impact:
+   - `requests_failed_breaker` and `drop_reason_breaker_open`
+   - queue/drops secondary effects (GOV saturation)
+
+#### Likely causes
+- **429**: Too many requests (budget/concurrency too aggressive, unexpected extra calls).
+- **418**: Temporary ban (often fixed recovery timeout, e.g., 5 minutes; repeated indicates bigger policy issue).
+- **-1003 / ERROR_CODE**: rate-limit class error; treat similar to 429.
+- **THRESHOLD**: repeated network/HTTP failures; may indicate upstream outage.
+- **FORCED**: manual or protective logic triggered.
+
+#### Diagnosis steps
+- If mostly **429/ERROR_CODE**:
+  - Check GOV metrics: budget exhaustion, concurrency pinned, drop patterns.
+  - Identify request sources generating load (exchangeInfo refresh loops, tickers refresh, retries).
+- If mostly **418**:
+  - Treat as policy-level issue. Reduce load; confirm ban timeout handling.
+  - Verify you're not hammering with high weights or too many connections.
+- If mostly **THRESHOLD**:
+  - Check HTTP error rates, DNS/connectivity, aiohttp exceptions.
+  - Check Binance status/outage signals if available (external).
+
+#### Mitigations (safe)
+- Reduce REST request rate (same as GOV runbook).
+- Ensure retries do not amplify load while breaker is OPEN.
+- Consider temporarily disabling non-critical REST endpoints.
+
+#### Mitigations (risky / requires approval)
+- Changing breaker thresholds/timeouts should be a separate DEC/PR with proof (deterministic tests) due to high risk.
+
+#### Escalation
+- CRITICAL > 10 minutes:
+  - Escalate to on-call/dev lead.
+  - Capture: reason breakdown, transition counters, governor drops, top endpoints.
+
+#### Close criteria
+- Breaker transitions back to CLOSED and remains stable:
+  - No more than 1 OPEN transition in 10 minutes (or baseline)
+- `requests_failed_breaker` drops to baseline
+
+---
+
+### Runbook: WS_RECONNECT_STORM
+**Alert:** `WS_RECONNECT_STORM`
+**Severity:** WARNING/CRITICAL
+
+#### Meaning
+WebSocket reconnection attempts are being denied or happening excessively, indicating connectivity instability or upstream constraints. This can lead to stale streams, missed updates, and noisy reconnect loops.
+
+#### Immediate checks (1–3 minutes)
+1. Check WS metrics:
+   - `reconnect_denied` rate
+   - `connection_errors`, `ping_timeouts`
+   - shard counts / active connections (if available)
+2. Check StreamManager aggregation:
+   - total denied, total errors, whether a subset of shards is unstable
+3. Check recent deploys / infra changes:
+   - DNS, firewall, proxy, TLS termination, system clock drift
+
+#### Likely causes
+- Network instability (packet loss, intermittent DNS).
+- Binance WS throttling / max connection or subscription constraints.
+- Event loop stalls causing ping/pong failures.
+- Shard over-subscription churn (too many subscribe/unsubscribe operations).
+
+#### Diagnosis steps
+- If `ping_timeouts` rising:
+  - Look for CPU starvation / event loop blocking tasks.
+  - Check for spikes in processing or GC pauses.
+- If `connection_errors` rising without ping timeouts:
+  - Likely network/TLS/DNS issues.
+- If reconnect denied (limiter) is high:
+  - Confirm limiter is protecting you (this may be expected under storms).
+  - Find root disconnect cause; limiter is a symptom guard.
+
+#### Mitigations (safe)
+- Reduce subscription churn (batch updates, debounced subscribe changes).
+- Limit number of shards / connections if dynamic scaling is aggressive.
+- Ensure WS send operations are serialized (DEC-023b send lock already) and not hammering subscribe/unsubscribe.
+
+#### Mitigations (risky / requires approval)
+- Increasing reconnect rates or relaxing limiter (can trigger storms and bans).
+- Increasing shard counts under instability.
+
+#### Escalation
+- CRITICAL > 10 minutes or data freshness impacted:
+  - Escalate to on-call/dev lead.
+  - Capture: shard-level breakdown, disconnect reasons, ping timeouts, time correlation with infra events.
+
+#### Close criteria
+- reconnect denied rate returns to baseline for 10 minutes
+- ping_timeouts / connection_errors near zero baseline
+
+---
+
+### Implementation Plan
+1. **DEC-025-planning (this PR):**
+   - Finalize thresholds table + runbooks (at least 3 detailed runbooks).
+   - Specify metric naming expectations and low-cardinality rules for alert labels.
+2. **DEC-025-queries (follow-up PR):**
+   - Implement concrete alert rules/queries in monitoring config (Prometheus/Grafana/Alertmanager/etc).
+   - Add dashboard panels and annotations (top endpoints, top reasons).
+3. **DEC-025-validation (follow-up PR):**
+   - Add lightweight tests or static checks for:
+     - no high-cardinality alert labels
+     - no secrets/PII in log fields used for annotations
+     - deterministic-safe behavior (replay tests remain stable)
+
+---
+
+### Acceptance Criteria / Proof
+- DECISIONS.md includes:
+  - policy + alert specs table
+  - at least 3 complete runbooks (GOV queue saturation, CB stuck open, WS reconnect storm)
+- Thresholds define:
+  - clear severity mapping
+  - clear time windows and `for:` (anti-noise)
+- Explicit rule: alert labels must not include endpoint/query/IP/token/headers
+- Follow-up implementation PR(s) must pass:
+  - repo gates (ruff/mypy/pytest)
+  - determinism sanity (`tests/replay/test_e2e_determinism.py`)
+  - logging compliance tests remain green (DEC-024)
