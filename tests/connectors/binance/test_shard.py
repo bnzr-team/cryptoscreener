@@ -436,14 +436,18 @@ class TestWebSocketShardReconnectLimiterIntegration:
             time_fn=time_fn,
         )
 
-        # Mock asyncio.sleep to avoid actual delays
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            # Should attempt reconnect (will fail due to no network, but that's OK)
-            await shard.reconnect()
+        try:
+            # Mock asyncio.sleep to avoid actual delays
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                # Should attempt reconnect (will fail due to no network, but that's OK)
+                await shard.reconnect()
 
-            # reconnect_denied should not increase since limiter allowed
-            metrics = shard.get_metrics()
-            assert metrics.reconnect_denied == 0
+                # reconnect_denied should not increase since limiter allowed
+                metrics = shard.get_metrics()
+                assert metrics.reconnect_denied == 0
+        finally:
+            # DEC-023e: Ensure shard resources are cleaned up
+            await shard.disconnect()
 
     @pytest.mark.asyncio
     async def test_seeded_rng_produces_deterministic_jitter(
