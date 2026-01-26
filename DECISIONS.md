@@ -857,6 +857,95 @@ Implementation in `BaselineRunner` and `MLRunner` used ad-hoc reason code names 
 
 ---
 
+## DEC-019: MLRunner E2E Acceptance as CI Gate
+
+**Date:** 2026-01-25
+
+**Decision:** Add MLRunner E2E determinism tests to validate the MLRunner inference path produces stable, reproducible output as a CI gate.
+
+**Problem:**
+1. BaselineRunner E2E determinism tests exist (DEC-015), but MLRunner path not covered
+2. Need to validate both DEV mode (fallback) and PROD mode (fail-safe) determinism
+3. CI should fail if MLRunner path becomes non-deterministic
+
+**MLRunner Determinism Contract:**
+- **DEV mode** (no model): Falls back to BaselineRunner → deterministic heuristic output
+- **PROD mode** (no model): Returns DATA_ISSUE with `RC_MODEL_UNAVAILABLE` → deterministic error state
+- Both paths produce stable SHA256 digests across multiple runs
+
+**Test Coverage:**
+
+1. **DEV Mode Tests** (`TestMLRunnerDevModeDeterminism`):
+   - Same input → same output (field-by-field comparison)
+   - RankEvent digest stable across runs
+   - PredictionSnapshot digest stable across runs
+   - Pipeline produces at least 1 RankEvent
+   - Runner uses fallback to baseline
+
+2. **PROD Mode Tests** (`TestMLRunnerProdModeDeterminism`):
+   - Same input → same output
+   - Prediction digest stable across runs
+   - All predictions are DATA_ISSUE with `RC_MODEL_UNAVAILABLE`
+   - Runner has artifact error flag set
+
+3. **Replay Proof Tests** (`TestMLRunnerE2EReplayProof`):
+   - Generate DEV mode replay proof (2 runs, digest comparison)
+   - Generate PROD mode replay proof (2 runs, digest comparison)
+   - RankEvent JSON roundtrip
+   - PredictionSnapshot JSON roundtrip
+
+4. **Edge Cases** (`TestMLRunnerE2EEdgeCases`):
+   - Empty fixture → no events
+   - Single frame → deterministic
+   - Single symbol → deterministic
+   - Fixture digest is stable
+
+**CI Integration:**
+- Test file: `tests/replay/test_mlrunner_e2e_determinism.py`
+- Triggered automatically by `acceptance_packet.sh` when PR touches `tests/replay/`
+- Uses same fixture pattern as BaselineRunner tests
+
+**Fixture:**
+- 15 FeatureSnapshots across 3 symbols (BTCUSDT, ETHUSDT, SOLUSDT)
+- 5 time points (0ms, 2000ms, 4000ms, 6000ms, 8000ms)
+- Varied feature values to exercise ranker state transitions
+
+**Real Model Mode** (`TestMLRunnerRealModelDeterminism`):
+- Uses actual model.pkl + calibration.json fixtures from `tests/fixtures/mlrunner_model/`
+- DeterministicModel class produces hash-based reproducible probabilities
+- Verifies non-empty RankEvents (prevents empty digest regression)
+- Verifies model_version reflects fixture artifact, not baseline
+- Verifies calibration is applied (calibration_version contains fixture SHA)
+
+**Security: Pickle Usage in Tests**
+
+The test fixture uses pickle format (`model.pkl`) for compatibility with MLRunner's
+existing model loading code. Security mitigations:
+
+1. **Test-only scope**: Pickle is loaded ONLY in test code paths, never in production
+2. **Path restriction**: `tests/fixtures/mlrunner_model/` is never referenced in prod configs
+3. **Integrity verification**: SHA256 hash checked before loading (`MODEL_SHA256`)
+4. **Minimal payload**: DeterministicModel contains only seed (int) and version (str)
+5. **Source controlled**: Model class is in `deterministic_model.py`, not arbitrary code
+
+Future consideration: Replace pickle with ONNX or JSON-based model format for
+enhanced security (no arbitrary code execution risk).
+
+**Rationale:**
+- Determinism is critical for replay verification and debugging
+- MLRunner path must be tested before production use
+- DEV, PROD, and Real Model modes all have deterministic contracts
+- CI gate prevents regression in determinism
+- Real model tests prove actual inference path is deterministic
+
+**Impact:**
+- New `tests/replay/test_mlrunner_e2e_determinism.py` (27 tests)
+- Total tests: 754+
+- MLRunner path validated as deterministic in all three modes
+- CI gate for MLRunner changes
+
+---
+
 ## DEC-017: Production Profile Gates
 
 **Date:** 2026-01-25

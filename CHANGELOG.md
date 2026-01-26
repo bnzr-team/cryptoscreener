@@ -9,6 +9,20 @@
 
 ### Added
 
+#### MLRunner E2E Acceptance as CI Gate (DEC-019)
+- New `tests/replay/test_mlrunner_e2e_determinism.py` with 17 tests
+- MLRunner determinism contract:
+  - DEV mode (no model): falls back to BaselineRunner → deterministic
+  - PROD mode (no model): returns DATA_ISSUE with `RC_MODEL_UNAVAILABLE` → deterministic
+- Test coverage:
+  - DEV mode: digest stability, field-by-field comparison, fallback verification
+  - PROD mode: digest stability, DATA_ISSUE assertion, artifact error verification
+  - Replay proof generation (2 runs, digest comparison)
+  - JSON roundtrip for RankEvent and PredictionSnapshot
+  - Edge cases: empty fixture, single frame, single symbol
+- CI gate: triggered by `acceptance_packet.sh` when PR touches `tests/replay/`
+- Total tests: 745+
+
 #### Production Profile Gates (DEC-017)
 - New `InferenceStrictness` enum (`DEV`/`PROD`) for controlling fail-fast behavior
 - PROD mode: artifact errors return `DATA_ISSUE` status (never raises, never fallback)
