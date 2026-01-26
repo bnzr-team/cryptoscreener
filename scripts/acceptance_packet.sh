@@ -189,9 +189,17 @@ echo "${CHANGED_FILES}"
 echo
 
 # Detect if replay is required
+# DEC-022: Expanded trigger paths to include critical inference modules
 require_replay() {
   local files="$1"
-  echo "${files}" | grep -qE '^(scripts/run_replay\.py|scripts/run_record\.py|tests/replay/|tests/fixtures/)' && return 0
+  # Trigger patterns:
+  # - scripts/run_replay.py, scripts/run_record.py: replay scripts
+  # - tests/replay/, tests/fixtures/: replay test infrastructure
+  # - src/cryptoscreener/registry/: model package loading (DEC-016)
+  # - src/cryptoscreener/model_runner/: MLRunner inference (DEC-014)
+  # - src/cryptoscreener/calibration/: probability calibration (DEC-013)
+  # - src/cryptoscreener/training/: training dataset/split (affects model artifacts)
+  echo "${files}" | grep -qE '^(scripts/run_replay\.py|scripts/run_record\.py|tests/replay/|tests/fixtures/|src/cryptoscreener/registry/|src/cryptoscreener/model_runner/|src/cryptoscreener/calibration/|src/cryptoscreener/training/)' && return 0
   return 1
 }
 
