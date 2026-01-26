@@ -15,6 +15,8 @@ DEC-023 additions:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import random
 import time
 from collections import deque
@@ -23,7 +25,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
 
 class RateLimitKind(str, Enum):
@@ -53,6 +55,28 @@ class RateLimitError(Exception):
     def is_ip_ban(self) -> bool:
         """Check if this is an IP ban (418)."""
         return self.kind == RateLimitKind.IP_BAN
+
+
+class GovernorTimeoutError(Exception):
+    """Raised when request times out waiting in governor queue.
+
+    DEC-023d: Indicates timeout_ms expired while waiting for budget/concurrency.
+    """
+
+    def __init__(self, message: str, waited_ms: int = 0) -> None:
+        super().__init__(message)
+        self.waited_ms = waited_ms
+
+
+class GovernorDroppedError(Exception):
+    """Raised when request is dropped due to queue being full.
+
+    DEC-023d: Indicates drop-new policy rejected the request because queue is at capacity.
+    """
+
+    def __init__(self, message: str, queue_depth: int = 0) -> None:
+        super().__init__(message)
+        self.queue_depth = queue_depth
 
 
 class CircuitState(str, Enum):
@@ -644,3 +668,429 @@ class MessageThrottler:
             "effective_rate_per_sec": self.effective_rate,
             "burst_allowance": self.config.burst_allowance,
         }
+
+
+# =============================================================================
+# DEC-023d: REST Governor for Budget/Queue/Concurrency Control
+# =============================================================================
+
+
+# Default endpoint weights per Binance documentation
+DEFAULT_ENDPOINT_WEIGHTS: dict[str, int] = {
+    "/fapi/v1/exchangeInfo": 40,
+    "/fapi/v1/ticker/24hr": 40,
+    "/fapi/v1/time": 1,
+}
+DEFAULT_WEIGHT = 10
+
+
+@dataclass
+class RestGovernorConfig:
+    """Configuration for REST API governor.
+
+    DEC-023d: Controls budget, queue, and concurrency limits for REST requests.
+
+    Per BINANCE_LIMITS.md:
+    - 2,400 requests per minute per IP (weight-based)
+    - Use WS for live updates; avoid REST polling loops
+    """
+
+    # Budget settings (token bucket)
+    budget_weight_per_minute: int = 2000  # Total weight budget per minute
+    budget_refill_interval_ms: int = 1000  # Refill every second (continuous)
+
+    # Queue settings
+    max_queue_depth: int = 50  # Maximum pending requests
+    default_timeout_ms: int = 30000  # Default timeout for waiting in queue
+
+    # Concurrency settings
+    max_concurrent_requests: int = 10  # Semaphore cap
+
+    # Endpoint weights (custom weights override defaults)
+    endpoint_weights: dict[str, int] = field(default_factory=dict)
+    default_endpoint_weight: int = DEFAULT_WEIGHT
+
+    def get_endpoint_weight(self, endpoint: str) -> int:
+        """Get weight for an endpoint."""
+        # Check custom weights first
+        if endpoint in self.endpoint_weights:
+            return self.endpoint_weights[endpoint]
+        # Fall back to default weights
+        if endpoint in DEFAULT_ENDPOINT_WEIGHTS:
+            return DEFAULT_ENDPOINT_WEIGHTS[endpoint]
+        return self.default_endpoint_weight
+
+
+@dataclass
+class RestGovernorMetrics:
+    """Metrics for REST Governor observability.
+
+    DEC-023d: Tracks budget, queue, and decision statistics.
+    """
+
+    # Counters
+    requests_allowed: int = 0
+    requests_deferred: int = 0  # Waited in queue, then allowed
+    requests_dropped: int = 0  # Rejected due to queue full
+    requests_failed_breaker: int = 0  # Rejected due to circuit breaker
+
+    # Gauges (current state)
+    current_budget_weight: float = 0.0
+    current_queue_depth: int = 0
+    current_concurrent: int = 0
+
+    # Histograms (accumulators for wait time)
+    total_wait_ms: int = 0
+    max_wait_ms: int = 0
+
+    # Drop reasons
+    drop_reason_queue_full: int = 0
+    drop_reason_timeout: int = 0
+    drop_reason_breaker_open: int = 0
+
+
+@dataclass
+class _QueuedRequest:
+    """Internal representation of a queued request."""
+
+    endpoint: str
+    weight: int
+    enqueue_time_ms: int
+    event: asyncio.Event
+    result: str = ""  # "allowed", "timeout", "dropped"
+
+
+@dataclass
+class RestGovernor:
+    """
+    REST API governor with budget, queue, and concurrency control.
+
+    DEC-023d: Central gatekeeper for all REST requests to prevent rate limiting.
+
+    Features:
+    - Token bucket budget (2000 weight/min default)
+    - Bounded FIFO queue with drop-new policy
+    - Concurrency semaphore (max 10 concurrent) - atomic via asyncio.Lock
+    - CircuitBreaker integration (fail-fast when OPEN)
+    - Event-driven queue (no polling) via asyncio.Condition
+    - Deterministic with _time_fn injection
+
+    Usage:
+        governor = RestGovernor(circuit_breaker=cb)
+        async with governor.permit("/fapi/v1/exchangeInfo"):
+            response = await session.get(url)
+        # Slot automatically released
+    """
+
+    config: RestGovernorConfig = field(default_factory=RestGovernorConfig)
+    circuit_breaker: CircuitBreaker | None = field(default=None)
+
+    # Token bucket state
+    _budget_tokens: float = field(default=0.0, init=False)
+    _last_refill_ms: int = field(default=0, init=False)
+
+    # Queue state
+    _queue: deque[_QueuedRequest] = field(default_factory=deque, init=False)
+
+    # Concurrency state - protected by _lock for atomicity
+    _concurrent_count: int = field(default=0, init=False)
+    _lock: asyncio.Lock | None = field(default=None, init=False)
+    _condition: asyncio.Condition | None = field(default=None, init=False)
+
+    # Metrics
+    metrics: RestGovernorMetrics = field(default_factory=RestGovernorMetrics, init=False)
+
+    # Time provider for determinism (DEC-023 pattern)
+    _time_fn: Callable[[], int] | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        """Initialize budget tokens to full capacity."""
+        self._budget_tokens = float(self.config.budget_weight_per_minute)
+        self._last_refill_ms = self._now_ms()
+
+    def _now_ms(self) -> int:
+        """Get current time in milliseconds."""
+        if self._time_fn is not None:
+            return self._time_fn()
+        return int(time.time() * 1000)
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create asyncio lock (lazy init for event loop safety)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    def _get_condition(self) -> asyncio.Condition:
+        """Get or create asyncio condition (lazy init for event loop safety)."""
+        if self._condition is None:
+            self._condition = asyncio.Condition(self._get_lock())
+        return self._condition
+
+    def _refill_budget(self, now_ms: int) -> None:
+        """Refill budget tokens based on elapsed time. Must hold lock."""
+        elapsed_ms = now_ms - self._last_refill_ms
+        if elapsed_ms <= 0:
+            return
+
+        # Refill rate: budget_weight_per_minute / 60000 tokens per ms
+        tokens_per_ms = self.config.budget_weight_per_minute / 60000.0
+        tokens_to_add = elapsed_ms * tokens_per_ms
+        max_tokens = float(self.config.budget_weight_per_minute)
+        self._budget_tokens = min(self._budget_tokens + tokens_to_add, max_tokens)
+        self._last_refill_ms = now_ms
+
+    def _can_proceed(self, weight: int) -> bool:
+        """Check if request can proceed (budget + concurrency available). Must hold lock."""
+        return (
+            self._budget_tokens >= weight
+            and self._concurrent_count < self.config.max_concurrent_requests
+        )
+
+    def _consume_and_acquire_slot(self, weight: int) -> None:
+        """Consume budget and acquire concurrency slot. Must hold lock."""
+        self._budget_tokens -= weight
+        self._concurrent_count += 1
+        self.metrics.current_budget_weight = self._budget_tokens
+        self.metrics.current_concurrent = self._concurrent_count
+
+    async def acquire(
+        self,
+        endpoint: str,
+        weight: int | None = None,
+        timeout_ms: int | None = None,
+    ) -> None:
+        """
+        Acquire permission for a REST request. Blocks until allowed or raises.
+
+        DEC-023d: Central entry point for REST rate limiting.
+        Uses asyncio.Condition for event-driven waiting (no polling).
+        Concurrency is protected by asyncio.Lock for atomicity.
+
+        Args:
+            endpoint: API endpoint path (e.g., "/fapi/v1/exchangeInfo").
+            weight: Request weight override (None = use endpoint default).
+            timeout_ms: Maximum time to wait in queue (None = use config default).
+
+        Raises:
+            RateLimitError: If circuit breaker is OPEN (fail-fast, no queue).
+            GovernorTimeoutError: If timeout expires while waiting in queue.
+            GovernorDroppedError: If queue is full and request is rejected.
+        """
+        # Resolve parameters
+        actual_weight = weight if weight is not None else self.config.get_endpoint_weight(endpoint)
+        actual_timeout_ms = timeout_ms if timeout_ms is not None else self.config.default_timeout_ms
+
+        # 1. Check circuit breaker (fail-fast, no lock needed)
+        if self.circuit_breaker is not None and not self.circuit_breaker.can_execute():
+            self.metrics.requests_failed_breaker += 1
+            self.metrics.drop_reason_breaker_open += 1
+            raise RateLimitError(
+                "Circuit breaker OPEN, request rejected",
+                retry_after_ms=self.circuit_breaker.recovery_timeout_ms,
+            )
+
+        condition = self._get_condition()
+
+        async with condition:
+            now_ms = self._now_ms()
+            self._refill_budget(now_ms)
+
+            # 2. Check if can proceed immediately (fast path)
+            if not self._queue and self._can_proceed(actual_weight):
+                self._consume_and_acquire_slot(actual_weight)
+                self.metrics.requests_allowed += 1
+                return
+
+            # 3. Check queue capacity (drop-new policy)
+            if len(self._queue) >= self.config.max_queue_depth:
+                self.metrics.requests_dropped += 1
+                self.metrics.drop_reason_queue_full += 1
+                raise GovernorDroppedError(
+                    f"Queue full ({self.config.max_queue_depth}), request dropped",
+                    queue_depth=len(self._queue),
+                )
+
+            # 4. Enqueue and wait (event-driven via Condition)
+            request = _QueuedRequest(
+                endpoint=endpoint,
+                weight=actual_weight,
+                enqueue_time_ms=now_ms,
+                event=asyncio.Event(),
+            )
+            self._queue.append(request)
+            self.metrics.current_queue_depth = len(self._queue)
+            wait_start_ms = now_ms
+
+            try:
+                deadline_ms = now_ms + actual_timeout_ms
+
+                while True:
+                    now_ms = self._now_ms()
+                    remaining_ms = deadline_ms - now_ms
+
+                    if remaining_ms <= 0:
+                        # Timeout expired
+                        request.result = "timeout"
+                        self.metrics.requests_dropped += 1
+                        self.metrics.drop_reason_timeout += 1
+                        waited_ms = now_ms - wait_start_ms
+                        raise GovernorTimeoutError(
+                            f"Timeout after {waited_ms}ms waiting in queue",
+                            waited_ms=waited_ms,
+                        )
+
+                    # Check if we're at the front of queue and can proceed
+                    self._refill_budget(now_ms)
+                    if (
+                        self._queue
+                        and self._queue[0] is request
+                        and self._can_proceed(actual_weight)
+                    ):
+                        # Can proceed now - consume and acquire
+                        self._consume_and_acquire_slot(actual_weight)
+                        request.result = "allowed"
+                        waited_ms = now_ms - wait_start_ms
+                        self.metrics.requests_deferred += 1
+                        self.metrics.total_wait_ms += waited_ms
+                        self.metrics.max_wait_ms = max(self.metrics.max_wait_ms, waited_ms)
+                        return
+
+                    # Wait for signal (release) or periodic recheck for budget refill
+                    # Use max 100ms wait to ensure timely budget refill detection
+                    wait_ms = min(remaining_ms, 100.0)
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            condition.wait(),
+                            timeout=wait_ms / 1000.0,
+                        )
+
+            finally:
+                # Remove from queue if still present
+                if request in self._queue:
+                    self._queue.remove(request)
+                self.metrics.current_queue_depth = len(self._queue)
+
+    async def release(self) -> None:
+        """
+        Release a concurrency slot after request completes.
+
+        Must be called after acquire() completes and the HTTP request is done.
+        Prefer using `permit()` context manager for automatic release.
+
+        Notifies waiting requests via Condition so they can proceed.
+        """
+        condition = self._get_condition()
+        async with condition:
+            if self._concurrent_count > 0:
+                self._concurrent_count -= 1
+                self.metrics.current_concurrent = self._concurrent_count
+            # Wake up all waiting requests to check if they can proceed
+            condition.notify_all()
+
+    async def notify_waiters(self) -> None:
+        """
+        Wake up all waiting requests to recheck conditions.
+
+        Use this in deterministic tests after advancing fake time via _time_fn.
+        In production, waiters are notified by release() and periodic timeout.
+
+        DEC-023d: Enables fully deterministic testing without real-time sleeps.
+        """
+        condition = self._get_condition()
+        async with condition:
+            condition.notify_all()
+
+    @contextlib.asynccontextmanager
+    async def permit(
+        self,
+        endpoint: str,
+        weight: int | None = None,
+        timeout_ms: int | None = None,
+    ) -> AsyncIterator[None]:
+        """
+        Async context manager for safe acquire/release.
+
+        DEC-023d: Guarantees release even on exception.
+
+        Usage:
+            async with governor.permit("/fapi/v1/exchangeInfo"):
+                response = await session.get(url)
+                # ... process response ...
+            # Slot automatically released here
+
+        Args:
+            endpoint: API endpoint path.
+            weight: Request weight override (None = use endpoint default).
+            timeout_ms: Maximum time to wait in queue.
+
+        Raises:
+            RateLimitError: If circuit breaker is OPEN.
+            GovernorTimeoutError: If timeout expires while waiting.
+            GovernorDroppedError: If queue is full.
+        """
+        await self.acquire(endpoint, weight, timeout_ms)
+        try:
+            yield
+        finally:
+            await self.release()
+
+    async def get_concurrent_count(self) -> int:
+        """Get current concurrent request count (thread-safe).
+
+        Acquires lock to ensure consistent read.
+        Use this in tests to verify concurrency invariants.
+        """
+        condition = self._get_condition()
+        async with condition:
+            return self._concurrent_count
+
+    async def get_status_async(self) -> dict[str, int | float | bool]:
+        """Get current governor status for observability (thread-safe).
+
+        Acquires lock to ensure consistent read of all counters.
+        """
+        condition = self._get_condition()
+        async with condition:
+            now_ms = self._now_ms()
+            self._refill_budget(now_ms)
+            return {
+                "budget_tokens": round(self._budget_tokens, 2),
+                "budget_max": self.config.budget_weight_per_minute,
+                "queue_depth": len(self._queue),
+                "queue_max": self.config.max_queue_depth,
+                "concurrent": self._concurrent_count,
+                "concurrent_max": self.config.max_concurrent_requests,
+                "breaker_open": self.circuit_breaker.state == CircuitState.OPEN
+                if self.circuit_breaker
+                else False,
+            }
+
+    def get_status(self) -> dict[str, int | float | bool]:
+        """Get current governor status (non-async, for non-critical reads).
+
+        WARNING: This reads state without lock. For test invariants,
+        use get_status_async() or get_concurrent_count() instead.
+        """
+        now_ms = self._now_ms()
+        self._refill_budget(now_ms)
+        return {
+            "budget_tokens": round(self._budget_tokens, 2),
+            "budget_max": self.config.budget_weight_per_minute,
+            "queue_depth": len(self._queue),
+            "queue_max": self.config.max_queue_depth,
+            "concurrent": self._concurrent_count,
+            "concurrent_max": self.config.max_concurrent_requests,
+            "breaker_open": self.circuit_breaker.state == CircuitState.OPEN
+            if self.circuit_breaker
+            else False,
+        }
+
+    def reset(self) -> None:
+        """Reset governor to initial state."""
+        self._budget_tokens = float(self.config.budget_weight_per_minute)
+        self._last_refill_ms = self._now_ms()
+        self._queue.clear()
+        self._concurrent_count = 0
+        self._lock = None
+        self._condition = None
+        self.metrics = RestGovernorMetrics()
