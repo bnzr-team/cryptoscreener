@@ -99,9 +99,7 @@ class TestMockExplainer:
         assert output.headline
         assert output.status_label in ALLOWED_STATUS_LABELS
 
-    def test_deterministic_same_input_same_output(
-        self, sample_input: LLMExplainInput
-    ) -> None:
+    def test_deterministic_same_input_same_output(self, sample_input: LLMExplainInput) -> None:
         """Same input always produces same output."""
         explainer = MockExplainer()
 
@@ -228,9 +226,9 @@ class TestResponseParsing:
 
     def test_parse_json_with_markdown_wrapper(self) -> None:
         """JSON wrapped in markdown code block is parsed."""
-        raw = '''```json
+        raw = """```json
 {"headline": "Test", "subtext": "", "status_label": "Watch", "tooltips": {}}
-```'''
+```"""
         output = _parse_llm_response(raw)
 
         assert output.headline == "Test"
@@ -272,9 +270,7 @@ class TestAnthropicExplainer:
             '{"headline": "BTCUSDT: flow surge detected.", '
             '"subtext": "", "status_label": "Watch", "tooltips": {}}'
         )
-        mock_anthropic_client.messages.create.return_value = make_mock_response(
-            valid_response
-        )
+        mock_anthropic_client.messages.create.return_value = make_mock_response(valid_response)
 
         explainer = AnthropicExplainer.with_client(mock_anthropic_client)
         output = explainer.explain(sample_input)
@@ -320,9 +316,7 @@ class TestAnthropicExplainer:
             '{"headline": "BTCUSDT: expected gain 15.7%.", '
             '"subtext": "", "status_label": "Watch", "tooltips": {}}'
         )
-        mock_anthropic_client.messages.create.return_value = make_mock_response(
-            invalid_response
-        )
+        mock_anthropic_client.messages.create.return_value = make_mock_response(invalid_response)
 
         config = AnthropicExplainerConfig(retries=0)
         explainer = AnthropicExplainer.with_client(mock_anthropic_client, config)
@@ -331,9 +325,7 @@ class TestAnthropicExplainer:
         # Should get fallback (not the invalid response)
         assert "15.7" not in output.headline
 
-    def test_client_injection_no_network(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
+    def test_client_injection_no_network(self, mock_anthropic_client: MagicMock) -> None:
         """Verify that with_client does not make network calls."""
         # This test confirms the mocking approach works
         explainer = AnthropicExplainer.with_client(mock_anthropic_client)
@@ -343,6 +335,59 @@ class TestAnthropicExplainer:
 
         # No network call yet
         mock_anthropic_client.messages.create.assert_not_called()
+
+    def test_timeout_uses_fallback(
+        self,
+        sample_input: LLMExplainInput,
+        mock_anthropic_client: MagicMock,
+    ) -> None:
+        """
+        DEC-020: Timeout triggers fallback.
+
+        When API call exceeds timeout_s, fallback is returned.
+        Tests that timeout parameter is actually passed to the API.
+        """
+        # Simulate timeout by raising TimeoutError (httpx.TimeoutException wraps this)
+        mock_anthropic_client.messages.create.side_effect = TimeoutError(
+            "Request timed out after 10.0s"
+        )
+
+        config = AnthropicExplainerConfig(timeout_s=10.0, retries=0)
+        explainer = AnthropicExplainer.with_client(mock_anthropic_client, config)
+        output = explainer.explain(sample_input)
+
+        # Should get fallback (not crash)
+        assert output.status_label in ALLOWED_STATUS_LABELS
+        assert sample_input.symbol in output.headline
+
+        # Verify timeout was passed to API call
+        call_kwargs = mock_anthropic_client.messages.create.call_args.kwargs
+        assert "timeout" in call_kwargs
+        assert call_kwargs["timeout"] == 10.0
+
+    def test_timeout_parameter_passed_to_api(
+        self,
+        sample_input: LLMExplainInput,
+        mock_anthropic_client: MagicMock,
+    ) -> None:
+        """
+        DEC-020: Verify timeout_s from config is passed to API call.
+
+        This test confirms the fix: timeout must actually be used.
+        """
+        valid_response = (
+            '{"headline": "BTCUSDT: test.", "subtext": "", "status_label": "Watch", "tooltips": {}}'
+        )
+        mock_anthropic_client.messages.create.return_value = make_mock_response(valid_response)
+
+        # Use custom timeout value
+        config = AnthropicExplainerConfig(timeout_s=5.5)
+        explainer = AnthropicExplainer.with_client(mock_anthropic_client, config)
+        explainer.explain(sample_input)
+
+        # Verify timeout was passed with correct value
+        call_kwargs = mock_anthropic_client.messages.create.call_args.kwargs
+        assert call_kwargs["timeout"] == 5.5
 
 
 # =============================================================================
@@ -376,9 +421,7 @@ class TestAdversarialNoNewNumbers:
             style=LLMStyle(tone="friendly", max_chars=180),
         )
 
-    def test_adversarial_percentage_conversion(
-        self, input_083: LLMExplainInput
-    ) -> None:
+    def test_adversarial_percentage_conversion(self, input_083: LLMExplainInput) -> None:
         """
         ADVERSARIAL: LLM converts 0.83 to 83%.
 
@@ -666,9 +709,7 @@ class TestIntegration:
             '{"headline": "BTCUSDT: 99% confidence!", '
             '"subtext": "", "status_label": "Watch", "tooltips": {}}'
         )
-        mock_anthropic_client.messages.create.return_value = make_mock_response(
-            invalid_response
-        )
+        mock_anthropic_client.messages.create.return_value = make_mock_response(invalid_response)
 
         config = AnthropicExplainerConfig(retries=0)
         explainer = AnthropicExplainer.with_client(mock_anthropic_client, config)
