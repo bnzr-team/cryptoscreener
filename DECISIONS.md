@@ -2381,6 +2381,12 @@ Environments:
   - Alerts are keyed by `(service, component, alert_name)` only.
   - Endpoint breakdown appears in dashboards/annotations only.
 
+**Traffic Gating (MANDATORY)**
+- All rate/ratio-based alerts MUST include traffic gating to suppress false positives on low volume.
+- Gating threshold: alert only fires when `request_rate > N` (e.g., `> 10 req/min`) or equivalent denominator exists.
+- Without gating: a single drop on 2 requests = 50% drop_ratio → false CRITICAL.
+- Rule: `(ratio > threshold) AND (traffic > min_threshold) for duration`
+
 **Severities**
 - **WARNING**: degradation likely; investigate during business hours.
 - **CRITICAL**: sustained failure/impact; page/on-call action.
@@ -2393,11 +2399,11 @@ Environments:
 | Alert | Signal | WARNING | CRITICAL | Notes |
 |---|---|---:|---:|---|
 | GOV_QUEUE_SATURATED | `queue_depth / max_queue_depth` | `>= 0.80 for 1m` | `>= 0.95 for 2m` | Backpressure building; risk of drops/timeouts |
-| GOV_SUSTAINED_DROPS | drop rate and/or ratio | `drops > 0 for 5m` | `drops >= 10/min for 5m` OR `drop_ratio > 1% for 5m` | Use drop reason breakdown for routing |
+| GOV_SUSTAINED_DROPS | drop_ratio + traffic gate | `drop_ratio > 0.1% for 10m AND req_rate > 10/min` | `drop_ratio > 1% for 5m AND req_rate > 10/min` | Traffic gating prevents false positives on low volume; use drop reason breakdown for routing |
 | GOV_CONCURRENCY_PINNED | `concurrent_inflight == max_concurrent_requests` | `> 2m` | `> 10m` | Indicates inflight saturation / stuck requests |
 | CB_FLAPPING | `transitions_closed_to_open` rate | `>= 3 opens / 10m` | `>= 10 opens / 10m` | Use `open_reason_*` for cause |
-| CB_STUCK_OPEN | breaker OPEN duration | `OPEN > 5m` | `OPEN > 10m` | Protects Binance; indicates sustained block |
-| WS_RECONNECT_STORM | reconnect denied or attempts | `>= 10 denied / 5m` | `>= 50 denied / 5m` | Network or Binance WS constraints |
+| CB_STUCK_OPEN | breaker OPEN duration (see State Source below) | `OPEN > 5m` | `OPEN > 10m` | Protects Binance; indicates sustained block. State source: proxy via `last_open_duration_ms` OR dedicated state gauge (follow-up PR must choose one) |
+| WS_RECONNECT_STORM | disconnects + reconnect_attempts (primary); denied (secondary) | `disconnects >= 10/5m OR attempts >= 20/5m` | `disconnects >= 30/5m OR attempts >= 60/5m` | Primary: actual disconnects/attempts catch storms even when limiter allows; denied is symptom of limiter protection |
 | WS_SUBSCRIBE_DELAY_HIGH | outbound subscribe delay | `>= 10% for 5m` | `>= 30% for 5m` | Requires attempts/denominator metric; else use absolute/min |
 | WS_PING_TIMEOUTS | ping/pong failures | `> 0 for 5m` | `>= 5 / 5m` | Connectivity/event loop stalls |
 
@@ -2471,6 +2477,13 @@ The REST governor queue is close to full. Requests are increasingly deferred; dr
 **Alert:** `CB_STUCK_OPEN`
 **Severity:** WARNING/CRITICAL
 
+#### State Source (Contract)
+The breaker OPEN duration can be derived via two approaches:
+1. **Proxy (current):** Use `last_open_duration_ms` from `CircuitBreakerMetrics` — updated when breaker exits OPEN state.
+2. **State gauge (alternative):** Export `circuit_state` as enum gauge (0=CLOSED, 1=HALF_OPEN, 2=OPEN) and compute duration externally.
+
+**Decision required in DEC-025-queries PR:** Choose ONE approach and document mapping. Proxy is simpler but lags (only updates on transition out); gauge is real-time but requires exporter changes.
+
 #### Meaning
 CircuitBreaker remained OPEN beyond expected recovery window, blocking or failing fast many REST requests. This indicates sustained rate limits, bans, or persistent failures.
 
@@ -2530,13 +2543,16 @@ CircuitBreaker remained OPEN beyond expected recovery window, blocking or failin
 WebSocket reconnection attempts are being denied or happening excessively, indicating connectivity instability or upstream constraints. This can lead to stale streams, missed updates, and noisy reconnect loops.
 
 #### Immediate checks (1–3 minutes)
-1. Check WS metrics:
-   - `reconnect_denied` rate
-   - `connection_errors`, `ping_timeouts`
+1. Check WS metrics (primary signals first):
+   - `total_disconnects` rate — actual connection drops
+   - `reconnect_attempts` rate — how often reconnects are triggered
+   - `connection_errors`, `ping_timeouts` — root causes
    - shard counts / active connections (if available)
-2. Check StreamManager aggregation:
+2. Check limiter metrics (secondary, symptom of protection):
+   - `reconnect_denied` rate — limiter blocking reconnects
+3. Check StreamManager aggregation:
    - total denied, total errors, whether a subset of shards is unstable
-3. Check recent deploys / infra changes:
+4. Check recent deploys / infra changes:
    - DNS, firewall, proxy, TLS termination, system clock drift
 
 #### Likely causes
@@ -2546,14 +2562,17 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 - Shard over-subscription churn (too many subscribe/unsubscribe operations).
 
 #### Diagnosis steps
+- If `total_disconnects` high but `reconnect_denied` low:
+  - Storm is happening but limiter is allowing reconnects — investigate root cause.
+  - May need to tighten limiter or address underlying network issue.
 - If `ping_timeouts` rising:
   - Look for CPU starvation / event loop blocking tasks.
   - Check for spikes in processing or GC pauses.
 - If `connection_errors` rising without ping timeouts:
   - Likely network/TLS/DNS issues.
-- If reconnect denied (limiter) is high:
-  - Confirm limiter is protecting you (this may be expected under storms).
-  - Find root disconnect cause; limiter is a symptom guard.
+- If `reconnect_denied` is high:
+  - Limiter is protecting you (expected under storms).
+  - Find root disconnect cause; `denied` is symptom guard, not root cause.
 
 #### Mitigations (safe)
 - Reduce subscription churn (batch updates, debounced subscribe changes).
@@ -2572,6 +2591,38 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 #### Close criteria
 - reconnect denied rate returns to baseline for 10 minutes
 - ping_timeouts / connection_errors near zero baseline
+
+---
+
+### Metric Name Mapping (Contract)
+
+**Scope:** This DEC (DEC-025) does NOT introduce new metrics. All referenced metrics MUST already exist in the codebase (DEC-024 stack) or be added in follow-up PRs with explicit mapping.
+
+**Mapping rules:**
+1. All alert queries MUST reference metrics that exist in `*Metrics` dataclasses (`RestGovernorMetrics`, `CircuitBreakerMetrics`, `ShardMetrics`, `StreamManagerMetrics`).
+2. Follow-up PR (DEC-025-queries) MUST include a "Metric Mapping Table" showing: `alert_spec_name → actual_metric_field → exporter_name` (if different).
+3. Any new metric required for alerting MUST be added via separate PR with deterministic tests before being referenced in alert queries.
+4. Metric names in alert specs are **conceptual** — follow-up PR maps them to actual field names.
+
+**Current metric availability (DEC-024):**
+| Conceptual Name | Actual Field | Dataclass |
+|-----------------|--------------|-----------|
+| `queue_depth` | `queue_depth` (needs adding) | `RestGovernorMetrics` |
+| `requests_dropped` | `requests_dropped` | `RestGovernorMetrics` |
+| `drop_reason_*` | `drop_reason_queue_full`, `drop_reason_timeout`, etc. | `RestGovernorMetrics` |
+| `concurrent_inflight` | `current_concurrent` | `RestGovernorMetrics` |
+| `transitions_closed_to_open` | `transitions_closed_to_open` | `CircuitBreakerMetrics` |
+| `last_open_duration_ms` | `last_open_duration_ms` | `CircuitBreakerMetrics` |
+| `open_reason_*` | `open_reason_429`, `open_reason_418`, etc. | `CircuitBreakerMetrics` |
+| `reconnect_denied` | `total_reconnects_denied` | `ShardMetrics` |
+| `ping_timeouts` | `total_ping_timeouts` | `ShardMetrics` |
+| `connection_errors` | `total_connection_errors` | `ShardMetrics` |
+
+**Missing metrics (to be added in follow-up):**
+- `queue_depth` gauge (current queue size) — needs adding to `RestGovernorMetrics`
+- `total_disconnects` counter — needs adding to `ShardMetrics`
+- `reconnect_attempts` counter — needs adding to `ShardMetrics`
+- `request_rate` (for traffic gating) — computed from `requests_allowed + requests_dropped` rate
 
 ---
 
