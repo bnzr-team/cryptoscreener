@@ -1225,8 +1225,13 @@ response = self._client.messages.create(
 - Checksums computed dynamically
 
 **Test File:**
-- `tests/registry/test_package_e2e_smoke.py`
+- `tests/replay/test_modelpackage_e2e_smoke.py`
 - Uses MLRunner in PROD mode (`InferenceStrictness.PROD`) to prevent fallback
+
+**CI Gate:**
+- Located in `tests/replay/` to trigger replay determinism verification via `acceptance_packet.sh`
+- When PR touches `tests/replay/`, acceptance-packet runs full replay proof (2 runs + digest comparison)
+- Consistent with DEC-019 (MLRunner E2E) replay gate convention
 
 **Alternatives considered:**
 1. Store model.bin in git — rejected: avoid binaries, on-the-fly generation is deterministic
