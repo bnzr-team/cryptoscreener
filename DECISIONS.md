@@ -2126,6 +2126,12 @@ class CircuitBreakerMetrics:
 
 Already partially implemented in `ShardMetrics`. This DEC formalizes additions.
 
+**Semantic distinction:**
+- `messages_delayed`: MessageThrottler delayed **incoming message delivery** to prevent callback overload
+- `subscribe_delayed`: MessageThrottler delayed **outgoing subscribe request** to prevent burst subscriptions
+
+These are separate counters tracking different directions of flow (inbound vs outbound).
+
 ```python
 @dataclass
 class ShardMetrics:
@@ -2135,10 +2141,10 @@ class ShardMetrics:
     reconnect_count: int = 0
     reconnect_denied: int = 0       # Limiter rejected reconnect
     messages_received: int = 0
-    messages_delayed: int = 0       # Throttler delayed delivery
+    messages_delayed: int = 0       # Throttler delayed INBOUND message delivery
 
     # === DEC-024 additions ===
-    subscribe_delayed: int = 0      # Throttler delayed subscription
+    subscribe_delayed: int = 0      # Throttler delayed OUTBOUND subscribe request
     cooldown_active_count: int = 0  # Times cooldown was active when checked
     connection_errors: int = 0      # WS connection failures
     ping_timeouts: int = 0          # Ping/pong failures
