@@ -2404,7 +2404,7 @@ Environments:
 | GOV_CONCURRENCY_PINNED | `concurrent_inflight == max_concurrent_requests` | `> 2m` | `> 10m` | Indicates inflight saturation / stuck requests |
 | CB_FLAPPING | `transitions_closed_to_open` rate | `>= 3 opens / 10m` | `>= 10 opens / 10m` | Use `open_reason_*` for cause |
 | CB_STUCK_OPEN | breaker OPEN duration (see State Source below) | `OPEN > 5m` | `OPEN > 10m` | Protects Binance; indicates sustained block. State source: proxy via `last_open_duration_ms` OR dedicated state gauge (follow-up PR must choose one) |
-| WS_RECONNECT_STORM | disconnects + reconnect_attempts (primary); denied (secondary) | `disconnects >= 10/5m OR attempts >= 20/5m` | `disconnects >= 30/5m OR attempts >= 60/5m` | Primary: actual disconnects/attempts catch storms even when limiter allows; denied is symptom of limiter protection |
+| WS_RECONNECT_STORM | disconnects + reconnect_attempts (primary); denied (secondary) | `increase(disconnects[5m]) >= 10 OR increase(attempts[5m]) >= 20` | `increase(disconnects[5m]) >= 30 OR increase(attempts[5m]) >= 60` | Thresholds are counts via `increase()`, not rate. Primary: actual disconnects/attempts catch storms even when limiter allows; denied is symptom of limiter protection |
 | WS_SUBSCRIBE_DELAY_HIGH | outbound subscribe delay | `>= 10% for 5m` | `>= 30% for 5m` | Requires attempts/denominator metric; else use absolute/min |
 | WS_PING_TIMEOUTS | ping/pong failures | `> 0 for 5m` | `>= 5 / 5m` | Connectivity/event loop stalls |
 
@@ -2625,7 +2625,13 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 | `queue_depth` | `RestGovernorMetrics` | Gauge: current queue size |
 | `total_disconnects` | `ShardMetrics` | Counter: WS disconnection events |
 | `reconnect_attempts` | `ShardMetrics` | Counter: reconnect attempts (before limiter) |
-| `request_rate` | computed | `rate(requests_allowed + requests_dropped)` — for traffic gating |
+
+**Derived query expressions (NOT exporter metrics):**
+| Expression | Definition | Used In |
+|------------|------------|---------|
+| `request_rate` | `rate(requests_allowed[5m]) + rate(requests_dropped[5m])` | Traffic gating for GOV_SUSTAINED_DROPS |
+
+> NOTE: `request_rate` is a **derived query expression**, NOT an exported metric name. It should be computed in alert rules/dashboards, not added to `*Metrics` dataclasses.
 
 ---
 
