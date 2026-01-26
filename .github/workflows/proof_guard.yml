@@ -3,6 +3,10 @@ name: Proof Guard
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, ready_for_review]
+  # DEC-024: Also run when acceptance-packet completes to avoid race condition
+  workflow_run:
+    workflows: ["Acceptance Packet"]
+    types: [completed]
 
 jobs:
   proof-guard:
@@ -11,11 +15,91 @@ jobs:
       pull-requests: read
       contents: read
       checks: read
+    # DEC-024: For workflow_run events, only run if acceptance-packet succeeded
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     steps:
+      - name: Wait for acceptance-packet (pull_request events only)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "Waiting for acceptance-packet workflow to complete..."
+          MAX_WAIT=120  # 2 minutes max
+          INTERVAL=10
+          ELAPSED=0
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            # Check if acceptance-packet check-run exists and is complete
+            STATUS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/commits/$HEAD_SHA/check-runs" | \
+              python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for cr in data.get('check_runs', []):
+              if cr.get('name') == 'acceptance-packet':
+                  status = cr.get('status')
+                  conclusion = cr.get('conclusion')
+                  if status == 'completed':
+                      print(f'completed:{conclusion}')
+                  else:
+                      print(f'running:{status}')
+                  sys.exit(0)
+          print('not_found')
+          ")
+
+            echo "acceptance-packet status: $STATUS"
+
+            if [[ "$STATUS" == completed:* ]]; then
+              echo "acceptance-packet completed, proceeding with proof-guard validation"
+              break
+            fi
+
+            if [[ "$STATUS" == "not_found" ]] && [ $ELAPSED -gt 30 ]; then
+              echo "WARNING: acceptance-packet check-run not found after 30s, proceeding anyway"
+              break
+            fi
+
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "WARNING: Timed out waiting for acceptance-packet, proceeding with validation"
+          fi
+
+      - name: Get PR number for workflow_run events
+        if: github.event_name == 'workflow_run'
+        id: get_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          # Get PR number from the workflow run that triggered us
+          PR_NUMBER=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" | \
+            python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          prs = data.get('pull_requests', [])
+          if prs:
+              print(prs[0].get('number', ''))
+          ")
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
       - name: Validate PR body has required proof bundle markers
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # DEC-024: For workflow_run events, pass PR number explicitly
+          WORKFLOW_RUN_PR_NUMBER: ${{ steps.get_pr.outputs.pr_number }}
         run: |
           python - << 'PY'
           import json, os, re, sys, urllib.request
@@ -28,6 +112,12 @@ jobs:
           head_sha = pr.get("head", {}).get("sha", "")
           repo = (event.get("repository") or {}).get("full_name")
           token = os.environ.get("GITHUB_TOKEN", "")
+
+          # DEC-024: For workflow_run events, get PR number from env
+          workflow_run_pr = os.environ.get("WORKFLOW_RUN_PR_NUMBER", "")
+          if workflow_run_pr and not number:
+            number = int(workflow_run_pr)
+            print(f"INFO: Using PR number from workflow_run event: {number}")
 
           # Fetch body from API at runtime (not from event payload)
           # This ensures re-runs see the updated PR body
