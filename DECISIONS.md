@@ -459,6 +459,68 @@ Summary/tables/paraphrasing **are NOT valid proof**. "No proof = NOT DONE" appli
 
 ---
 
+## DEC-012: Training Dataset Split (PR-A)
+
+**Date:** 2026-01-25
+
+**Decision:** Implement time-based train/val/test splitting for ML training per PRD Section 11 Milestone 3.
+
+**Components:**
+1. **Dataset Module** (`src/cryptoscreener/training/dataset.py`):
+   - Schema validation against LABELS_SPEC.md output format
+   - `DatasetSchema` with version tracking (1.0.0)
+   - `load_labeled_dataset()` for parquet/JSONL loading
+   - `validate_schema()` with strict mode option
+   - `get_feature_columns()`, `get_label_columns()` extractors
+
+2. **Split Module** (`src/cryptoscreener/training/split.py`):
+   - `SplitConfig` with train/val/test ratios (default 0.7/0.15/0.15)
+   - `time_based_split()` with strict temporal ordering
+   - Optional purge gap between splits to prevent leakage
+   - `SplitResult.verify_no_leakage()` for validation
+   - `SplitMetadata` with git_sha, config_hash, data_hash
+
+3. **CLI** (`scripts/split_dataset.py`):
+   - Input: labeled parquet/JSONL from build_labels.py
+   - Output: train.jsonl, val.jsonl, test.jsonl, metadata.json
+   - Configurable ratios, purge gap, output format
+   - Prints LEAKAGE CHECK status with pass/fail
+
+**Anti-Leakage Guarantees:**
+- All train samples have timestamps strictly before all val samples
+- All val samples have timestamps strictly before all test samples
+- Invariant: `max(train_ts) < min(val_ts) < min(test_ts)`
+- Optional purge gap removes samples near split boundaries
+
+**Metadata Tracking:**
+- `schema_version`: Split schema version (1.0.0)
+- `git_sha`: Git commit at split time (12 chars)
+- `config_hash`: SHA256 of split configuration (16 chars)
+- `data_hash`: SHA256 of input data (16 chars)
+- `split_timestamp`: ISO timestamp of split creation
+- Timestamp ranges for each split (train/val/test)
+
+**Alternatives considered:**
+1. Random split - rejected: causes temporal leakage, future data in train set
+2. Symbol-stratified split - deferred: global split sufficient for MVP
+3. K-fold cross-validation - deferred: single split for initial training
+4. Purge gap always on - rejected: should be configurable (default 0)
+
+**Rationale:**
+- Time-based splits prevent data leakage in time-series ML
+- Strict ordering is verifiable via `verify_no_leakage()`
+- Metadata enables reproducibility and provenance tracking
+- Schema validation ensures compatibility with label_builder output
+- Optional purge gap handles cases where features have lookback windows
+
+**Impact:**
+- New `src/cryptoscreener/training/` module
+- New `scripts/split_dataset.py` CLI
+- Anti-leakage tests verify temporal ordering invariants
+- Starts PRD Section 11 Milestone 3: "Training pipeline skeleton"
+
+---
+
 ## DEC-013: Probability Calibration (PR-B)
 
 **Date:** 2026-01-25
