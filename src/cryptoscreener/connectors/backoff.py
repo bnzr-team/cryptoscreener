@@ -711,13 +711,19 @@ class RestGovernorConfig:
     default_endpoint_weight: int = DEFAULT_WEIGHT
 
     def get_endpoint_weight(self, endpoint: str) -> int:
-        """Get weight for an endpoint."""
+        """Get weight for an endpoint.
+
+        Normalizes endpoint by stripping query string before lookup.
+        E.g., "/fapi/v1/time?x=1" → "/fapi/v1/time" → weight=1
+        """
+        # Normalize: strip query string if present
+        normalized = endpoint.split("?", 1)[0]
         # Check custom weights first
-        if endpoint in self.endpoint_weights:
-            return self.endpoint_weights[endpoint]
+        if normalized in self.endpoint_weights:
+            return self.endpoint_weights[normalized]
         # Fall back to default weights
-        if endpoint in DEFAULT_ENDPOINT_WEIGHTS:
-            return DEFAULT_ENDPOINT_WEIGHTS[endpoint]
+        if normalized in DEFAULT_ENDPOINT_WEIGHTS:
+            return DEFAULT_ENDPOINT_WEIGHTS[normalized]
         return self.default_endpoint_weight
 
 
