@@ -2483,7 +2483,13 @@ The breaker OPEN duration can be derived via two approaches:
 1. **Proxy (current):** Use `last_open_duration_ms` from `CircuitBreakerMetrics` — updated when breaker exits OPEN state.
 2. **State gauge (alternative):** Export `circuit_state` as enum gauge (0=CLOSED, 1=HALF_OPEN, 2=OPEN) and compute duration externally.
 
-**Decision required in DEC-025-queries PR:** Choose ONE approach and document mapping. Proxy is simpler but lags (only updates on transition out); gauge is real-time but requires exporter changes.
+**Decision (DEC-025-metrics):** Use **Proxy** approach (`last_open_duration_ms`).
+
+**Rationale:**
+- Simpler: no exporter changes required, metric already exists.
+- Lag is acceptable: alert fires on transition out, which is when we know total OPEN duration.
+- For real-time "currently stuck" detection, combine with `transitions_closed_to_open` counter increase without corresponding `transitions_open_to_half_open` increase within window.
+- State gauge can be added later (separate DEC) if real-time state export is needed for dashboards.
 
 #### Meaning
 CircuitBreaker remained OPEN beyond expected recovery window, blocking or failing fast many REST requests. This indicates sustained rate limits, bans, or persistent failures.
@@ -2605,26 +2611,34 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 3. Any new metric required for alerting MUST be added via separate PR with deterministic tests before being referenced in alert queries.
 4. Metric names in alert specs are **conceptual** — follow-up PR maps them to actual field names.
 
-**Current metric availability (DEC-024 — exists in codebase):**
+**Current metric availability (DEC-024/DEC-025 — exists in codebase):**
 | Conceptual Name | Actual Field | Dataclass |
 |-----------------|--------------|-----------|
 | `requests_dropped` | `requests_dropped` | `RestGovernorMetrics` |
 | `requests_allowed` | `requests_allowed` | `RestGovernorMetrics` |
 | `drop_reason_*` | `drop_reason_queue_full`, `drop_reason_timeout`, etc. | `RestGovernorMetrics` |
 | `concurrent_inflight` | `current_concurrent` | `RestGovernorMetrics` |
+| `queue_depth` | `current_queue_depth` | `RestGovernorMetrics` |
 | `transitions_closed_to_open` | `transitions_closed_to_open` | `CircuitBreakerMetrics` |
 | `last_open_duration_ms` | `last_open_duration_ms` | `CircuitBreakerMetrics` |
 | `open_reason_*` | `open_reason_429`, `open_reason_418`, etc. | `CircuitBreakerMetrics` |
-| `reconnect_denied` | `total_reconnects_denied` | `ShardMetrics` |
-| `ping_timeouts` | `total_ping_timeouts` | `ShardMetrics` |
-| `connection_errors` | `total_connection_errors` | `ShardMetrics` |
+| `reconnect_denied` | `reconnect_denied` (per-shard), `total_reconnects_denied` (aggregated) | `ShardMetrics`, `ConnectorMetrics` |
+| `ping_timeouts` | `ping_timeouts` (per-shard), `total_ping_timeouts` (aggregated) | `ShardMetrics`, `ConnectorMetrics` |
+| `connection_errors` | `connection_errors` (per-shard), `total_connection_errors` (aggregated) | `ShardMetrics`, `ConnectorMetrics` |
+| `total_disconnects` | `total_disconnects` (per-shard), `total_disconnects` (aggregated) | `ShardMetrics`, `ConnectorMetrics` |
+| `reconnect_attempts` | `reconnect_attempts` (per-shard), `total_reconnect_attempts` (aggregated) | `ShardMetrics`, `ConnectorMetrics` |
 
-**Missing metrics (to be added in follow-up PRs):**
-| Conceptual Name | Target Dataclass | Notes |
-|-----------------|------------------|-------|
-| `queue_depth` | `RestGovernorMetrics` | Gauge: current queue size |
-| `total_disconnects` | `ShardMetrics` | Counter: WS disconnection events |
-| `reconnect_attempts` | `ShardMetrics` | Counter: reconnect attempts (before limiter) |
+**No missing metrics** — all metrics required for DEC-025 alerts now exist in the codebase.
+
+**WS_RECONNECT_STORM alert field mapping (explicit):**
+| Alert Field (conceptual) | Actual Metric | Level | Notes |
+|--------------------------|---------------|-------|-------|
+| `disconnects` | `total_disconnects` | `ConnectorMetrics` (aggregated) | Use for cluster-wide alert |
+| `disconnects` | `total_disconnects` | `ShardMetrics` (per-shard) | Use for per-shard drill-down |
+| `attempts` | `total_reconnect_attempts` | `ConnectorMetrics` (aggregated) | Use for cluster-wide alert |
+| `attempts` | `reconnect_attempts` | `ShardMetrics` (per-shard) | Use for per-shard drill-down |
+
+> For WS_RECONNECT_STORM thresholds (`increase(disconnects[5m]) >= 10`), use `ConnectorMetrics.total_disconnects` for aggregated alerts.
 
 **Derived query expressions (NOT exporter metrics):**
 | Expression | Definition | Used In |

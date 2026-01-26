@@ -458,6 +458,9 @@ class BinanceStreamManager:
         active_shards = 0
         total_reconnects_denied = 0
         total_messages_delayed = 0
+        # DEC-025: Aggregate new metrics
+        total_disconnects = 0
+        total_reconnect_attempts = 0
 
         for shard in self._shards.values():
             metrics = shard.get_metrics()
@@ -467,6 +470,9 @@ class BinanceStreamManager:
             # DEC-023b: Aggregate throttle metrics
             total_reconnects_denied += metrics.reconnect_denied
             total_messages_delayed += metrics.messages_delayed
+            # DEC-025: Aggregate WS storm metrics
+            total_disconnects += metrics.total_disconnects
+            total_reconnect_attempts += metrics.reconnect_attempts
             if metrics.state == ConnectionState.CONNECTED:
                 active_shards += 1
 
@@ -480,4 +486,7 @@ class BinanceStreamManager:
             reconnect_limiter_in_cooldown=bool(self._reconnect_limiter.get_status()["in_cooldown"]),
             total_reconnects_denied=total_reconnects_denied,
             total_messages_delayed=total_messages_delayed,
+            # DEC-025: WS storm alert metrics
+            total_disconnects=total_disconnects,
+            total_reconnect_attempts=total_reconnect_attempts,
         )

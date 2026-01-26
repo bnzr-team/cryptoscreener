@@ -206,6 +206,8 @@ class ShardMetrics:
         connection_errors: WS connection failures (DEC-024).
         ping_timeouts: Ping/pong failures (DEC-024).
         state: Current connection state.
+        total_disconnects: WS disconnection events, unintentional only (DEC-025).
+        reconnect_attempts: Total reconnect attempts, allowed + denied (DEC-025).
 
     DEC-024 semantic distinction:
     - messages_delayed: Throttler delayed INBOUND message delivery to prevent callback overload
@@ -226,6 +228,9 @@ class ShardMetrics:
     connection_errors: int = 0  # DEC-024: WS connection failures
     ping_timeouts: int = 0  # DEC-024: ping/pong failures
     state: ConnectionState = ConnectionState.DISCONNECTED
+    # === DEC-025 additions ===
+    total_disconnects: int = 0  # DEC-025: WS disconnection events (unintentional)
+    reconnect_attempts: int = 0  # DEC-025: total reconnect attempts (allowed + denied)
 
 
 @dataclass
@@ -246,6 +251,8 @@ class ConnectorMetrics:
         total_connection_errors: Total WS connection errors across all shards (DEC-024).
         total_ping_timeouts: Total ping/pong failures across all shards (DEC-024).
         last_error: Last error message if any.
+        total_disconnects: Total WS disconnection events across all shards (DEC-025).
+        total_reconnect_attempts: Total reconnect attempts across all shards (DEC-025).
     """
 
     total_streams: int = 0
@@ -261,6 +268,9 @@ class ConnectorMetrics:
     total_connection_errors: int = 0  # DEC-024: WS connection errors
     total_ping_timeouts: int = 0  # DEC-024: ping/pong failures
     last_error: str | None = None
+    # === DEC-025 additions ===
+    total_disconnects: int = 0  # DEC-025: total WS disconnection events
+    total_reconnect_attempts: int = 0  # DEC-025: total reconnect attempts (all shards)
 
 
 @dataclass
