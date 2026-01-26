@@ -7,10 +7,16 @@ Per BINANCE_LIMITS.md:
 - Exponential backoff with jitter
 - Respect Retry-After header
 - Never "fight" the limiter
+
+DEC-023: Added tests for:
+- ReconnectLimiter (global reconnect rate control)
+- MessageThrottler (WS subscribe rate limiting)
+- Seeded jitter (deterministic replay testing)
 """
 
 from __future__ import annotations
 
+import random
 from unittest.mock import patch
 
 from cryptoscreener.connectors import (
@@ -22,6 +28,12 @@ from cryptoscreener.connectors import (
     RateLimitKind,
     compute_backoff_delay,
     handle_error_response,
+)
+from cryptoscreener.connectors.backoff import (
+    MessageThrottler,
+    MessageThrottlerConfig,
+    ReconnectLimiter,
+    ReconnectLimiterConfig,
 )
 
 
@@ -607,3 +619,514 @@ class TestBackoffIntegration:
             # Successful recovery
             cb.record_success()
             assert cb.state == CircuitState.CLOSED
+
+
+# =============================================================================
+# DEC-023: Seeded Jitter Tests (Deterministic Replay)
+# =============================================================================
+
+
+class TestSeededJitter:
+    """Tests for deterministic backoff with seeded RNG (DEC-023)."""
+
+    def test_seeded_jitter_is_deterministic(self) -> None:
+        """Test that same seed produces same jitter."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.5)
+        state = BackoffState()
+        state.record_error()
+
+        # Two runs with same seed should produce identical delays
+        rng1 = random.Random(42)
+        rng2 = random.Random(42)
+
+        delay1 = compute_backoff_delay(config, state, rng=rng1)
+        delay2 = compute_backoff_delay(config, state, rng=rng2)
+
+        assert delay1 == delay2
+
+    def test_different_seeds_different_jitter(self) -> None:
+        """Test that different seeds produce different delays."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.5)
+        state = BackoffState()
+        state.record_error()
+
+        rng1 = random.Random(42)
+        rng2 = random.Random(999)
+
+        delay1 = compute_backoff_delay(config, state, rng=rng1)
+        delay2 = compute_backoff_delay(config, state, rng=rng2)
+
+        # Very unlikely to be equal with different seeds
+        # (but possible, so we don't assert != directly in production)
+        # Just verify both are within jitter range
+        assert 500 <= delay1 <= 1500
+        assert 500 <= delay2 <= 1500
+
+    def test_seeded_sequence_is_reproducible(self) -> None:
+        """Test that a sequence of backoffs is reproducible."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.5)
+
+        def compute_sequence(seed: int) -> list[int]:
+            """Compute sequence of delays with given seed."""
+            rng = random.Random(seed)
+            state = BackoffState()
+            delays = []
+            for _ in range(5):
+                state.record_error()
+                delay = compute_backoff_delay(config, state, rng=rng)
+                delays.append(delay)
+            return delays
+
+        seq1 = compute_sequence(42)
+        seq2 = compute_sequence(42)
+
+        assert seq1 == seq2
+
+    def test_no_rng_uses_global_random(self) -> None:
+        """Test that without RNG, global random is used (non-deterministic)."""
+        config = BackoffConfig(base_delay_ms=1000, jitter_factor=0.5)
+        state = BackoffState()
+        state.record_error()
+
+        # Multiple runs without RNG should have variation
+        delays = set()
+        for _ in range(50):
+            delay = compute_backoff_delay(config, state)
+            delays.add(delay)
+
+        # Should have variation (not all the same)
+        assert len(delays) > 1
+
+
+# =============================================================================
+# DEC-023: ReconnectLimiter Tests
+# =============================================================================
+
+
+class TestReconnectLimiterConfig:
+    """Tests for ReconnectLimiterConfig."""
+
+    def test_default_values(self) -> None:
+        """Test default configuration."""
+        config = ReconnectLimiterConfig()
+        assert config.max_reconnects_per_window == 5
+        assert config.window_ms == 60000
+        assert config.cooldown_after_burst_ms == 30000
+        assert config.per_shard_min_interval_ms == 5000
+
+    def test_custom_values(self) -> None:
+        """Test custom configuration."""
+        config = ReconnectLimiterConfig(
+            max_reconnects_per_window=10,
+            window_ms=120000,
+            cooldown_after_burst_ms=60000,
+            per_shard_min_interval_ms=10000,
+        )
+        assert config.max_reconnects_per_window == 10
+        assert config.window_ms == 120000
+
+
+class TestReconnectLimiter:
+    """Tests for ReconnectLimiter (DEC-023: reconnect storm protection)."""
+
+    def test_initial_state_allows_reconnect(self) -> None:
+        """Test fresh limiter allows reconnects."""
+        limiter = ReconnectLimiter()
+        assert limiter.can_reconnect(shard_id=0)
+        assert limiter.get_wait_time_ms(shard_id=0) == 0
+
+    def test_per_shard_min_interval_enforced(self) -> None:
+        """Test per-shard minimum interval is enforced."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = ReconnectLimiterConfig(per_shard_min_interval_ms=5000)
+        limiter = ReconnectLimiter(config=config, _time_fn=time_fn)
+
+        # First reconnect allowed
+        assert limiter.can_reconnect(shard_id=0)
+        limiter.record_reconnect(shard_id=0)
+
+        # Immediately after: blocked for same shard
+        assert not limiter.can_reconnect(shard_id=0)
+        assert limiter.get_wait_time_ms(shard_id=0) == 5000
+
+        # Different shard: allowed
+        assert limiter.can_reconnect(shard_id=1)
+
+        # After interval: allowed again
+        fake_time = 5001
+        assert limiter.can_reconnect(shard_id=0)
+
+    def test_global_rate_limit_enforced(self) -> None:
+        """Test global reconnect rate limit is enforced."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = ReconnectLimiterConfig(
+            max_reconnects_per_window=3,
+            window_ms=60000,
+            per_shard_min_interval_ms=0,  # Disable per-shard limit for this test
+        )
+        limiter = ReconnectLimiter(config=config, _time_fn=time_fn)
+
+        # Record 3 reconnects (different shards to bypass per-shard limit)
+        for i in range(3):
+            assert limiter.can_reconnect(shard_id=i)
+            limiter.record_reconnect(shard_id=i)
+
+        # 4th reconnect blocked (rate limit hit)
+        assert not limiter.can_reconnect(shard_id=10)
+
+    def test_cooldown_after_burst(self) -> None:
+        """Test cooldown is enforced after hitting rate limit."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = ReconnectLimiterConfig(
+            max_reconnects_per_window=2,
+            cooldown_after_burst_ms=10000,
+            window_ms=5000,  # Window shorter than cooldown so timestamps expire
+            per_shard_min_interval_ms=0,
+        )
+        limiter = ReconnectLimiter(config=config, _time_fn=time_fn)
+
+        # Hit rate limit
+        limiter.record_reconnect(shard_id=0)
+        limiter.record_reconnect(shard_id=1)
+
+        # Trigger cooldown by trying to reconnect
+        assert not limiter.can_reconnect(shard_id=2)
+
+        # Still in cooldown
+        fake_time = 5000
+        assert not limiter.can_reconnect(shard_id=0)
+
+        # After cooldown (and after window expires, so old timestamps pruned)
+        fake_time = 10001
+        assert limiter.can_reconnect(shard_id=0)
+
+    def test_sliding_window_expires_old_timestamps(self) -> None:
+        """Test sliding window removes old reconnect timestamps."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = ReconnectLimiterConfig(
+            max_reconnects_per_window=3,
+            window_ms=10000,
+            per_shard_min_interval_ms=0,
+        )
+        limiter = ReconnectLimiter(config=config, _time_fn=time_fn)
+
+        # Fill up the window
+        for i in range(3):
+            limiter.record_reconnect(shard_id=i)
+
+        # Window is full
+        status = limiter.get_status()
+        assert status["reconnects_in_window"] == 3
+
+        # Move time forward past window
+        fake_time = 15000
+
+        # Old timestamps should be pruned, allowing new reconnects
+        assert limiter.can_reconnect(shard_id=10)
+        status = limiter.get_status()
+        assert status["reconnects_in_window"] == 0
+
+    def test_get_wait_time_accounts_for_all_limits(self) -> None:
+        """Test get_wait_time_ms returns correct wait time."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = ReconnectLimiterConfig(
+            per_shard_min_interval_ms=5000,
+            max_reconnects_per_window=10,
+        )
+        limiter = ReconnectLimiter(config=config, _time_fn=time_fn)
+
+        limiter.record_reconnect(shard_id=0)
+
+        # Should wait for per-shard interval
+        wait_time = limiter.get_wait_time_ms(shard_id=0)
+        assert wait_time == 5000
+
+    def test_reset_clears_state(self) -> None:
+        """Test reset clears all limiter state."""
+        limiter = ReconnectLimiter()
+        limiter.record_reconnect(shard_id=0)
+        limiter.record_reconnect(shard_id=1)
+
+        limiter.reset()
+
+        status = limiter.get_status()
+        assert status["reconnects_in_window"] == 0
+        assert not status["in_cooldown"]
+
+    def test_deterministic_with_fake_time(self) -> None:
+        """Test limiter behavior is deterministic with fake time (for replay)."""
+
+        def run_scenario() -> list[bool]:
+            """Run a scenario and return sequence of can_reconnect results."""
+            fake_time = 0
+
+            def time_fn() -> int:
+                nonlocal fake_time
+                return fake_time
+
+            config = ReconnectLimiterConfig(
+                max_reconnects_per_window=2,
+                per_shard_min_interval_ms=1000,
+            )
+            limiter = ReconnectLimiter(config=config, _time_fn=time_fn)
+
+            results = []
+            for _step in range(10):
+                can = limiter.can_reconnect(shard_id=0)
+                results.append(can)
+                if can:
+                    limiter.record_reconnect(shard_id=0)
+                fake_time += 500  # Advance 500ms per step
+
+            return results
+
+        # Two runs should produce identical results
+        run1 = run_scenario()
+        run2 = run_scenario()
+        assert run1 == run2
+
+
+# =============================================================================
+# DEC-023: MessageThrottler Tests
+# =============================================================================
+
+
+class TestMessageThrottlerConfig:
+    """Tests for MessageThrottlerConfig."""
+
+    def test_default_values(self) -> None:
+        """Test default configuration."""
+        config = MessageThrottlerConfig()
+        assert config.max_messages_per_second == 10
+        assert config.safety_margin == 0.8
+        assert config.burst_allowance == 5
+
+    def test_custom_values(self) -> None:
+        """Test custom configuration."""
+        config = MessageThrottlerConfig(
+            max_messages_per_second=20,
+            safety_margin=0.9,
+            burst_allowance=10,
+        )
+        assert config.max_messages_per_second == 20
+
+
+class TestMessageThrottler:
+    """Tests for MessageThrottler (DEC-023: WS subscribe rate limiting)."""
+
+    def test_initial_burst_allowed(self) -> None:
+        """Test initial burst is allowed."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(burst_allowance=5)
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        # Should allow burst_allowance messages immediately
+        for _ in range(5):
+            assert throttler.can_send()
+            assert throttler.consume()
+
+    def test_rate_limiting_after_burst(self) -> None:
+        """Test rate limiting kicks in after burst exhausted."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(
+            max_messages_per_second=10,
+            safety_margin=1.0,  # No safety margin for easier testing
+            burst_allowance=3,
+        )
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        # Exhaust burst
+        for _ in range(3):
+            assert throttler.consume()
+
+        # Now rate limited
+        assert not throttler.can_send()
+
+    def test_tokens_refill_over_time(self) -> None:
+        """Test tokens refill based on elapsed time."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(
+            max_messages_per_second=10,
+            safety_margin=1.0,
+            burst_allowance=2,
+        )
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        # Exhaust all tokens
+        throttler.consume(2)
+        assert not throttler.can_send()
+
+        # Advance 100ms = 1 token refilled (10/sec * 0.1s = 1)
+        fake_time = 100
+        assert throttler.can_send()
+        assert throttler.consume()
+
+    def test_get_wait_time_accurate(self) -> None:
+        """Test get_wait_time_ms returns accurate wait time."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(
+            max_messages_per_second=10,
+            safety_margin=1.0,
+            burst_allowance=0,  # No burst for easier testing
+        )
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+        throttler._tokens = 0.0  # Force empty
+
+        # Need 1 token, rate is 10/sec, so need 100ms
+        wait_time = throttler.get_wait_time_ms(1)
+        assert wait_time == 101  # +1 for ceiling
+
+    def test_safety_margin_applied(self) -> None:
+        """Test safety margin reduces effective rate."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(
+            max_messages_per_second=10,
+            safety_margin=0.8,  # 80% of 10 = 8
+            burst_allowance=0,
+        )
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        assert throttler.effective_rate == 8.0
+
+    def test_consume_returns_false_when_insufficient(self) -> None:
+        """Test consume returns False when not enough tokens."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(burst_allowance=2)
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        # Try to consume more than available
+        assert not throttler.consume(10)
+
+        # Tokens should not be consumed on failure
+        assert throttler._tokens == 2.0
+
+    def test_batch_consumption(self) -> None:
+        """Test consuming multiple messages at once."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(burst_allowance=10)
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        # Consume batch of 5
+        assert throttler.can_send(5)
+        assert throttler.consume(5)
+
+        # 5 tokens remaining
+        status = throttler.get_status()
+        assert status["available_tokens"] == 5.0
+
+    def test_reset_restores_burst(self) -> None:
+        """Test reset restores tokens to burst allowance."""
+        fake_time = 0
+
+        def time_fn() -> int:
+            return fake_time
+
+        config = MessageThrottlerConfig(burst_allowance=5)
+        throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+        # Exhaust tokens
+        throttler.consume(5)
+        assert not throttler.can_send()
+
+        # Reset
+        throttler.reset()
+        assert throttler.can_send()
+        status = throttler.get_status()
+        assert status["available_tokens"] == 5.0
+
+    def test_deterministic_with_fake_time(self) -> None:
+        """Test throttler behavior is deterministic with fake time."""
+
+        def run_scenario() -> list[bool]:
+            """Run a scenario and return sequence of can_send results."""
+            fake_time = 0
+
+            def time_fn() -> int:
+                nonlocal fake_time
+                return fake_time
+
+            config = MessageThrottlerConfig(
+                max_messages_per_second=10,
+                safety_margin=1.0,
+                burst_allowance=3,
+            )
+            throttler = MessageThrottler(config=config, _time_fn=time_fn)
+
+            results = []
+            for _step in range(20):
+                can = throttler.can_send()
+                results.append(can)
+                if can:
+                    throttler.consume()
+                fake_time += 50  # Advance 50ms per step
+
+            return results
+
+        # Two runs should produce identical results
+        run1 = run_scenario()
+        run2 = run_scenario()
+        assert run1 == run2
+
+    def test_get_status_for_observability(self) -> None:
+        """Test status includes useful info for monitoring."""
+        config = MessageThrottlerConfig(
+            max_messages_per_second=10,
+            safety_margin=0.8,
+            burst_allowance=5,
+        )
+        throttler = MessageThrottler(config=config)
+
+        status = throttler.get_status()
+        assert "available_tokens" in status
+        assert "effective_rate_per_sec" in status
+        assert "burst_allowance" in status
+        assert status["effective_rate_per_sec"] == 8.0
+        assert status["burst_allowance"] == 5

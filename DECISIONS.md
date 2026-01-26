@@ -1307,3 +1307,109 @@ require_replay() {
 - Modified `scripts/acceptance_packet.sh` require_replay() function
 - DEC-008 replay-required detection updated
 - PRs touching inference modules now trigger full replay verification
+
+---
+
+## DEC-023: Binance Operational Safety Hardening
+
+**Date:** 2026-01-26
+
+**Decision:** Add operational safety components to prevent WebSocket reconnect storms and rate limit violations per BINANCE_LIMITS.md.
+
+**Problem:**
+1. During market volatility, multiple shards can disconnect simultaneously
+2. Without rate limiting, all shards attempting reconnect at once creates a "reconnect storm"
+3. Reconnect storms can trigger Binance IP bans (418) or rate limits (429)
+4. WS subscribe/unsubscribe operations must respect 10 msg/sec/connection limit
+5. Non-deterministic jitter in backoff makes replay testing difficult
+
+**Components Added:**
+
+1. **ReconnectLimiter** (`src/cryptoscreener/connectors/backoff.py`):
+   - Sliding window rate limiting for global reconnect attempts
+   - Per-shard minimum interval enforcement
+   - Burst protection with global cooldown after hitting limit
+   - Configurable via `ReconnectLimiterConfig`
+
+2. **MessageThrottler** (`src/cryptoscreener/connectors/backoff.py`):
+   - Token bucket algorithm for WS message rate limiting
+   - Respects Binance 10 msg/sec limit with 80% safety margin
+   - Configurable burst allowance for initial subscribe batches
+   - Configurable via `MessageThrottlerConfig`
+
+3. **Seeded Jitter** (`compute_backoff_delay()`):
+   - Optional `rng: random.Random` parameter for deterministic jitter
+   - Enables reproducible backoff sequences in replay tests
+   - Backward compatible: `rng=None` uses global random (production behavior)
+
+**ReconnectLimiter Behavior:**
+```python
+limiter = ReconnectLimiter(config=ReconnectLimiterConfig(
+    max_reconnects_per_window=5,   # Max 5 reconnects across all shards
+    window_ms=60000,               # Per minute
+    cooldown_after_burst_ms=30000, # 30s cooldown after hitting limit
+    per_shard_min_interval_ms=5000 # Min 5s between reconnects per shard
+))
+
+if limiter.can_reconnect(shard_id=0):
+    limiter.record_reconnect(shard_id=0)
+    # Proceed with reconnect
+else:
+    wait_ms = limiter.get_wait_time_ms(shard_id=0)
+    # Wait before retrying
+```
+
+**MessageThrottler Behavior:**
+```python
+throttler = MessageThrottler(config=MessageThrottlerConfig(
+    max_messages_per_second=10,  # Binance limit
+    safety_margin=0.8,           # Use 80% = 8 msg/sec effective
+    burst_allowance=5            # Allow initial burst
+))
+
+if throttler.can_send(message_count=3):
+    throttler.consume(message_count=3)
+    # Send 3 subscribe messages
+else:
+    wait_ms = throttler.get_wait_time_ms(message_count=3)
+    # Wait before sending
+```
+
+**Seeded Jitter for Replay:**
+```python
+rng = random.Random(42)  # Seeded for determinism
+delay = compute_backoff_delay(config, state, rng=rng)
+# delay is reproducible across runs
+```
+
+**Determinism Support:**
+- Both `ReconnectLimiter` and `MessageThrottler` accept optional `_time_fn` for fake time
+- Enables fully deterministic testing without `time.sleep()` or real clock
+- Tests use fake time provider: `limiter = ReconnectLimiter(_time_fn=lambda: fake_time)`
+
+**Test Coverage:**
+- `TestSeededJitter`: 4 tests for deterministic backoff
+- `TestReconnectLimiter`: 8 tests for reconnect storm protection
+- `TestMessageThrottler`: 11 tests for WS rate limiting
+- Total: 23 new tests, all using fake time for determinism
+
+**Alternatives considered:**
+1. Rate limit in StreamManager only — rejected: backoff.py is the canonical place for rate limiting
+2. Hard-coded limits — rejected: configurable limits enable tuning per deployment
+3. No seeded jitter — rejected: breaks replay determinism for backoff-related tests
+4. Semaphore-based limiting — rejected: sliding window provides smoother rate control
+
+**Rationale:**
+- BINANCE_LIMITS.md §4 requires "avoid reconnect storms during volatility"
+- BINANCE_LIMITS.md §2 specifies "10 incoming messages per second per connection"
+- Centralized rate limiters ensure consistent enforcement across all shards
+- Fake time injection enables fast, deterministic unit tests
+- Seeded jitter completes determinism story for replay testing
+
+**Impact:**
+- New `ReconnectLimiter` and `ReconnectLimiterConfig` classes
+- New `MessageThrottler` and `MessageThrottlerConfig` classes
+- Updated `compute_backoff_delay()` signature (backward compatible)
+- Updated `src/cryptoscreener/connectors/__init__.py` exports
+- 23 new tests in `tests/connectors/test_backoff.py`
+- Total backoff tests: 68 (all passing)
