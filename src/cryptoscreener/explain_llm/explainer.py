@@ -160,9 +160,7 @@ Generate the JSON output now:"""
 
 def _build_prompt(input_data: LLMExplainInput) -> str:
     """Build prompt from input data with guardrails."""
-    reasons_text = ", ".join(
-        f"{r.code}={r.value}{r.unit}" for r in input_data.reasons
-    ) or "none"
+    reasons_text = ", ".join(f"{r.code}={r.value}{r.unit}" for r in input_data.reasons) or "none"
 
     max_chars = input_data.style.max_chars if input_data.style else 180
 
@@ -342,11 +340,12 @@ class AnthropicExplainer:
         """
         assert self._client is not None
 
-        # Call Anthropic API
+        # Call Anthropic API with timeout enforcement
         response = self._client.messages.create(
             model=self.config.model,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
+            timeout=self.config.timeout_s,
             messages=[{"role": "user", "content": prompt}],
         )
 

@@ -1120,3 +1120,60 @@ FeatureSnapshot → MLRunner._run_inference() → raw probs
 - Extended `src/cryptoscreener/model_runner/__init__.py` exports
 - 32 unit tests for fallback, calibration, determinism, gates, artifact integrity, evidence policy
 - Completes MLRunner portion of PRD §11 Milestone 3
+
+---
+
+## DEC-020: LLM Timeout Enforcement
+
+**Date:** 2026-01-26
+
+**Decision:** Enforce `timeout_s` configuration in AnthropicExplainer API calls.
+
+**Problem:**
+`AnthropicExplainerConfig.timeout_s` was defined (default 10.0s) but never passed to the
+Anthropic SDK `messages.create()` call. This meant the timeout was configured but not enforced,
+creating a gap where LLM calls could hang indefinitely.
+
+**Fix:**
+```python
+# Before (timeout NOT passed):
+response = self._client.messages.create(
+    model=self.config.model,
+    max_tokens=self.config.max_tokens,
+    temperature=self.config.temperature,
+    messages=[{"role": "user", "content": prompt}],
+)
+
+# After (timeout enforced):
+response = self._client.messages.create(
+    model=self.config.model,
+    max_tokens=self.config.max_tokens,
+    temperature=self.config.temperature,
+    timeout=self.config.timeout_s,  # <-- NOW ENFORCED
+    messages=[{"role": "user", "content": prompt}],
+)
+```
+
+**Contract:**
+- Timeout → fallback (per DEC-004: "Fallback on any failure")
+- TimeoutError or httpx.TimeoutException triggers catch-all exception handler
+- Pipeline never hangs waiting for LLM response
+
+**Test Coverage:**
+- `test_timeout_uses_fallback`: TimeoutError → fallback returned
+- `test_timeout_parameter_passed_to_api`: Verifies timeout value is passed to SDK
+
+**Alternatives considered:**
+1. Use `asyncio.wait_for()` wrapper — rejected: SDK natively supports timeout parameter
+2. Global timeout via httpx client config — rejected: per-request timeout more flexible
+3. No timeout (rely on SDK defaults) — rejected: explicit is better than implicit
+
+**Rationale:**
+- Explicit timeout prevents indefinite hangs
+- Matches existing fallback contract (DEC-004)
+- No changes to validators or prompts (stays within narrow scope)
+
+**Impact:**
+- Modified `src/cryptoscreener/explain_llm/explainer.py` (1 line)
+- Added 2 tests in `tests/explain_llm/test_explainer.py`
+- LLM calls now respect configured timeout

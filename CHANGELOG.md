@@ -9,6 +9,11 @@
 
 ### Added
 
+#### LLM Timeout Enforcement (DEC-020)
+- Fixed: `timeout_s` config now passed to Anthropic API call
+- Timeout → fallback (per DEC-004 contract)
+- New tests: `test_timeout_uses_fallback`, `test_timeout_parameter_passed_to_api`
+
 #### MLRunner E2E Acceptance as CI Gate (DEC-019)
 - New `tests/replay/test_mlrunner_e2e_determinism.py` with 17 tests
 - MLRunner determinism contract:
