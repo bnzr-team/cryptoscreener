@@ -21,7 +21,10 @@ from cryptoscreener.connectors.backoff import (
     BackoffConfig,
     BackoffState,
     CircuitBreaker,
+    GovernorDroppedError,
+    GovernorTimeoutError,
     RateLimitError,
+    RestGovernor,
     compute_backoff_delay,
     handle_error_response,
 )
@@ -49,6 +52,7 @@ class BinanceRestClient:
         self,
         config: ConnectorConfig | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        governor: RestGovernor | None = None,
     ) -> None:
         """
         Initialize the REST client.
@@ -56,9 +60,13 @@ class BinanceRestClient:
         Args:
             config: Connector configuration.
             circuit_breaker: Shared circuit breaker for rate limit protection.
+            governor: Optional RestGovernor for budget/queue/concurrency control.
+                      DEC-023d: If provided, replaces manual circuit breaker checks
+                      and adds budget-based rate limiting with bounded queue.
         """
         self._config = config or ConnectorConfig()
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
+        self._governor = governor
         self._backoff_config = BackoffConfig()
         self._backoff_state = BackoffState()
         self._session: aiohttp.ClientSession | None = None
@@ -85,6 +93,9 @@ class BinanceRestClient:
         """
         Make an HTTP request with retry and circuit breaker logic.
 
+        DEC-023d: If governor is configured, uses permit() for budget/queue/concurrency
+        control. Governor integrates with circuit breaker internally.
+
         Args:
             method: HTTP method.
             endpoint: API endpoint path.
@@ -94,111 +105,278 @@ class BinanceRestClient:
             JSON response data (dict or list depending on endpoint).
 
         Raises:
-            RateLimitError: If rate limited and retries exhausted.
+            RateLimitError: If rate limited and retries exhausted, or circuit breaker open.
+            GovernorDroppedError: If governor queue is full (DEC-023d).
+            GovernorTimeoutError: If timeout waiting in governor queue (DEC-023d).
             aiohttp.ClientError: On network errors.
         """
         url = f"{self._config.base_rest_url}{endpoint}"
 
         while self._backoff_state.attempt <= self._backoff_config.max_retries:
-            # Check circuit breaker
-            if not self._circuit_breaker.can_execute():
-                logger.warning(
-                    "Circuit breaker open, blocking request",
-                    extra={"endpoint": endpoint},
-                )
-                raise RateLimitError(
-                    "Circuit breaker open",
-                    retry_after_ms=self._circuit_breaker.recovery_timeout_ms,
-                )
-
-            # Apply backoff delay
-            delay_ms = compute_backoff_delay(
-                self._backoff_config,
-                self._backoff_state,
-            )
-            if delay_ms > 0:
-                logger.debug(
-                    "Backing off before request",
-                    extra={"delay_ms": delay_ms, "attempt": self._backoff_state.attempt},
-                )
-                await asyncio.sleep(delay_ms / 1000)
-
-            try:
-                session = await self._get_session()
-                async with session.request(method, url, params=params) as response:
-                    # Parse Retry-After header if present
-                    retry_after_ms = None
-                    if "Retry-After" in response.headers:
-                        with contextlib.suppress(ValueError):
-                            retry_after_ms = int(response.headers["Retry-After"]) * 1000
-
-                    # Check for rate limit errors
-                    if response.status in (429, 418):
-                        error_code = None
-                        try:
-                            data = await response.json()
-                            error_code = data.get("code")
-                        except Exception:
-                            pass
-
-                        rate_limit_error = handle_error_response(
-                            response.status,
-                            error_code=error_code,
-                            retry_after_ms=retry_after_ms,
-                        )
-                        if rate_limit_error:
-                            self._circuit_breaker.record_failure(
-                                is_rate_limit=True,
-                                is_ip_ban=rate_limit_error.is_ip_ban,
-                            )
-                            self._backoff_state.record_error()
-                            logger.warning(
-                                "Rate limit hit",
-                                extra={
-                                    "status": response.status,
-                                    "error_code": error_code,
-                                    "retry_after_ms": retry_after_ms,
-                                },
-                            )
-                            continue  # Retry with backoff
-
-                    # Handle other errors
-                    if response.status >= 400:
-                        self._backoff_state.record_error()
-                        text = await response.text()
-                        logger.error(
-                            "HTTP error",
-                            extra={"status": response.status, "body": text[:500]},
-                        )
-                        if response.status >= 500:
-                            # Server error, retry
-                            continue
-                        # Client error, don't retry
-                        raise aiohttp.ClientResponseError(
-                            response.request_info,
-                            response.history,
-                            status=response.status,
-                            message=text[:200],
-                        )
-
-                    # Success
-                    self._circuit_breaker.record_success()
-                    self._backoff_state.reset()
-                    result: dict[str, Any] = await response.json()
-                    return result
-
-            except aiohttp.ClientError as e:
-                self._backoff_state.record_error()
-                logger.warning(
-                    "Request failed",
-                    extra={"error": str(e), "attempt": self._backoff_state.attempt},
-                )
-                if self._backoff_state.attempt > self._backoff_config.max_retries:
+            # DEC-023d: Use governor if configured, otherwise fall back to direct circuit breaker
+            if self._governor is not None:
+                # Governor handles circuit breaker check, budget, queue, and concurrency
+                # Exceptions (GovernorDroppedError, GovernorTimeoutError, RateLimitError)
+                # propagate up - no retry for these governance errors
+                try:
+                    return await self._request_with_governor(method, endpoint, url, params)
+                except (GovernorDroppedError, GovernorTimeoutError):
+                    # Governance errors are not retryable
                     raise
+                except RateLimitError:
+                    # Circuit breaker open via governor - not retryable
+                    raise
+                except aiohttp.ClientError as e:
+                    # Network errors - record and potentially retry
+                    self._backoff_state.record_error()
+                    logger.warning(
+                        "Request failed (governed)",
+                        extra={"error": str(e), "attempt": self._backoff_state.attempt},
+                    )
+                    if self._backoff_state.attempt > self._backoff_config.max_retries:
+                        raise
+                    # Apply backoff before retry
+                    delay_ms = compute_backoff_delay(self._backoff_config, self._backoff_state)
+                    if delay_ms > 0:
+                        await asyncio.sleep(delay_ms / 1000)
+                    continue
+            else:
+                # Legacy path: direct circuit breaker check (no governor)
+                result = await self._request_legacy(method, endpoint, url, params)
+                if result is not None:
+                    return result
+                # None means retry (rate limit or server error)
+                continue
 
         raise RateLimitError(
             f"Max retries ({self._backoff_config.max_retries}) exhausted",
         )
+
+    async def _request_with_governor(
+        self,
+        method: str,
+        endpoint: str,
+        url: str,
+        params: dict[str, str] | None,
+    ) -> Any:
+        """
+        Execute request with governor controlling budget/queue/concurrency.
+
+        DEC-023d: Governor.permit() handles:
+        - Circuit breaker check (fail-fast if OPEN)
+        - Budget consumption (token bucket)
+        - Queue management (bounded FIFO with drop-new)
+        - Concurrency limiting (semaphore)
+        - Automatic slot release on exit
+
+        Args:
+            method: HTTP method.
+            endpoint: API endpoint path.
+            url: Full URL.
+            params: Query parameters.
+
+        Returns:
+            JSON response data.
+
+        Raises:
+            RateLimitError: If circuit breaker is OPEN or rate limit hit.
+            GovernorDroppedError: If queue is full.
+            GovernorTimeoutError: If timeout waiting in queue.
+            aiohttp.ClientError: On network errors.
+        """
+        assert self._governor is not None  # Type narrowing
+
+        async with self._governor.permit(endpoint):
+            session = await self._get_session()
+            async with session.request(method, url, params=params) as response:
+                # Parse Retry-After header if present
+                retry_after_ms = None
+                if "Retry-After" in response.headers:
+                    with contextlib.suppress(ValueError):
+                        retry_after_ms = int(response.headers["Retry-After"]) * 1000
+
+                # Check for rate limit errors
+                if response.status in (429, 418):
+                    error_code = None
+                    try:
+                        data = await response.json()
+                        error_code = data.get("code")
+                    except Exception:
+                        pass
+
+                    rate_limit_error = handle_error_response(
+                        response.status,
+                        error_code=error_code,
+                        retry_after_ms=retry_after_ms,
+                    )
+                    if rate_limit_error:
+                        # Record failure in circuit breaker (governor's or standalone)
+                        self._circuit_breaker.record_failure(
+                            is_rate_limit=True,
+                            is_ip_ban=rate_limit_error.is_ip_ban,
+                        )
+                        self._backoff_state.record_error()
+                        logger.warning(
+                            "Rate limit hit (governed)",
+                            extra={
+                                "status": response.status,
+                                "error_code": error_code,
+                                "retry_after_ms": retry_after_ms,
+                            },
+                        )
+                        raise rate_limit_error
+
+                # Handle other errors
+                if response.status >= 400:
+                    self._backoff_state.record_error()
+                    text = await response.text()
+                    logger.error(
+                        "HTTP error (governed)",
+                        extra={"status": response.status, "body": text[:500]},
+                    )
+                    if response.status >= 500:
+                        # Server error - raise to trigger retry in _request()
+                        raise aiohttp.ClientResponseError(
+                            response.request_info,
+                            response.history,
+                            status=response.status,
+                            message=f"Server error: {text[:200]}",
+                        )
+                    # Client error (4xx non-rate-limit) - don't retry
+                    raise aiohttp.ClientResponseError(
+                        response.request_info,
+                        response.history,
+                        status=response.status,
+                        message=text[:200],
+                    )
+
+                # Success
+                self._circuit_breaker.record_success()
+                self._backoff_state.reset()
+                result: dict[str, Any] = await response.json()
+                return result
+
+    async def _request_legacy(
+        self,
+        method: str,
+        endpoint: str,
+        url: str,
+        params: dict[str, str] | None,
+    ) -> Any | None:
+        """
+        Execute request with legacy circuit breaker (no governor).
+
+        Pre-DEC-023d path for backward compatibility.
+
+        Args:
+            method: HTTP method.
+            endpoint: API endpoint path.
+            url: Full URL.
+            params: Query parameters.
+
+        Returns:
+            JSON response data on success, None if should retry.
+
+        Raises:
+            RateLimitError: If circuit breaker is open.
+            aiohttp.ClientError: On non-retryable client errors.
+        """
+        # Check circuit breaker
+        if not self._circuit_breaker.can_execute():
+            logger.warning(
+                "Circuit breaker open, blocking request",
+                extra={"endpoint": endpoint},
+            )
+            raise RateLimitError(
+                "Circuit breaker open",
+                retry_after_ms=self._circuit_breaker.recovery_timeout_ms,
+            )
+
+        # Apply backoff delay
+        delay_ms = compute_backoff_delay(
+            self._backoff_config,
+            self._backoff_state,
+        )
+        if delay_ms > 0:
+            logger.debug(
+                "Backing off before request",
+                extra={"delay_ms": delay_ms, "attempt": self._backoff_state.attempt},
+            )
+            await asyncio.sleep(delay_ms / 1000)
+
+        try:
+            session = await self._get_session()
+            async with session.request(method, url, params=params) as response:
+                # Parse Retry-After header if present
+                retry_after_ms = None
+                if "Retry-After" in response.headers:
+                    with contextlib.suppress(ValueError):
+                        retry_after_ms = int(response.headers["Retry-After"]) * 1000
+
+                # Check for rate limit errors
+                if response.status in (429, 418):
+                    error_code = None
+                    try:
+                        data = await response.json()
+                        error_code = data.get("code")
+                    except Exception:
+                        pass
+
+                    rate_limit_error = handle_error_response(
+                        response.status,
+                        error_code=error_code,
+                        retry_after_ms=retry_after_ms,
+                    )
+                    if rate_limit_error:
+                        self._circuit_breaker.record_failure(
+                            is_rate_limit=True,
+                            is_ip_ban=rate_limit_error.is_ip_ban,
+                        )
+                        self._backoff_state.record_error()
+                        logger.warning(
+                            "Rate limit hit",
+                            extra={
+                                "status": response.status,
+                                "error_code": error_code,
+                                "retry_after_ms": retry_after_ms,
+                            },
+                        )
+                        return None  # Signal retry
+
+                # Handle other errors
+                if response.status >= 400:
+                    self._backoff_state.record_error()
+                    text = await response.text()
+                    logger.error(
+                        "HTTP error",
+                        extra={"status": response.status, "body": text[:500]},
+                    )
+                    if response.status >= 500:
+                        # Server error, retry
+                        return None
+                    # Client error, don't retry
+                    raise aiohttp.ClientResponseError(
+                        response.request_info,
+                        response.history,
+                        status=response.status,
+                        message=text[:200],
+                    )
+
+                # Success
+                self._circuit_breaker.record_success()
+                self._backoff_state.reset()
+                result: dict[str, Any] = await response.json()
+                return result
+
+        except aiohttp.ClientError as e:
+            self._backoff_state.record_error()
+            logger.warning(
+                "Request failed",
+                extra={"error": str(e), "attempt": self._backoff_state.attempt},
+            )
+            if self._backoff_state.attempt > self._backoff_config.max_retries:
+                raise
+            return None  # Signal retry
 
     async def get_exchange_info(self) -> ExchangeInfo:
         """

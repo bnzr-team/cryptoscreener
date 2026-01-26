@@ -1,11 +1,21 @@
 """Tests for Binance REST client."""
 
+from __future__ import annotations
+
+import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
 
-from cryptoscreener.connectors.backoff import CircuitBreaker, RateLimitError
+from cryptoscreener.connectors.backoff import (
+    CircuitBreaker,
+    GovernorDroppedError,
+    RateLimitError,
+    RestGovernor,
+    RestGovernorConfig,
+)
 from cryptoscreener.connectors.binance.rest_client import BinanceRestClient
 from cryptoscreener.connectors.binance.types import ConnectorConfig
 
@@ -221,3 +231,315 @@ class TestBinanceRestClientConfig:
         client = BinanceRestClient(circuit_breaker=cb)
 
         assert client._circuit_breaker is cb
+
+    def test_governor_can_be_provided(self) -> None:
+        """RestGovernor can be provided (DEC-023d)."""
+        cb = CircuitBreaker()
+        governor = RestGovernor(circuit_breaker=cb)
+        client = BinanceRestClient(circuit_breaker=cb, governor=governor)
+
+        assert client._governor is governor
+
+
+# =============================================================================
+# DEC-023d: Governor Integration Tests
+# =============================================================================
+
+
+class TestBinanceRestClientWithGovernor:
+    """Integration tests for REST client with RestGovernor (DEC-023d)."""
+
+    @pytest.fixture
+    def circuit_breaker(self) -> CircuitBreaker:
+        """Create circuit breaker for testing."""
+        return CircuitBreaker()
+
+    @pytest.fixture
+    def governor(self, circuit_breaker: CircuitBreaker) -> RestGovernor:
+        """Create governor with small limits for testing."""
+        config = RestGovernorConfig(
+            budget_weight_per_minute=100,  # Small budget for testing
+            max_queue_depth=3,  # Small queue for testing
+            max_concurrent_requests=2,  # Small concurrency for testing
+            default_timeout_ms=5000,
+        )
+        return RestGovernor(config=config, circuit_breaker=circuit_breaker)
+
+    @pytest.fixture
+    def client(self, circuit_breaker: CircuitBreaker, governor: RestGovernor) -> BinanceRestClient:
+        """Create REST client with governor."""
+        return BinanceRestClient(circuit_breaker=circuit_breaker, governor=governor)
+
+    @pytest.fixture
+    def mock_response(self) -> MagicMock:
+        """Create mock aiohttp response for successful request."""
+        response = MagicMock()
+        response.status = 200
+        response.headers = {}
+        response.json = AsyncMock(return_value={"serverTime": 1234567890})
+        response.text = AsyncMock(return_value="")
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+        return response
+
+    @pytest.mark.asyncio
+    async def test_governor_permits_normal_request(
+        self,
+        client: BinanceRestClient,
+        governor: RestGovernor,
+        mock_response: MagicMock,
+    ) -> None:
+        """Normal request goes through governor successfully."""
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
+            result = await client.get_server_time()
+
+        assert result == 1234567890
+        assert governor.metrics.requests_allowed == 1
+        assert governor.metrics.requests_dropped == 0
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_governor_breaker_open_fails_fast(
+        self,
+        client: BinanceRestClient,
+        circuit_breaker: CircuitBreaker,
+        governor: RestGovernor,
+    ) -> None:
+        """Circuit breaker OPEN via governor → fail-fast (DEC-023d)."""
+        # Force circuit breaker open
+        circuit_breaker.force_open(60000, "test")
+
+        with pytest.raises(RateLimitError) as exc_info:
+            await client.get_server_time()
+
+        assert "Circuit breaker OPEN" in str(exc_info.value)
+        # Verify fail-fast: only 1 attempt, no retries
+        assert governor.metrics.requests_failed_breaker == 1
+        assert governor.metrics.requests_allowed == 0
+        assert governor.metrics.requests_deferred == 0
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_governor_queue_full_drops_request(
+        self,
+        client: BinanceRestClient,
+        governor: RestGovernor,
+        mock_response: MagicMock,
+    ) -> None:
+        """Queue full → drop-new policy rejects request (DEC-023d)."""
+        # First, exhaust budget to force queuing
+        # Budget is 100, default weight is 10, so 10 requests would exhaust
+        # But we also have concurrency=2, so only 2 can be in-flight
+        # We need to fill the queue (max_queue_depth=3)
+
+        # Simulate a slow response that blocks concurrency slots
+        slow_response = MagicMock()
+        slow_response.status = 200
+        slow_response.headers = {}
+        slow_response.text = AsyncMock(return_value="")
+        slow_response.__aenter__ = AsyncMock(return_value=slow_response)
+        slow_response.__aexit__ = AsyncMock(return_value=None)
+
+        # This will block on json() call, simulating slow response
+        slow_event = asyncio.Event()
+
+        async def slow_json() -> dict[str, int]:
+            await slow_event.wait()
+            return {"serverTime": 1}
+
+        slow_response.json = slow_json
+
+        tasks: list[asyncio.Task[int]] = []
+
+        with patch.object(aiohttp.ClientSession, "request", return_value=slow_response):
+            # Start max_concurrent requests (2) - they will block
+            for _ in range(governor.config.max_concurrent_requests):
+                task = asyncio.create_task(client.get_server_time())
+                tasks.append(task)
+                # Give time for task to acquire slot
+                await asyncio.sleep(0.01)
+
+            # Queue up max_queue_depth requests (3)
+            for _ in range(governor.config.max_queue_depth):
+                task = asyncio.create_task(client.get_server_time())
+                tasks.append(task)
+                await asyncio.sleep(0.01)
+
+            # Next request should be dropped
+            with pytest.raises(GovernorDroppedError) as exc_info:
+                await client.get_server_time()
+
+            assert "Queue full" in str(exc_info.value)
+            assert governor.metrics.drop_reason_queue_full > 0
+
+            # Cleanup: signal slow responses to complete
+            slow_event.set()
+            for task in tasks:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(task, timeout=1.0)
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_governor_concurrency_cap_respected(
+        self,
+        client: BinanceRestClient,
+        governor: RestGovernor,
+    ) -> None:
+        """Concurrency cap is respected during concurrent requests (DEC-023d)."""
+        max_concurrent = governor.config.max_concurrent_requests
+        concurrency_samples: list[int] = []
+        proceed_event = asyncio.Event()
+
+        # Create a slow mock response that blocks inside the governor-protected section
+        def make_slow_response() -> MagicMock:
+            response = MagicMock()
+            response.status = 200
+            response.headers = {}
+            response.text = AsyncMock(return_value="")
+            response.__aenter__ = AsyncMock(return_value=response)
+            response.__aexit__ = AsyncMock(return_value=None)
+
+            async def slow_json() -> dict[str, int]:
+                # Sample governor's concurrent count while we're holding a slot
+                count = await governor.get_concurrent_count()
+                concurrency_samples.append(count)
+                # Wait until signaled to complete
+                await proceed_event.wait()
+                return {"serverTime": 1}
+
+            response.json = slow_json
+            return response
+
+        slow_response = make_slow_response()
+
+        with patch.object(aiohttp.ClientSession, "request", return_value=slow_response):
+            # Start more requests than concurrency allows
+            num_requests = max_concurrent + 3
+            tasks = [asyncio.create_task(client.get_server_time()) for _ in range(num_requests)]
+
+            # Let tasks start and block on slow_json
+            await asyncio.sleep(0.1)
+
+            # Check that only max_concurrent are in-flight in the governor
+            current_concurrent = await governor.get_concurrent_count()
+            assert current_concurrent <= max_concurrent, (
+                f"Concurrent count {current_concurrent} exceeds max {max_concurrent}"
+            )
+
+            # Let requests complete
+            proceed_event.set()
+            await asyncio.gather(*tasks)
+
+        # Verify max concurrency was never exceeded (samples taken inside permit())
+        max_observed = max(concurrency_samples) if concurrency_samples else 0
+        assert max_observed <= max_concurrent, (
+            f"Max observed concurrency {max_observed} exceeds cap {max_concurrent}"
+        )
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_governor_metrics_grow_under_load(
+        self,
+        client: BinanceRestClient,
+        governor: RestGovernor,
+        mock_response: MagicMock,
+    ) -> None:
+        """Metrics accumulate correctly under load (DEC-023d)."""
+        initial_allowed = governor.metrics.requests_allowed
+        num_requests = 5
+
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
+            for _ in range(num_requests):
+                await client.get_server_time()
+
+        assert governor.metrics.requests_allowed == initial_allowed + num_requests
+        # Verify budget was consumed
+        status = await governor.get_status_async()
+        # Each /fapi/v1/time has weight 1 (per DEFAULT_ENDPOINT_WEIGHTS)
+        # 5 requests = 5 weight consumed from 100 budget
+        assert status["budget_tokens"] < 100  # Some budget consumed
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_governed_request_records_rate_limit_in_breaker(
+        self,
+        client: BinanceRestClient,
+        circuit_breaker: CircuitBreaker,
+        mock_response: MagicMock,
+    ) -> None:
+        """Rate limit (429) via governed request opens circuit breaker (DEC-023d)."""
+        mock_response.status = 429
+        mock_response.headers = {"Retry-After": "1"}
+        mock_response.json = AsyncMock(return_value={"code": -1003})
+
+        # Limit retries for faster test
+        client._backoff_config.max_retries = 1
+
+        with (
+            patch.object(aiohttp.ClientSession, "request", return_value=mock_response),
+            pytest.raises(RateLimitError),
+        ):
+            await client.get_server_time()
+
+        # Circuit breaker should be open
+        assert not circuit_breaker.can_execute()
+
+        await client.close()
+
+
+class TestBinanceRestClientGovernorBackwardCompatibility:
+    """Tests verifying backward compatibility without governor (DEC-023d)."""
+
+    @pytest.fixture
+    def client_no_governor(self) -> BinanceRestClient:
+        """Create REST client without governor (legacy mode)."""
+        return BinanceRestClient()
+
+    @pytest.fixture
+    def mock_response(self) -> MagicMock:
+        """Create mock aiohttp response."""
+        response = MagicMock()
+        response.status = 200
+        response.headers = {}
+        response.json = AsyncMock(return_value={"serverTime": 1234567890})
+        response.text = AsyncMock(return_value="")
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+        return response
+
+    @pytest.mark.asyncio
+    async def test_legacy_mode_still_works(
+        self,
+        client_no_governor: BinanceRestClient,
+        mock_response: MagicMock,
+    ) -> None:
+        """Client without governor still works (backward compatibility)."""
+        assert client_no_governor._governor is None
+
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
+            result = await client_no_governor.get_server_time()
+
+        assert result == 1234567890
+
+        await client_no_governor.close()
+
+    @pytest.mark.asyncio
+    async def test_legacy_circuit_breaker_blocks(
+        self,
+        client_no_governor: BinanceRestClient,
+    ) -> None:
+        """Legacy circuit breaker blocking still works."""
+        client_no_governor._circuit_breaker.force_open(60000, "test")
+
+        with pytest.raises(RateLimitError) as exc_info:
+            await client_no_governor.get_server_time()
+
+        # Legacy error message format
+        assert "Circuit breaker open" in str(exc_info.value)
+
+        await client_no_governor.close()
