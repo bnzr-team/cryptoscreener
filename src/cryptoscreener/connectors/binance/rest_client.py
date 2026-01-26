@@ -171,7 +171,7 @@ class BinanceRestClient:
 
         Args:
             method: HTTP method.
-            endpoint: API endpoint path.
+            endpoint: API endpoint path (already normalized, no query string).
             url: Full URL.
             params: Query parameters.
 
@@ -186,7 +186,12 @@ class BinanceRestClient:
         """
         assert self._governor is not None  # Type narrowing
 
-        async with self._governor.permit(endpoint):
+        # DEC-023d: Compute weight from endpoint and pass explicit weight + timeout
+        # Normalization happens at client boundary (endpoint is already clean path)
+        weight = self._governor.config.get_endpoint_weight(endpoint)
+        timeout_ms = self._config.request_timeout_ms
+
+        async with self._governor.permit(endpoint, weight=weight, timeout_ms=timeout_ms):
             session = await self._get_session()
             async with session.request(method, url, params=params) as response:
                 # Parse Retry-After header if present

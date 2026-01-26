@@ -543,3 +543,177 @@ class TestBinanceRestClientGovernorBackwardCompatibility:
         assert "Circuit breaker open" in str(exc_info.value)
 
         await client_no_governor.close()
+
+
+class TestBinanceRestClientGovernorWeightTimeout:
+    """Tests for governor weight and timeout wiring semantics (DEC-023d-wiring).
+
+    These tests verify that:
+    1. Endpoint weight is correctly looked up and passed to governor.permit()
+    2. Timeout from client config is passed to governor.permit()
+    3. Budget consumption matches expected endpoint weights
+    """
+
+    @pytest.fixture
+    def circuit_breaker(self) -> CircuitBreaker:
+        """Create circuit breaker for testing."""
+        return CircuitBreaker()
+
+    @pytest.mark.asyncio
+    async def test_endpoint_weight_passed_to_governor(
+        self,
+        circuit_breaker: CircuitBreaker,
+    ) -> None:
+        """Verify correct endpoint weight is passed to governor.permit() (DEC-023d-wiring).
+
+        Tests that:
+        - /fapi/v1/time uses weight=1
+        - /fapi/v1/exchangeInfo uses weight=40
+        - Budget consumption matches expected weights
+        """
+        # Use small budget to make weight consumption visible
+        config = RestGovernorConfig(
+            budget_weight_per_minute=100,
+            max_queue_depth=10,
+            max_concurrent_requests=10,
+        )
+        governor = RestGovernor(config=config, circuit_breaker=circuit_breaker)
+        client = BinanceRestClient(circuit_breaker=circuit_breaker, governor=governor)
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.text = AsyncMock(return_value="")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        # Initial budget
+        initial_status = governor.get_status()
+        initial_budget = initial_status["budget_tokens"]
+        assert initial_budget == 100.0
+
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
+            # Request to /fapi/v1/time (weight=1)
+            mock_response.json = AsyncMock(return_value={"serverTime": 123})
+            await client.get_server_time()
+
+            status_after_time = governor.get_status()
+            budget_after_time = status_after_time["budget_tokens"]
+            # Should consume weight=1
+            assert budget_after_time == 99.0, f"Expected 99.0, got {budget_after_time}"
+
+            # Request to /fapi/v1/exchangeInfo (weight=40)
+            mock_response.json = AsyncMock(
+                return_value={"symbols": [], "serverTime": 123, "rateLimits": []}
+            )
+            await client.get_exchange_info()
+
+            status_after_exchange = governor.get_status()
+            budget_after_exchange = status_after_exchange["budget_tokens"]
+            # Should consume additional weight=40
+            assert budget_after_exchange == 59.0, f"Expected 59.0, got {budget_after_exchange}"
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_client_timeout_passed_to_governor(
+        self,
+        circuit_breaker: CircuitBreaker,
+    ) -> None:
+        """Verify client timeout config is passed to governor.permit() (DEC-023d-wiring).
+
+        Tests that the request_timeout_ms from ConnectorConfig is used as the
+        timeout_ms parameter when calling governor.permit().
+        """
+        # Custom timeout in config
+        custom_timeout_ms = 15000
+        client_config = ConnectorConfig(request_timeout_ms=custom_timeout_ms)
+
+        # Governor with short default timeout (different from client's)
+        governor_config = RestGovernorConfig(
+            budget_weight_per_minute=1000,
+            max_queue_depth=10,
+            max_concurrent_requests=10,
+            default_timeout_ms=5000,  # Governor default is different
+        )
+        governor = RestGovernor(config=governor_config, circuit_breaker=circuit_breaker)
+        client = BinanceRestClient(
+            config=client_config,
+            circuit_breaker=circuit_breaker,
+            governor=governor,
+        )
+
+        # Track what parameters were passed to permit()
+        permit_calls: list[tuple[str, int | None, int | None]] = []
+        original_permit = governor.permit
+
+        @contextlib.asynccontextmanager
+        async def tracking_permit(
+            endpoint: str,
+            weight: int | None = None,
+            timeout_ms: int | None = None,
+        ):
+            permit_calls.append((endpoint, weight, timeout_ms))
+            async with original_permit(endpoint, weight, timeout_ms):
+                yield
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.json = AsyncMock(return_value={"serverTime": 123})
+        mock_response.text = AsyncMock(return_value="")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(governor, "permit", tracking_permit),
+            patch.object(aiohttp.ClientSession, "request", return_value=mock_response),
+        ):
+            await client.get_server_time()
+
+        # Verify permit was called with correct parameters
+        assert len(permit_calls) == 1
+        endpoint, weight, timeout_ms = permit_calls[0]
+        assert endpoint == "/fapi/v1/time"
+        assert weight == 1  # Known weight for this endpoint
+        assert timeout_ms == custom_timeout_ms  # Client's timeout, not governor's default
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_ticker_endpoint_weight_40(
+        self,
+        circuit_breaker: CircuitBreaker,
+    ) -> None:
+        """Verify /fapi/v1/ticker/24hr uses weight=40 (DEC-023d-wiring).
+
+        Tests that the ticker endpoint correctly consumes its documented weight.
+        """
+        config = RestGovernorConfig(
+            budget_weight_per_minute=100,
+            max_queue_depth=10,
+            max_concurrent_requests=10,
+        )
+        governor = RestGovernor(config=config, circuit_breaker=circuit_breaker)
+        client = BinanceRestClient(circuit_breaker=circuit_breaker, governor=governor)
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.json = AsyncMock(return_value=[{"symbol": "BTCUSDT", "quoteVolume": "1000"}])
+        mock_response.text = AsyncMock(return_value="")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        initial_budget = governor.get_status()["budget_tokens"]
+
+        with patch.object(aiohttp.ClientSession, "request", return_value=mock_response):
+            # get_24h_tickers calls /fapi/v1/ticker/24hr which has weight=40
+            await client.get_24h_tickers()
+
+        # Verify known weight was used (40 for /fapi/v1/ticker/24hr)
+        after_budget = governor.get_status()["budget_tokens"]
+        consumed = initial_budget - after_budget
+        assert consumed == 40, f"Expected weight 40, consumed {consumed}"
+
+        await client.close()

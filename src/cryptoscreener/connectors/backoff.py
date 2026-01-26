@@ -713,17 +713,22 @@ class RestGovernorConfig:
     def get_endpoint_weight(self, endpoint: str) -> int:
         """Get weight for an endpoint.
 
-        Normalizes endpoint by stripping query string before lookup.
-        E.g., "/fapi/v1/time?x=1" → "/fapi/v1/time" → weight=1
+        Expects a clean endpoint path (no query string). Normalization
+        (stripping query strings) should happen at the client boundary
+        before calling this method.
+
+        Args:
+            endpoint: Clean API endpoint path (e.g., "/fapi/v1/time").
+
+        Returns:
+            Weight for the endpoint (custom > default > fallback).
         """
-        # Normalize: strip query string if present
-        normalized = endpoint.split("?", 1)[0]
         # Check custom weights first
-        if normalized in self.endpoint_weights:
-            return self.endpoint_weights[normalized]
+        if endpoint in self.endpoint_weights:
+            return self.endpoint_weights[endpoint]
         # Fall back to default weights
-        if normalized in DEFAULT_ENDPOINT_WEIGHTS:
-            return DEFAULT_ENDPOINT_WEIGHTS[normalized]
+        if endpoint in DEFAULT_ENDPOINT_WEIGHTS:
+            return DEFAULT_ENDPOINT_WEIGHTS[endpoint]
         return self.default_endpoint_weight
 
 
