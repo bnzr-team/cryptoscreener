@@ -1571,3 +1571,118 @@ fake_time = 5000
 - 13 new integration tests in test_shard.py and test_stream_manager.py
 - Total connector tests: 150 (all passing)
 - Total project tests: 859 (all passing)
+
+---
+
+## DEC-023c: REST Governor Proofing (Deterministic CircuitBreaker)
+
+**Date:** 2026-01-26
+
+**Decision:** Add deterministic fake-clock testing to CircuitBreaker and complete Retry-After parsing coverage.
+
+**Scope:**
+This is **Phase 3** — proving REST governor (CircuitBreaker) behavior with deterministic tests.
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| `_time_fn` injection in CircuitBreaker | ✅ Implemented | `backoff.py` |
+| State machine determinism tests | ✅ Implemented | `test_backoff.py` |
+| Retry-After parsing proof | ✅ Implemented | `test_backoff.py` |
+| 418 ban recovery (5 min) | ✅ Implemented | `test_backoff.py` |
+| -1003 specific tests | ✅ Implemented | `test_backoff.py` |
+
+**Problem:**
+1. CircuitBreaker uses `time.time()` directly, making tests non-deterministic
+2. Need proof that state transitions work correctly: CLOSED → OPEN → HALF_OPEN → CLOSED
+3. 418 ban recovery uses 5-minute timeout (300000ms) — need deterministic verification
+4. Retry-After header parsing needs coverage for seconds, HTTP-date, and fallback
+
+**Changes:**
+
+1. **CircuitBreaker `_time_fn` injection** (`backoff.py`):
+   - Add optional `_time_fn: Callable[[], int] | None` field
+   - Replace all `time.time() * 1000` calls with `_now_ms()` method
+   - Backward compatible: `_time_fn=None` uses real time
+
+2. **State Machine Determinism Tests** (`test_backoff.py`):
+   - `test_closed_to_open_on_429_deterministic`: Single 429 → OPEN
+   - `test_closed_to_open_on_418_deterministic`: Single 418 → OPEN + ban flag
+   - `test_open_to_half_open_after_timeout_deterministic`: OPEN → HALF_OPEN after recovery_timeout_ms
+   - `test_half_open_to_closed_on_success_deterministic`: HALF_OPEN + success → CLOSED
+   - `test_half_open_to_open_on_failure_deterministic`: HALF_OPEN + failure → OPEN
+   - `test_full_state_machine_cycle_deterministic`: Complete CLOSED → OPEN → HALF_OPEN → CLOSED
+
+3. **Retry-After Parsing Tests** (`test_backoff.py`):
+   - `test_retry_after_seconds_format`: "60" → 60000ms
+   - `test_retry_after_http_date_format`: HTTP-date → delta ms (if implemented)
+   - `test_retry_after_missing_uses_fallback`: No header → exponential backoff
+   - `test_retry_after_invalid_uses_fallback`: Garbage → exponential backoff
+
+4. **418 Ban Recovery Tests** (`test_backoff.py`):
+   - `test_418_uses_5_minute_recovery`: 418 → ban_recovery_timeout_ms=300000
+   - `test_418_recovery_deterministic`: Full cycle with fake clock
+   - `test_418_clears_ban_flag_on_half_open`: Ban flag cleared when transitioning
+
+5. **-1003 Specific Tests** (`test_backoff.py`):
+   - `test_minus_1003_recognized`: -1003 → RateLimitError
+   - `test_minus_1003_opens_circuit`: -1003 treated as rate limit → OPEN
+   - `test_minus_1003_with_retry_after`: -1003 + Retry-After respected
+
+**Determinism Pattern:**
+```python
+# All CircuitBreaker tests use fake clock
+fake_time = 0
+
+def time_fn() -> int:
+    return fake_time
+
+cb = CircuitBreaker(
+    recovery_timeout_ms=30000,
+    ban_recovery_timeout_ms=300000,
+    _time_fn=time_fn,  # Injected for determinism
+)
+
+# Record failure
+cb.record_failure(is_rate_limit=True)
+assert cb.state == CircuitState.OPEN
+
+# Advance fake clock past recovery timeout
+fake_time = 30001
+
+# Now can transition to HALF_OPEN
+assert cb.can_execute()
+assert cb.state == CircuitState.HALF_OPEN
+```
+
+**Retry-After Header Handling:**
+Per BINANCE_LIMITS.md: "respect Retry-After header when provided"
+
+| Format | Example | Behavior |
+|--------|---------|----------|
+| Seconds | `Retry-After: 60` | delay = max(computed, 60000ms) |
+| HTTP-date | `Retry-After: Wed, 21 Oct 2015 07:28:00 GMT` | Parse, compute delta, use as delay |
+| Missing | (no header) | Use exponential backoff |
+| Invalid | `Retry-After: asdf` | Use exponential backoff (ignore invalid) |
+
+**418 Ban Recovery:**
+- Default: `ban_recovery_timeout_ms = 300000` (5 minutes)
+- Ban flag set on 418
+- Ban flag cleared when transitioning to HALF_OPEN
+- Extended timeout prevents premature retry after IP ban
+
+**Alternatives considered:**
+1. Mock time.time() globally — rejected: fragile, affects other code
+2. Separate test clock class — rejected: simple function injection is cleaner
+3. Skip determinism (rely on short timeouts) — rejected: flaky, not proof-quality
+
+**Rationale:**
+- `_time_fn` injection pattern already proven in ReconnectLimiter/MessageThrottler (DEC-023)
+- Fake clock enables fast, deterministic unit tests
+- Complete state machine coverage prevents regression
+- Retry-After parsing is critical for respecting server hints
+
+**Impact:**
+- CircuitBreaker gains `_time_fn` field (backward compatible)
+- 15+ new deterministic tests in test_backoff.py
+- All REST governor behavior is now provably correct with fake clock
+- Completes DEC-023 trilogy: utilities (a) → wiring (b) → proofing (c)

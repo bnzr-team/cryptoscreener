@@ -164,6 +164,8 @@ class CircuitBreaker:
     - CLOSED: Normal operation, requests pass through
     - OPEN: Blocking all requests, waiting for cooldown
     - HALF_OPEN: Allowing test requests to check if service recovered
+
+    DEC-023c: Added _time_fn injection for deterministic testing.
     """
 
     failure_threshold: int = 5  # Consecutive failures to open circuit
@@ -178,6 +180,15 @@ class CircuitBreaker:
     _is_banned: bool = field(default=False)
     _open_until_ms: int = field(default=0)
 
+    # DEC-023c: Optional time provider for deterministic testing
+    _time_fn: Callable[[], int] | None = field(default=None)
+
+    def _now_ms(self) -> int:
+        """Get current time in milliseconds."""
+        if self._time_fn is not None:
+            return self._time_fn()
+        return int(time.time() * 1000)
+
     def can_execute(self) -> bool:
         """
         Check if a request can be executed.
@@ -185,7 +196,7 @@ class CircuitBreaker:
         Returns:
             True if request should proceed, False if blocked by circuit.
         """
-        now_ms = int(time.time() * 1000)
+        now_ms = self._now_ms()
 
         if self.state == CircuitState.CLOSED:
             return True
@@ -231,7 +242,7 @@ class CircuitBreaker:
             is_rate_limit: True if failure was due to rate limiting (429).
             is_ip_ban: True if failure was IP ban (418).
         """
-        now_ms = int(time.time() * 1000)
+        now_ms = self._now_ms()
         self.last_failure_time_ms = now_ms
 
         if self.state == CircuitState.HALF_OPEN:
@@ -266,7 +277,7 @@ class CircuitBreaker:
             duration_ms: How long to keep circuit open.
             reason: Reason for forcing open (for logging).
         """
-        now_ms = int(time.time() * 1000)
+        now_ms = self._now_ms()
         self.state = CircuitState.OPEN
         self.last_failure_time_ms = now_ms
         self._open_until_ms = now_ms + duration_ms
