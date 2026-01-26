@@ -87,6 +87,46 @@ class CircuitState(str, Enum):
     HALF_OPEN = "HALF_OPEN"  # Testing if service recovered
 
 
+class OpenReason(str, Enum):
+    """Reason why circuit breaker opened (DEC-024)."""
+
+    HTTP_429 = "429"  # HTTP 429 Too Many Requests
+    HTTP_418 = "418"  # HTTP 418 IP Ban
+    ERROR_CODE = "error_code"  # Binance error codes (-1003, etc.)
+    THRESHOLD = "threshold"  # Exceeded failure threshold
+    FORCED = "forced"  # Manual force_open() call
+
+
+@dataclass
+class CircuitBreakerMetrics:
+    """Circuit breaker metrics for observability (DEC-024).
+
+    Tracks state transitions, open reasons, and timing for dashboards/alerting.
+    """
+
+    # === State transition counters ===
+    transitions_closed_to_open: int = 0
+    transitions_open_to_half_open: int = 0
+    transitions_half_open_to_closed: int = 0
+    transitions_half_open_to_open: int = 0
+
+    # === Open reason breakdown ===
+    open_reason_429: int = 0  # HTTP 429 Too Many Requests
+    open_reason_418: int = 0  # HTTP 418 IP Ban
+    open_reason_error_code: int = 0  # Binance error codes (-1003, etc.)
+    open_reason_threshold: int = 0  # Exceeded failure threshold
+    open_reason_forced: int = 0  # Manual force_open() call
+
+    # === Timing (milliseconds) ===
+    total_open_duration_ms: int = 0  # Cumulative time spent in OPEN state
+    last_open_duration_ms: int = 0  # Duration of most recent OPEN period
+    _open_started_ms: int = -1  # Internal: when current OPEN period started (-1 = not started)
+
+    # === Success/failure counters ===
+    successes_recorded: int = 0
+    failures_recorded: int = 0
+
+
 @dataclass
 class BackoffConfig:
     """Configuration for exponential backoff.
@@ -190,6 +230,7 @@ class CircuitBreaker:
     - HALF_OPEN: Allowing test requests to check if service recovered
 
     DEC-023c: Added _time_fn injection for deterministic testing.
+    DEC-024: Added metrics tracking for observability.
     """
 
     failure_threshold: int = 5  # Consecutive failures to open circuit
@@ -207,11 +248,41 @@ class CircuitBreaker:
     # DEC-023c: Optional time provider for deterministic testing
     _time_fn: Callable[[], int] | None = field(default=None)
 
+    # DEC-024: Metrics for observability
+    metrics: CircuitBreakerMetrics = field(default_factory=CircuitBreakerMetrics)
+
     def _now_ms(self) -> int:
         """Get current time in milliseconds."""
         if self._time_fn is not None:
             return self._time_fn()
         return int(time.time() * 1000)
+
+    def _record_open_transition(self, reason: OpenReason) -> None:
+        """Record transition to OPEN state with reason (DEC-024)."""
+        now_ms = self._now_ms()
+        self.metrics.transitions_closed_to_open += 1
+        self.metrics._open_started_ms = now_ms
+
+        # Track reason breakdown
+        if reason == OpenReason.HTTP_429:
+            self.metrics.open_reason_429 += 1
+        elif reason == OpenReason.HTTP_418:
+            self.metrics.open_reason_418 += 1
+        elif reason == OpenReason.ERROR_CODE:
+            self.metrics.open_reason_error_code += 1
+        elif reason == OpenReason.THRESHOLD:
+            self.metrics.open_reason_threshold += 1
+        elif reason == OpenReason.FORCED:
+            self.metrics.open_reason_forced += 1
+
+    def _record_open_duration(self) -> None:
+        """Record duration of OPEN period when transitioning out (DEC-024)."""
+        if self.metrics._open_started_ms >= 0:  # -1 means not started
+            now_ms = self._now_ms()
+            duration_ms = now_ms - self.metrics._open_started_ms
+            self.metrics.last_open_duration_ms = duration_ms
+            self.metrics.total_open_duration_ms += duration_ms
+            self.metrics._open_started_ms = -1
 
     def can_execute(self) -> bool:
         """
@@ -233,6 +304,9 @@ class CircuitBreaker:
             # Check if recovery timeout has passed
             timeout = self.ban_recovery_timeout_ms if self._is_banned else self.recovery_timeout_ms
             if now_ms - self.last_failure_time_ms >= timeout:
+                # DEC-024: Track OPEN -> HALF_OPEN transition
+                self._record_open_duration()
+                self.metrics.transitions_open_to_half_open += 1
                 self.state = CircuitState.HALF_OPEN
                 self.half_open_requests = 1  # Count this request
                 self._is_banned = False
@@ -251,47 +325,81 @@ class CircuitBreaker:
 
     def record_success(self) -> None:
         """Record a successful request."""
+        self.metrics.successes_recorded += 1
         if self.state == CircuitState.HALF_OPEN:
+            # DEC-024: Track HALF_OPEN -> CLOSED transition
+            self.metrics.transitions_half_open_to_closed += 1
             # Recovery confirmed, close circuit
             self.state = CircuitState.CLOSED
         self.failure_count = 0
         self._is_banned = False
         self._open_until_ms = 0
 
-    def record_failure(self, is_rate_limit: bool = False, is_ip_ban: bool = False) -> None:
+    def record_failure(
+        self,
+        is_rate_limit: bool = False,
+        is_ip_ban: bool = False,
+        is_error_code: bool = False,
+    ) -> None:
         """
         Record a failed request.
 
         Args:
             is_rate_limit: True if failure was due to rate limiting (429).
             is_ip_ban: True if failure was IP ban (418).
+            is_error_code: True if failure was Binance error code (-1003 etc).
         """
         now_ms = self._now_ms()
         self.last_failure_time_ms = now_ms
+        self.metrics.failures_recorded += 1
 
         if self.state == CircuitState.HALF_OPEN:
             # Failed during recovery test, reopen circuit
+            # DEC-024: Track HALF_OPEN -> OPEN transition
+            self.metrics.transitions_half_open_to_open += 1
+            self.metrics._open_started_ms = now_ms
+            # Track reason for HALF_OPEN -> OPEN
+            if is_ip_ban:
+                self.metrics.open_reason_418 += 1
+            elif is_rate_limit:
+                self.metrics.open_reason_429 += 1
+            elif is_error_code:
+                self.metrics.open_reason_error_code += 1
             self.state = CircuitState.OPEN
             if is_ip_ban:
                 self._is_banned = True
             return
 
         self.failure_count += 1
+        prev_state = self.state
 
         # IP ban (418) or rate limit (429): immediate OPEN
         if is_ip_ban:
             self.state = CircuitState.OPEN
             self._is_banned = True
+            if prev_state == CircuitState.CLOSED:
+                self._record_open_transition(OpenReason.HTTP_418)
             return
 
         if is_rate_limit:
             # 429: immediate circuit OPEN per BINANCE_LIMITS.md
             self.state = CircuitState.OPEN
+            if prev_state == CircuitState.CLOSED:
+                self._record_open_transition(OpenReason.HTTP_429)
+            return
+
+        if is_error_code:
+            # Error code (-1003 etc): immediate circuit OPEN
+            self.state = CircuitState.OPEN
+            if prev_state == CircuitState.CLOSED:
+                self._record_open_transition(OpenReason.ERROR_CODE)
             return
 
         # Regular failures: use threshold
         if self.failure_count >= self.failure_threshold:
             self.state = CircuitState.OPEN
+            if prev_state == CircuitState.CLOSED:
+                self._record_open_transition(OpenReason.THRESHOLD)
 
     def force_open(self, duration_ms: int, reason: str = "") -> None:
         """
@@ -302,9 +410,13 @@ class CircuitBreaker:
             reason: Reason for forcing open (for logging).
         """
         now_ms = self._now_ms()
+        prev_state = self.state
         self.state = CircuitState.OPEN
         self.last_failure_time_ms = now_ms
         self._open_until_ms = now_ms + duration_ms
+        # DEC-024: Track forced open
+        if prev_state == CircuitState.CLOSED:
+            self._record_open_transition(OpenReason.FORCED)
 
     def reset(self) -> None:
         """Reset circuit breaker to initial state."""
@@ -314,6 +426,7 @@ class CircuitBreaker:
         self.half_open_requests = 0
         self._is_banned = False
         self._open_until_ms = 0
+        self.metrics = CircuitBreakerMetrics()
 
     @property
     def is_banned(self) -> bool:
@@ -754,10 +867,11 @@ class RestGovernorMetrics:
     total_wait_ms: int = 0
     max_wait_ms: int = 0
 
-    # Drop reasons
+    # Drop reasons (sum = requests_dropped)
     drop_reason_queue_full: int = 0
     drop_reason_timeout: int = 0
     drop_reason_breaker_open: int = 0
+    drop_reason_budget_exhausted: int = 0  # DEC-024: If hard-fail on budget added
 
 
 @dataclass
