@@ -510,7 +510,7 @@ class MLRunner(ModelRunner):
 
         if model_type == "InferenceSession":
             # ONNX runtime
-            import numpy as np  # type: ignore[import-not-found]
+            import numpy as np
 
             input_name = self._model.get_inputs()[0].name  # type: ignore[attr-defined]
             inputs = {input_name: np.array([feature_vector], dtype=np.float32)}
