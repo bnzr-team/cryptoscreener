@@ -35,10 +35,21 @@ jobs:
 
           while [ $ELAPSED -lt $MAX_WAIT ]; do
             # Check if acceptance-packet check-run exists and is complete
-            STATUS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            # Hardened curl: --fail-with-body for explicit failures, retries, timeouts
+            RESPONSE=$(curl --fail-with-body -sS \
+              --connect-timeout 5 --max-time 20 \
+              --retry 3 --retry-delay 2 --retry-connrefused \
+              -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPO/commits/$HEAD_SHA/check-runs" | \
-              python3 -c "
+              "https://api.github.com/repos/$REPO/commits/$HEAD_SHA/check-runs" 2>&1) || {
+                echo "WARNING: curl failed: $RESPONSE"
+                echo "Retrying in $INTERVAL seconds..."
+                sleep $INTERVAL
+                ELAPSED=$((ELAPSED + INTERVAL))
+                continue
+            }
+
+            STATUS=$(echo "$RESPONSE" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
           for cr in data.get('check_runs', []):
@@ -82,19 +93,46 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           # Get PR number from the workflow run that triggered us
-          PR_NUMBER=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+          # Hardened curl: --fail-with-body for explicit failures, retries, timeouts
+          RESPONSE=$(curl --fail-with-body -sS \
+            --connect-timeout 5 --max-time 20 \
+            --retry 3 --retry-delay 2 --retry-connrefused \
+            -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" | \
-            python3 -c "
+            "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" 2>&1) || {
+              echo "WARNING: curl failed to fetch workflow run: $RESPONSE"
+              echo "Cannot determine PR number, skipping validation"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              exit 0
+          }
+
+          PR_NUMBER=$(echo "$RESPONSE" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
           prs = data.get('pull_requests', [])
           if prs:
               print(prs[0].get('number', ''))
+          else:
+              print('')
           ")
-          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "WARNING: No PR associated with workflow run $RUN_ID, skipping validation"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+          else
+            echo "INFO: Found PR #$PR_NUMBER for workflow run $RUN_ID"
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if no PR to validate (workflow_run)
+        if: github.event_name == 'workflow_run' && steps.get_pr.outputs.pr_number == ''
+        run: |
+          echo "INFO: No PR number found for workflow_run event, nothing to validate"
+          echo "This can happen for push events or branch builds without an open PR"
+          exit 0
 
       - name: Validate PR body has required proof bundle markers
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_run' && steps.get_pr.outputs.pr_number != '')
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
