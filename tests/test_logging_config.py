@@ -21,6 +21,7 @@ from cryptoscreener.logging_config import (
     SimpleFormatter,
     _filter_log_record,
     _normalize_url,
+    _sanitize_text,
     get_logger,
     setup_logging,
 )
@@ -87,6 +88,51 @@ class TestBlockedFields:
         assert "email" not in filtered
         assert "phone" not in filtered
         assert "msg" in filtered
+
+
+class TestSanitizeText:
+    """Tests for _sanitize_text function."""
+
+    def test_url_query_string_removed(self) -> None:
+        """URL query strings should be removed, path kept."""
+        result = _sanitize_text("Request to https://api.example.com/v1/data?key=secret&token=abc")
+        assert "key=secret" not in result
+        assert "token=abc" not in result
+        assert "/v1/data" in result
+
+    def test_ip_address_redacted(self) -> None:
+        """IP addresses should be replaced with [IP]."""
+        result = _sanitize_text("Connection from 192.168.1.100 to 10.0.0.1")
+        assert "192.168.1.100" not in result
+        assert "10.0.0.1" not in result
+        assert "[IP]" in result
+
+    def test_email_redacted(self) -> None:
+        """Email addresses should be replaced with [EMAIL]."""
+        result = _sanitize_text("User user@example.com logged in")
+        assert "user@example.com" not in result
+        assert "[EMAIL]" in result
+
+    def test_bearer_token_redacted(self) -> None:
+        """Bearer tokens should be redacted."""
+        result = _sanitize_text("Auth: bearer abc123xyz")
+        assert "abc123xyz" not in result
+        assert "[TOKEN]" in result
+
+    def test_api_key_redacted(self) -> None:
+        """API keys should be redacted."""
+        result = _sanitize_text("Using api_key=sk-secret-12345")
+        assert "sk-secret-12345" not in result
+        assert "[API_KEY]" in result
+
+    def test_empty_string_unchanged(self) -> None:
+        """Empty strings should be returned unchanged."""
+        assert _sanitize_text("") == ""
+
+    def test_safe_text_unchanged(self) -> None:
+        """Text without sensitive data should be unchanged."""
+        text = "Normal log message without sensitive data"
+        assert _sanitize_text(text) == text
 
 
 class TestHighCardinalityFields:
@@ -436,3 +482,175 @@ class TestCardinalityCompliance:
         output = stream.getvalue()
         parsed = json.loads(output.strip())
         assert parsed["payload"] == "[PAYLOAD]"
+
+
+class TestMsgSanitization:
+    """Tests for msg sanitization (DEC-024 critical fix)."""
+
+    def test_url_in_msg_normalized(self) -> None:
+        """URLs in msg should have query strings removed."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("msg_sanitize_test")
+        logger.info("GET %s", "https://api.example.com/path?secret=abc123&token=xyz")
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        # Query string should be removed
+        assert "secret=abc123" not in parsed["msg"]
+        assert "token=xyz" not in parsed["msg"]
+        # Path should remain
+        assert "/path" in parsed["msg"]
+
+    def test_ip_in_msg_redacted(self) -> None:
+        """IP addresses in msg should be redacted."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("ip_test")
+        logger.info("Connection from 192.168.1.100 failed")
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        assert "192.168.1.100" not in parsed["msg"]
+        assert "[IP]" in parsed["msg"]
+
+    def test_token_in_msg_redacted(self) -> None:
+        """Tokens in msg should be redacted."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("token_test")
+        logger.info("Auth failed: bearer abc123xyz")
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        assert "abc123xyz" not in parsed["msg"]
+        assert "[TOKEN]" in parsed["msg"]
+
+
+class TestExcSanitization:
+    """Tests for exception sanitization (DEC-024 critical fix)."""
+
+    def test_url_in_exception_sanitized(self) -> None:
+        """URLs in exception messages should be sanitized."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("exc_test")
+        try:
+            raise ValueError("Failed to fetch https://api.example.com/data?api_key=secret123")
+        except ValueError:
+            logger.exception("Request failed")
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        # Query string should be removed from exception
+        assert "api_key=secret123" not in parsed.get("exc", "")
+        # Path should remain
+        assert "/data" in parsed.get("exc", "")
+
+    def test_ip_in_exception_sanitized(self) -> None:
+        """IP addresses in exceptions should be redacted."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("exc_ip_test")
+        try:
+            raise ConnectionError("Cannot connect to 10.0.0.1:8080")
+        except ConnectionError:
+            logger.exception("Connection error")
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        assert "10.0.0.1" not in parsed.get("exc", "")
+        assert "[IP]" in parsed.get("exc", "")
+
+
+class TestNestedDictFiltering:
+    """Tests for recursive dict filtering (DEC-024 fix)."""
+
+    def test_nested_dict_blocked_fields_removed(self) -> None:
+        """Blocked fields in nested dicts should be removed."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("nested_test")
+        logger.info(
+            "Request",
+            extra={
+                "request": {
+                    "Authorization": "Bearer secret123",
+                    "method": "GET",
+                    "url": "https://api.example.com/data?key=value",
+                }
+            },
+        )
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        # Authorization should be filtered (blocked field)
+        assert "Authorization" not in parsed.get("request", {})
+        assert "secret123" not in output
+        # Safe fields should remain
+        assert parsed["request"]["method"] == "GET"
+        # URL should be normalized (query removed)
+        assert "key=value" not in parsed["request"].get("url", "")
+
+    def test_partial_match_in_nested_keys(self) -> None:
+        """Partial matches of blocked words in nested keys should be filtered."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("partial_nested_test")
+        logger.info(
+            "Config",
+            extra={
+                "headers": {
+                    "x_api_key_header": "secret_value",
+                    "content_type": "application/json",
+                }
+            },
+        )
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        # x_api_key_header contains "api_key" - should be filtered
+        assert "x_api_key_header" not in parsed.get("headers", {})
+        assert "secret_value" not in output
+        # Safe field should remain
+        assert parsed["headers"]["content_type"] == "application/json"
+
+    def test_deeply_nested_filtering(self) -> None:
+        """Deeply nested structures should be filtered up to depth limit."""
+        stream = io.StringIO()
+        setup_logging(json_format=True, stream=stream)
+
+        logger = get_logger("deep_nested_test")
+        logger.info(
+            "Deep",
+            extra={
+                "level1": {
+                    "level2": {
+                        "token": "should_be_filtered",
+                        "safe": "keep",
+                    }
+                }
+            },
+        )
+
+        output = stream.getvalue()
+        parsed = json.loads(output.strip())
+
+        # Token at level2 should be filtered
+        assert "should_be_filtered" not in output
+        # Safe field should remain
+        assert parsed["level1"]["level2"]["safe"] == "keep"

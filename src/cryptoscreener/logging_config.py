@@ -18,9 +18,27 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from datetime import UTC, datetime
 from typing import Any
+
+# DEC-024: Regex patterns for sanitizing text (msg, exc)
+# Matches URLs with query strings: https://example.com/path?query=value
+_URL_PATTERN = re.compile(r"(https?://[^\s\"'<>]+)")
+# Matches sensitive patterns that might appear in text
+_SENSITIVE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # API keys (various formats)
+    (re.compile(r"\b(api[_-]?key|apikey)[=:]\s*['\"]?[\w\-]+['\"]?", re.I), "[API_KEY]"),
+    # Bearer tokens
+    (re.compile(r"\b(bearer|token)[=:\s]+['\"]?[\w\-\.]+['\"]?", re.I), "[TOKEN]"),
+    # Authorization headers
+    (re.compile(r"(authorization|auth)[=:\s]+['\"]?[\w\-\.\s]+['\"]?", re.I), "[AUTH]"),
+    # IP addresses (v4)
+    (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "[IP]"),
+    # Email addresses
+    (re.compile(r"\b[\w\.-]+@[\w\.-]+\.\w+\b"), "[EMAIL]"),
+]
 
 # DEC-024: Fields that should NEVER appear in logs (security)
 BLOCKED_FIELDS: frozenset[str] = frozenset(
@@ -68,21 +86,55 @@ def _normalize_url(url: str) -> str:
     return parts.path or "/"
 
 
-def _filter_log_record(record: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_url_in_text(match: re.Match[str]) -> str:
+    """Replace URL with normalized path only."""
+    url = match.group(1)
+    path = _normalize_url(url)
+    return path if path != "/" else "[URL]"
+
+
+def _sanitize_text(text: str) -> str:
+    """Sanitize free-form text (msg, exc) to remove sensitive data.
+
+    DEC-024: Removes/normalizes:
+    - URLs with query strings → path only
+    - API keys, tokens, auth headers → [REDACTED]
+    - IP addresses → [IP]
+    - Email addresses → [EMAIL]
+    """
+    if not text:
+        return text
+
+    # Normalize URLs (remove query strings, keep path)
+    result = _URL_PATTERN.sub(_sanitize_url_in_text, text)
+
+    # Apply sensitive pattern replacements
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        result = pattern.sub(replacement, result)
+
+    return result
+
+
+def _filter_log_record(record: dict[str, Any], *, _depth: int = 0) -> dict[str, Any]:
     """Filter sensitive and high-cardinality fields from log record.
 
     DEC-024: Ensures logs are safe for production observability.
+    Recursively filters nested dicts up to depth 3.
     """
+    # Prevent infinite recursion
+    if _depth > 3:
+        return {"_truncated": "max depth exceeded"}
+
     filtered: dict[str, Any] = {}
 
     for key, value in record.items():
         key_lower = key.lower()
 
-        # Skip blocked fields
+        # Skip blocked fields (exact match)
         if key_lower in BLOCKED_FIELDS:
             continue
 
-        # Check if field name contains any blocked word
+        # Skip fields containing blocked words (partial match)
         if any(blocked in key_lower for blocked in BLOCKED_FIELDS):
             continue
 
@@ -94,9 +146,12 @@ def _filter_log_record(record: dict[str, Any]) -> dict[str, Any]:
                 filtered[key] = HIGH_CARDINALITY_FIELDS[key_lower]
             continue
 
-        # Pass through safe values
-        if isinstance(value, (str, int, float, bool, type(None))):
+        # Pass through safe scalar values
+        if isinstance(value, (int, float, bool, type(None))):
             filtered[key] = value
+        elif isinstance(value, str):
+            # Sanitize string values that might contain URLs/sensitive data
+            filtered[key] = _sanitize_text(value)
         elif isinstance(value, (list, tuple)):
             # Cap list size to prevent huge log lines
             if len(value) <= 10:
@@ -104,11 +159,11 @@ def _filter_log_record(record: dict[str, Any]) -> dict[str, Any]:
             else:
                 filtered[key] = f"[list:{len(value)} items]"
         elif isinstance(value, dict):
-            # Recursively filter nested dicts (shallow)
-            filtered[key] = {k: v for k, v in value.items() if k.lower() not in BLOCKED_FIELDS}
+            # Recursively filter nested dicts
+            filtered[key] = _filter_log_record(value, _depth=_depth + 1)
         else:
-            # Convert other types to string representation
-            filtered[key] = str(value)
+            # Convert other types to string and sanitize
+            filtered[key] = _sanitize_text(str(value))
 
     return filtered
 
@@ -125,11 +180,12 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
         # Base fields (always present)
+        # DEC-024: Sanitize msg to remove URLs/sensitive data
         log_dict: dict[str, Any] = {
             "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(timespec="milliseconds"),
             "level": record.levelname,
             "logger": record.name,
-            "msg": record.getMessage(),
+            "msg": _sanitize_text(record.getMessage()),
         }
 
         # Add location for errors
@@ -138,8 +194,10 @@ class JsonFormatter(logging.Formatter):
             log_dict["line"] = record.lineno
 
         # Add exception info if present
+        # DEC-024: Sanitize exception to remove URLs/sensitive data
         if record.exc_info:
-            log_dict["exc"] = self.formatException(record.exc_info)
+            exc_text = self.formatException(record.exc_info)
+            log_dict["exc"] = _sanitize_text(exc_text)
 
         # Add filtered extra fields
         extra = {}
@@ -185,8 +243,8 @@ class SimpleFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as human-readable string."""
-        # Get base message
-        base = f"{record.levelname:8s} {record.name}: {record.getMessage()}"
+        # Get base message (sanitized)
+        base = f"{record.levelname:8s} {record.name}: {_sanitize_text(record.getMessage())}"
 
         # Collect extra fields
         extra = {}
