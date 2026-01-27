@@ -10,6 +10,7 @@ Per BINANCE_LIMITS.md:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import AsyncIterator, Callable, Coroutine
@@ -93,7 +94,8 @@ class BinanceStreamManager:
         self._symbols: dict[str, SymbolInfo] = {}
         self._running = False
 
-        self._event_queue: asyncio.Queue[MarketEvent] = asyncio.Queue()
+        self._event_queue: asyncio.Queue[MarketEvent] = asyncio.Queue(maxsize=10_000)
+        self._events_dropped = 0  # DEC-028: counter for dropped events
 
     async def start(self) -> None:
         """Start the stream manager."""
@@ -339,8 +341,20 @@ class BinanceStreamManager:
         try:
             event = self._parse_raw_message(raw)
             if event:
-                # Put in queue for async iteration
-                await self._event_queue.put(event)
+                # DEC-028: Put in bounded queue; drop-oldest on full
+                # (keep latest to avoid stale catch-up in real-time pipeline)
+                try:
+                    self._event_queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    # Discard oldest, enqueue newest
+                    with contextlib.suppress(asyncio.QueueEmpty):
+                        self._event_queue.get_nowait()
+                    self._event_queue.put_nowait(event)
+                    self._events_dropped += 1
+                    logger.warning(
+                        "Event queue full, dropped oldest event",
+                        extra={"symbol": event.symbol, "dropped_total": self._events_dropped},
+                    )
 
                 # Call callback if provided
                 if self._on_event:
@@ -491,6 +505,9 @@ class BinanceStreamManager:
             # DEC-025: WS storm alert metrics
             total_disconnects=total_disconnects,
             total_reconnect_attempts=total_reconnect_attempts,
+            # DEC-028: Backpressure metrics
+            event_queue_depth=self._event_queue.qsize(),
+            events_dropped=self._events_dropped,
         )
 
     async def force_disconnect(self) -> None:
@@ -504,6 +521,16 @@ class BinanceStreamManager:
         for shard in self._shards.values():
             if shard._ws and not shard._ws.closed:
                 await shard._ws.close()
+
+    @property
+    def event_queue_depth(self) -> int:
+        """DEC-028: Current event queue depth."""
+        return self._event_queue.qsize()
+
+    @property
+    def events_dropped(self) -> int:
+        """DEC-028: Total events dropped due to queue full."""
+        return self._events_dropped
 
     @property
     def circuit_breaker(self) -> CircuitBreaker:

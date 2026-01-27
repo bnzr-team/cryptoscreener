@@ -9,6 +9,14 @@
 
 ### Added
 
+#### Backpressure, Resource Bounds & Queue-Growth Acceptance (DEC-028, PR#94)
+- Bounded event queue (`maxsize=10,000`) with drop-newest policy on `BinanceStreamManager`
+- Bounded snapshot queue (`maxsize=1,000`) on `FeatureEngine` with drop counter
+- 6 new Prometheus metrics: `pipeline_event_queue_depth`, `pipeline_snapshot_queue_depth`, `pipeline_tick_drift_ms`, `pipeline_rss_mb`, `pipeline_events_dropped`, `pipeline_snapshots_dropped`
+- Tick drift, RSS, and queue depth sampling in main loop cadence block
+- `SoakSummary` extended with backpressure fields (`max_event_queue_depth`, `max_rss_mb`, etc.)
+- 6 new integration tests for backpressure acceptance (`TestBackpressureAcceptance`)
+
 #### WS Resilience Validation & Soak Tests (DEC-027, PR#93)
 - `SoakSummary` dataclass + `--summary-json PATH` CLI flag for post-run JSON report
 - Fault injection: `--fault-drop-ws-every-s N` (periodic WS disconnect), `--fault-slow-consumer-ms M` (consumer delay)

@@ -19,9 +19,7 @@ def main() -> int:
     fixtures_dir = root / "tests" / "fixtures"
 
     # Find all fixture dirs with market_events.jsonl
-    fixture_dirs = sorted(
-        p.parent for p in fixtures_dir.rglob("market_events.jsonl")
-    )
+    fixture_dirs = sorted(p.parent for p in fixtures_dir.rglob("market_events.jsonl"))
 
     if not fixture_dirs:
         print("ERROR: No fixtures with market_events.jsonl found")

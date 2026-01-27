@@ -61,7 +61,8 @@ class FeatureEngine:
         self._config = config or FeatureEngineConfig()
         self._states: dict[str, SymbolState] = {}
         self._callbacks: list[SnapshotCallback] = []
-        self._snapshot_queue: asyncio.Queue[FeatureSnapshot] = asyncio.Queue()
+        self._snapshot_queue: asyncio.Queue[FeatureSnapshot] = asyncio.Queue(maxsize=1_000)
+        self._snapshots_dropped = 0  # DEC-028: counter for dropped snapshots
         self._running = False
         self._emission_task: asyncio.Task[None] | None = None
         self._last_emission_ts: dict[str, int] = {}
@@ -80,6 +81,16 @@ class FeatureEngine:
     def running(self) -> bool:
         """Check if emission loop is running."""
         return self._running
+
+    @property
+    def snapshot_queue_depth(self) -> int:
+        """DEC-028: Current snapshot queue depth."""
+        return self._snapshot_queue.qsize()
+
+    @property
+    def snapshots_dropped(self) -> int:
+        """DEC-028: Total snapshots dropped due to queue full."""
+        return self._snapshots_dropped
 
     def on_snapshot(self, callback: SnapshotCallback) -> None:
         """
@@ -162,6 +173,7 @@ class FeatureEngine:
         try:
             self._snapshot_queue.put_nowait(snapshot)
         except asyncio.QueueFull:
+            self._snapshots_dropped += 1
             logger.warning("Snapshot queue full, dropping snapshot for %s", snapshot.symbol)
 
         # Callbacks

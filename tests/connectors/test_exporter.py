@@ -106,6 +106,14 @@ class TestMetricNamesMatchRules:
             "cryptoscreener_ws_total_reconnect_attempts_total",
             "cryptoscreener_ws_total_ping_timeouts_total",
             "cryptoscreener_ws_total_subscribe_delayed_total",
+            # DEC-028: Pipeline backpressure (Gauges)
+            "cryptoscreener_pipeline_event_queue_depth",
+            "cryptoscreener_pipeline_snapshot_queue_depth",
+            "cryptoscreener_pipeline_tick_drift_ms",
+            "cryptoscreener_pipeline_rss_mb",
+            # DEC-028: Pipeline backpressure (Counters)
+            "cryptoscreener_pipeline_events_dropped_total",
+            "cryptoscreener_pipeline_snapshots_dropped_total",
         }
         assert expected == REQUIRED_METRIC_NAMES
 
@@ -396,9 +404,7 @@ class TestLivePipelineMetricsWiring:
 
         output = generate_latest(registry).decode("utf-8")
         for label in FORBIDDEN_LABELS:
-            assert f'{label}="' not in output, (
-                f"Forbidden label '{label}' found in metrics output"
-            )
+            assert f'{label}="' not in output, f"Forbidden label '{label}' found in metrics output"
 
 
 class TestMetricsSnapshotOutput:
