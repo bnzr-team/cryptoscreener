@@ -2650,17 +2650,55 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 ---
 
 ### Implementation Plan
-1. **DEC-025-planning (this PR):**
+1. **DEC-025-planning (PR#81):** ✅ MERGED
    - Finalize thresholds table + runbooks (at least 3 detailed runbooks).
    - Specify metric naming expectations and low-cardinality rules for alert labels.
-2. **DEC-025-queries (follow-up PR):**
-   - Implement concrete alert rules/queries in monitoring config (Prometheus/Grafana/Alertmanager/etc).
-   - Add dashboard panels and annotations (top endpoints, top reasons).
-3. **DEC-025-validation (follow-up PR):**
+2. **DEC-025-metrics (PR#82):** ✅ MERGED
+   - Add missing metrics: `total_disconnects`, `reconnect_attempts` to `ShardMetrics`/`ConnectorMetrics`.
+   - Update metric mapping table (missing → exists).
+   - Document CB_STUCK_OPEN proxy decision.
+3. **DEC-025-queries (PR#TBD):** 🔄 IN PROGRESS
+   - Implement concrete alert rules in `monitoring/alert_rules.yml`.
+   - Prometheus alerting rules format with PromQL queries.
+   - Low-cardinality labels only (instance, job, severity, component).
+4. **DEC-025-validation (follow-up PR):**
    - Add lightweight tests or static checks for:
      - no high-cardinality alert labels
      - no secrets/PII in log fields used for annotations
      - deterministic-safe behavior (replay tests remain stable)
+
+---
+
+### Alert Rules Implementation (DEC-025-queries)
+
+**File:** `monitoring/alert_rules.yml`
+
+**Exporter metric naming convention:**
+| Internal Field | Prometheus Metric Name |
+|----------------|------------------------|
+| `RestGovernorMetrics.requests_dropped` | `cryptoscreener_gov_requests_dropped` |
+| `RestGovernorMetrics.requests_allowed` | `cryptoscreener_gov_requests_allowed` |
+| `RestGovernorMetrics.current_queue_depth` | `cryptoscreener_gov_current_queue_depth` |
+| `RestGovernorMetrics.current_concurrent` | `cryptoscreener_gov_current_concurrent` |
+| `CircuitBreakerMetrics.transitions_closed_to_open` | `cryptoscreener_cb_transitions_closed_to_open` |
+| `CircuitBreakerMetrics.last_open_duration_ms` | `cryptoscreener_cb_last_open_duration_ms` |
+| `ConnectorMetrics.total_disconnects` | `cryptoscreener_ws_total_disconnects` |
+| `ConnectorMetrics.total_reconnect_attempts` | `cryptoscreener_ws_total_reconnect_attempts` |
+| `ConnectorMetrics.total_reconnects_denied` | `cryptoscreener_ws_total_reconnects_denied` |
+| `ConnectorMetrics.total_ping_timeouts` | `cryptoscreener_ws_total_ping_timeouts` |
+| `ConnectorMetrics.total_subscribe_delayed` | `cryptoscreener_ws_total_subscribe_delayed` |
+
+**Labels (low-cardinality only):**
+- `instance`: Pod/host identifier (from Prometheus scrape config)
+- `job`: Service name (from Prometheus scrape config)
+- `severity`: warning | critical (added by alert rule)
+- `component`: rest_governor | circuit_breaker | websocket (added by alert rule)
+
+**Prohibited in alert labels:**
+- endpoint, url, path, query
+- symbol, pair, asset
+- ip, user_agent, api_key, token
+- Any field that could have unbounded cardinality
 
 ---
 
