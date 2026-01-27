@@ -341,6 +341,66 @@ class TestMetricsSnapshot:
         assert "cryptoscreener_gov_requests_allowed_total 150.0" in output2
 
 
+class TestLivePipelineMetricsWiring:
+    """DEC-026: Verify BinanceStreamManager exposes accessors for metrics wiring."""
+
+    def test_stream_manager_exposes_circuit_breaker(self):
+        """BinanceStreamManager.circuit_breaker returns CircuitBreaker instance."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        mgr = BinanceStreamManager(on_event=None)
+        assert isinstance(mgr.circuit_breaker, CircuitBreaker)
+
+    def test_stream_manager_governor_is_none_by_default(self):
+        """BinanceStreamManager.governor is None when no governor configured."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        mgr = BinanceStreamManager(on_event=None)
+        assert mgr.governor is None
+
+    def test_exporter_update_with_stream_manager_accessors(self):
+        """MetricsExporter.update() works with data from stream manager accessors."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        registry = CollectorRegistry()
+        exporter = MetricsExporter(registry=registry)
+        mgr = BinanceStreamManager(on_event=None)
+
+        # Simulate the wiring pattern from run_live.py
+        exporter.update(
+            governor=mgr.governor,
+            circuit_breaker=mgr.circuit_breaker,
+            connector_metrics=mgr.get_metrics(),
+        )
+
+        output = generate_latest(registry).decode("utf-8")
+        # CB and WS metrics should be present
+        assert "cryptoscreener_cb_last_open_duration_ms" in output
+        assert "cryptoscreener_ws_total_disconnects_total" in output
+        # Governor gauges are registered but stay at 0 (governor=None skips update)
+        assert "cryptoscreener_gov_current_queue_depth 0.0" in output
+
+    def test_no_high_cardinality_labels_in_live_wiring(self):
+        """DEC-026: Live wiring must not introduce per-symbol labels."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        registry = CollectorRegistry()
+        exporter = MetricsExporter(registry=registry)
+        mgr = BinanceStreamManager(on_event=None)
+
+        exporter.update(
+            governor=mgr.governor,
+            circuit_breaker=mgr.circuit_breaker,
+            connector_metrics=mgr.get_metrics(),
+        )
+
+        output = generate_latest(registry).decode("utf-8")
+        for label in FORBIDDEN_LABELS:
+            assert f'{label}="' not in output, (
+                f"Forbidden label '{label}' found in metrics output"
+            )
+
+
 class TestMetricsSnapshotOutput:
     """DEC-025: Full metrics snapshot for documentation."""
 

@@ -48,6 +48,7 @@ from cryptoscreener.alerting.alerter import (
 )
 from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
 from cryptoscreener.connectors.binance.types import ConnectorConfig
+from cryptoscreener.connectors.exporter import MetricsExporter
 from cryptoscreener.connectors.metrics_server import start_metrics_server, stop_metrics_server
 from cryptoscreener.features.engine import FeatureEngine, FeatureEngineConfig
 from cryptoscreener.model_runner import BaselineRunner, ModelRunnerConfig
@@ -155,6 +156,7 @@ class LivePipeline:
         self,
         config: LivePipelineConfig,
         explainer: ExplainLLMProtocol | None = None,
+        metrics_exporter: MetricsExporter | None = None,
     ) -> None:
         """
         Initialize live pipeline.
@@ -162,10 +164,12 @@ class LivePipeline:
         Args:
             config: Pipeline configuration.
             explainer: Optional LLM explainer for alert text.
+            metrics_exporter: Optional Prometheus metrics exporter (DEC-026).
         """
         self._config = config
         self._metrics = PipelineMetrics()
         self._running = False
+        self._metrics_exporter = metrics_exporter
 
         # Initialize components
         self._stream_manager = BinanceStreamManager(
@@ -336,6 +340,14 @@ class LivePipeline:
 
                 last_process_ts = current_ts
 
+                # DEC-026: Push infrastructure metrics to Prometheus
+                if self._metrics_exporter is not None:
+                    self._metrics_exporter.update(
+                        governor=self._stream_manager.governor,
+                        circuit_breaker=self._stream_manager.circuit_breaker,
+                        connector_metrics=self._stream_manager.get_metrics(),
+                    )
+
     async def start(self) -> None:
         """Start the live pipeline."""
         if self._running:
@@ -494,20 +506,22 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
         except Exception as e:
             logger.warning("Failed to initialize LLM: %s", e)
 
-    pipeline = LivePipeline(config=config, explainer=explainer)
-
-    # Setup signal handlers (only sets flags, does not call stop())
-    setup_signal_handlers(pipeline)
-
-    # Start metrics server (DEC-025)
-    # Serves GET /metrics with Prometheus exposition format.
-    # MetricsExporter update() wiring into pipeline loop is a follow-up task.
+    # DEC-026: Create MetricsExporter + registry for /metrics endpoint
+    exporter: MetricsExporter | None = None
     metrics_runner = None
     if config.metrics_port > 0:
         from prometheus_client.registry import CollectorRegistry
 
         registry = CollectorRegistry()
+        exporter = MetricsExporter(registry=registry)
         metrics_runner = await start_metrics_server(registry, port=config.metrics_port)
+
+    pipeline = LivePipeline(
+        config=config, explainer=explainer, metrics_exporter=exporter,
+    )
+
+    # Setup signal handlers (only sets flags, does not call stop())
+    setup_signal_handlers(pipeline)
 
     try:
         await pipeline.start()

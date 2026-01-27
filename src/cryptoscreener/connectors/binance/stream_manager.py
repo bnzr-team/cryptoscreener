@@ -15,7 +15,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any
 
-from cryptoscreener.connectors.backoff import CircuitBreaker, ReconnectLimiter
+from cryptoscreener.connectors.backoff import CircuitBreaker, ReconnectLimiter, RestGovernor
 from cryptoscreener.connectors.binance.rest_client import BinanceRestClient
 from cryptoscreener.connectors.binance.shard import WebSocketShard
 from cryptoscreener.connectors.binance.types import (
@@ -69,9 +69,11 @@ class BinanceStreamManager:
         self._on_event = on_event
 
         self._circuit_breaker = CircuitBreaker()
+        self._governor: RestGovernor | None = None  # DEC-026: stored for metrics access
         self._rest_client = BinanceRestClient(
             config=self._config,
             circuit_breaker=self._circuit_breaker,
+            governor=self._governor,
         )
 
         # DEC-023b: Global reconnect limiter shared across all shards
@@ -490,3 +492,13 @@ class BinanceStreamManager:
             total_disconnects=total_disconnects,
             total_reconnect_attempts=total_reconnect_attempts,
         )
+
+    @property
+    def circuit_breaker(self) -> CircuitBreaker:
+        """Read-only access to circuit breaker (DEC-026: metrics wiring)."""
+        return self._circuit_breaker
+
+    @property
+    def governor(self) -> RestGovernor | None:
+        """Read-only access to REST governor, if configured (DEC-026: metrics wiring)."""
+        return self._governor
