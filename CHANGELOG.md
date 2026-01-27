@@ -1,13 +1,38 @@
 # CHANGELOG
 
 **Project:** In‑Play Predictor (CryptoScreener‑X) — ML + LLM
-**Updated:** 2026-01-24
+**Updated:** 2026-01-27
 
 ---
 
 ## Unreleased
 
 ### Added
+
+#### ML/Artifacts Hardening CI Gates (PR#90)
+- Three path-triggered CI execution gates preventing silent drift:
+  - `checksum-guard`: SHA256 verification of fixture/artifact manifests, untracked file detection, symlink/path traversal protection
+  - `replay-determinism`: double-run digest comparison for replay fixtures
+  - `contracts-roundtrip`: `pytest tests/contracts/` triggered on contract changes
+- Fixed stale `mlrunner_model/manifest.json` (removed runtime-generated `model.pkl`)
+- Updated `docs/branch_protection.md` with 7 required checks
+- Branch protection applied: `strict: true`, `enforce_admins: true`
+
+#### DEC-025 E2E Smoke Test (PR#89)
+- `tests/monitoring/test_metrics_endpoint_smoke.py`: 4 async tests via `AioHTTPTestCase`
+- Verifies all 12 `REQUIRED_METRIC_NAMES` present, `# TYPE` counter/gauge correct, counter monotonicity, gauge latest-value semantics
+
+#### CODEOWNERS + Branch Protection (PR#88)
+- `.github/CODEOWNERS`: `@bnzr-hub` for all paths (sole maintainer)
+- `docs/branch_protection.md`: full branch protection checklist + `gh api` scriptable setup
+
+#### DEC-025 Validation CI (PR#87)
+- `promtool check rules` CI workflow on `monitoring/**` changes
+- Forbidden label/selector checks in alert rules (cardinality protection)
+- 5 tests: positive (no forbidden labels) + negative (detect forbidden labels/selectors)
+
+#### DEC-025 SSOT Backfill (PR#86)
+- DECISIONS.md, STATE.md, CHANGELOG.md updated with DEC-025 implementation details
 
 #### Prometheus Observability Stack (DEC-025)
 - `MetricsExporter` in `src/cryptoscreener/connectors/exporter.py` (PR#84):

@@ -1,44 +1,81 @@
 # STATE
 
 **Project:** In‑Play Predictor (CryptoScreener‑X) — ML + LLM
-**Updated:** 2026-01-24
+**Updated:** 2026-01-27
 
 ---
 
 ## Current status
 
-- **Phase:** MVP (scaffold + contracts)
-- **PR:** #1 — Repository scaffold, contracts, replay harness
+- **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
+- **Test count:** 1033 passing (ruff ✓, mypy ✓, pytest ✓)
+- **Next milestone:** DEC-026 — Live pipeline wiring (real WS + ML + metrics)
 
-### Done (PR#1)
-- [x] Project structure: `pyproject.toml`, `src/cryptoscreener/`, `tests/`, `scripts/`
-- [x] Data contracts: `MarketEvent`, `FeatureSnapshot`, `PredictionSnapshot`, `RankEvent`, `LLMExplainInput/Output`
-- [x] JSON schema validation with Pydantic v2 (strict mode, frozen models)
-- [x] LLM safety validators: no-new-numbers adversarial tests
-- [x] Replay harness: `scripts/run_replay.py` with determinism verification
-- [x] Test fixture: `tests/fixtures/sample_run/` (11 market events, 3 rank events)
-- [x] 39 unit tests passing (contracts, roundtrip, LLM guardrails)
-- [x] Tooling: ruff + mypy (strict) configured and passing
+### Done — Infrastructure & CI (PR#43–90)
 
-### Done (DEC-025: Prometheus Observability)
-- [x] Alert thresholds & runbooks planning (PR#81)
-- [x] WS storm metrics added to ShardMetrics/ConnectorMetrics (PR#82)
-- [x] 16 PromQL alert rules in `monitoring/alert_rules.yml`, validated with `promtool` (PR#83)
-- [x] `MetricsExporter` — 12 Prometheus metrics (6 Gauge + 6 Counter), low-cardinality only (PR#84)
-- [x] `GET /metrics` HTTP endpoint via aiohttp.web, `--metrics-port` CLI flag (PR#85)
-- [x] 1024+ tests passing (ruff ✓, mypy ✓, pytest ✓)
+- [x] Acceptance packet automation (DEC-008/009): `acceptance_packet.sh`, `proof_guard.yml`, CI ARTIFACT mode
+- [x] Stacked PR detection, merge safety, verbatim-only proof policy
+- [x] CODEOWNERS + branch protection: 7 required checks, `enforce_admins: true` (PR#88)
+- [x] ML/Artifacts Hardening CI gates (PR#90):
+  - `checksum-guard`: SHA256 verification of fixture manifests + untracked file detection
+  - `replay-determinism`: double-run digest comparison
+  - `contracts-roundtrip`: roundtrip tests on contract changes
+
+### Done — Binance Operational Safety (DEC-023a–d, PR#62–75)
+
+- [x] Exponential backoff with jitter, CircuitBreaker (CLOSED→OPEN→HALF_OPEN)
+- [x] RestGovernor: rate limiting, queue budgeting, concurrency cap
+- [x] Wired into BinanceRestClient, ShardManager, StreamManager
+- [x] Deterministic CircuitBreaker proofing (DEC-023c)
+- [x] Async resource cleanup for aiohttp sessions (PR#75)
+
+### Done — Observability (DEC-024/025, PR#76–89)
+
+- [x] Structured logging with security filtering (DEC-024, PR#79)
+- [x] Connector observability metrics: disconnects, reconnects, ping timeouts (PR#77)
+- [x] 16 PromQL alert rules in `monitoring/alert_rules.yml` (PR#83)
+- [x] `MetricsExporter`: 12 Prometheus metrics (6 Gauge + 6 Counter), low-cardinality (PR#84)
+- [x] `GET /metrics` HTTP endpoint via aiohttp.web (PR#85)
+- [x] E2E smoke test: exporter + endpoint runtime correctness (PR#89)
+- [x] DEC-025-validation: `promtool` CI + forbidden label checks (PR#87)
+
+### Done — ML Pipeline (DEC-012–021, PR#54–71)
+
+- [x] Label builder + cost model (DEC-010, PR#54)
+- [x] Offline backtest harness with AUC/Brier/ECE/TopK (DEC-011, PR#55)
+- [x] Training dataset split with anti-leakage (DEC-012)
+- [x] Platt calibration (DEC-013)
+- [x] MLRunner with calibration integration (DEC-014)
+- [x] Baseline E2E determinism acceptance (DEC-015)
+- [x] Artifact registry / manifest with SHA256 (DEC-016)
+- [x] Production profile gates: DEV/PROD strictness (DEC-017)
+- [x] Reason codes SSOT alignment (DEC-018)
+- [x] MLRunner E2E acceptance as CI gate (DEC-019)
+- [x] LLM timeout enforcement (DEC-020)
+- [x] Model package E2E smoke (DEC-021)
+- [x] Replay gate trigger expansion (DEC-022)
+
+### Done — Foundations (PR#1–25)
+
+- [x] Data contracts: MarketEvent, FeatureSnapshot, PredictionSnapshot, RankEvent, LLMExplainInput/Output
+- [x] LLM guardrails: no-new-numbers, status-label validators, ExplainLLM + MockExplainer + AnthropicExplainer
+- [x] Replay harness with determinism verification
+- [x] Live pipeline scaffold (`scripts/run_live.py` — DEC-006)
+- [x] Record→replay bridge (`scripts/run_record.py` — DEC-007)
+- [x] Feature engine, scorer, ranker, alerter
 
 ### In Progress
-- None
+- DEC-026: Live pipeline wiring (real WS + ML + metrics end-to-end)
 
 ### Blocked
 - None
 
 ## Known issues
-- Replay pipeline uses stub logic (deterministic but not ML-based)
-- LLM module not yet implemented (contracts only)
+- `run_live.py` uses stub/minimal pipeline logic — real ML inference path not yet wired
+- No trained model artifact in registry (MLRunner falls back to BaselineRunner)
+- No frontend/dashboard (RankEvents go to logs only)
 
-## Artifact checksums (PR#1)
+## Artifact checksums (PR#1 fixture)
 - `market_events.jsonl`: `ba7d6e2018426517893ac4de3052a145e72b88f20d82f8d864558fca99eea277`
 - `expected_rank_events.jsonl`: `901a6cc399a2de563f55c1b3458edba8250b08a785978848ef890ca435e34335`
 - RankEvent stream digest: `08f158e3d78b74e0b75318772bf0cd689859783de25c3b404ad501153efcd44d`
