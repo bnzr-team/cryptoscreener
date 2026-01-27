@@ -23,7 +23,7 @@ groups:
       # GOV_QUEUE_SATURATED: Backpressure building in REST governor queue
       - alert: GOV_QUEUE_SATURATED_WARNING
         expr: |
-          (cryptoscreener_gov_current_queue_depth / cryptoscreener_gov_max_queue_depth) >= 0.80
+          (cryptoscreener_gov_current_queue_depth / clamp_min(cryptoscreener_gov_max_queue_depth, 1)) >= 0.80
         for: 1m
         labels:
           severity: warning
@@ -37,7 +37,7 @@ groups:
 
       - alert: GOV_QUEUE_SATURATED_CRITICAL
         expr: |
-          (cryptoscreener_gov_current_queue_depth / cryptoscreener_gov_max_queue_depth) >= 0.95
+          (cryptoscreener_gov_current_queue_depth / clamp_min(cryptoscreener_gov_max_queue_depth, 1)) >= 0.95
         for: 2m
         labels:
           severity: critical
@@ -55,7 +55,7 @@ groups:
         expr: |
           (
             rate(cryptoscreener_gov_requests_dropped[5m])
-            / (rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m]) + 0.001)
+            / clamp_min(rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m]), 0.001)
           ) > 0.001
           and
           (rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m])) * 60 > 10
@@ -74,7 +74,7 @@ groups:
         expr: |
           (
             rate(cryptoscreener_gov_requests_dropped[5m])
-            / (rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m]) + 0.001)
+            / clamp_min(rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m]), 0.001)
           ) > 0.01
           and
           (rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m])) * 60 > 10
@@ -159,7 +159,7 @@ groups:
         annotations:
           summary: "Circuit breaker was stuck OPEN > 5 minutes"
           description: |
-            Last OPEN period lasted {{ $value | humanizeDuration }}.
+            Last OPEN period lasted {{ $value | printf "%.0f" }}ms (> 5 min threshold).
             REST requests were blocked during this time.
           runbook_url: "https://docs.example.com/runbooks/cb_stuck_open"
 
@@ -172,7 +172,7 @@ groups:
         annotations:
           summary: "Circuit breaker was stuck OPEN > 10 minutes"
           description: |
-            Last OPEN period lasted {{ $value | humanizeDuration }}.
+            Last OPEN period lasted {{ $value | printf "%.0f" }}ms (> 10 min threshold).
             Prolonged API blockage. Review logs for root cause.
           runbook_url: "https://docs.example.com/runbooks/cb_stuck_open"
 
@@ -191,8 +191,7 @@ groups:
         annotations:
           summary: "WebSocket reconnect storm detected"
           description: |
-            Disconnects (5m): {{ with printf "increase(cryptoscreener_ws_total_disconnects[5m])" | query }}{{ . | first | value }}{{ end }}
-            Reconnect attempts (5m): {{ with printf "increase(cryptoscreener_ws_total_reconnect_attempts[5m])" | query }}{{ . | first | value }}{{ end }}
+            Threshold breached: >= 10 disconnects or >= 20 reconnect attempts in 5m.
             Connection instability detected. Check network and Binance WS status.
           runbook_url: "https://docs.example.com/runbooks/ws_reconnect_storm"
 
@@ -207,8 +206,7 @@ groups:
         annotations:
           summary: "Severe WebSocket reconnect storm"
           description: |
-            Disconnects (5m): {{ with printf "increase(cryptoscreener_ws_total_disconnects[5m])" | query }}{{ . | first | value }}{{ end }}
-            Reconnect attempts (5m): {{ with printf "increase(cryptoscreener_ws_total_reconnect_attempts[5m])" | query }}{{ . | first | value }}{{ end }}
+            Threshold breached: >= 30 disconnects or >= 60 reconnect attempts in 5m.
             Severe connectivity issues. Market data likely stale. Investigate immediately.
           runbook_url: "https://docs.example.com/runbooks/ws_reconnect_storm"
 
