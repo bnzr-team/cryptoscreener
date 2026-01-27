@@ -212,20 +212,6 @@ groups:
             Severe connectivity issues. Market data likely stale. Investigate immediately.
           runbook_url: "https://docs.example.com/runbooks/ws_reconnect_storm"
 
-      # WS_RECONNECT_DENIED: Reconnects being blocked by limiter (secondary signal)
-      - alert: WS_RECONNECT_DENIED_HIGH
-        expr: |
-          increase(cryptoscreener_ws_total_reconnects_denied[5m]) >= 5
-        labels:
-          severity: warning
-          component: websocket
-        annotations:
-          summary: "WebSocket reconnects being denied by limiter"
-          description: |
-            {{ $value }} reconnect attempts denied in 5 minutes.
-            Limiter protecting against storms, but indicates underlying instability.
-          runbook_url: "https://docs.example.com/runbooks/ws_reconnect_storm"
-
       # WS_PING_TIMEOUTS: Ping/pong failures
       - alert: WS_PING_TIMEOUTS_WARNING
         expr: |
@@ -255,7 +241,9 @@ groups:
           runbook_url: "https://docs.example.com/runbooks/ws_ping_timeouts"
 
       # WS_SUBSCRIBE_DELAY_HIGH: Outbound subscribe requests being throttled
-      - alert: WS_SUBSCRIBE_DELAY_HIGH
+      # DEC-025: Uses absolute count (no denominator metric available)
+      # WARNING: > 10 delayed/5m, CRITICAL: >= 30 delayed/5m
+      - alert: WS_SUBSCRIBE_DELAY_WARNING
         expr: |
           increase(cryptoscreener_ws_total_subscribe_delayed[5m]) > 10
         for: 5m
@@ -267,4 +255,18 @@ groups:
           description: |
             {{ $value }} subscribe requests delayed by throttler in 5 minutes.
             Subscription bursts may cause delays in stream activation.
+          runbook_url: "https://docs.example.com/runbooks/ws_subscribe_delay"
+
+      - alert: WS_SUBSCRIBE_DELAY_CRITICAL
+        expr: |
+          increase(cryptoscreener_ws_total_subscribe_delayed[5m]) >= 30
+        for: 5m
+        labels:
+          severity: critical
+          component: websocket
+        annotations:
+          summary: "Severe WebSocket subscribe throttling"
+          description: |
+            {{ $value }} subscribe requests delayed by throttler in 5 minutes.
+            Significant subscription delays affecting stream activation. Check throttler config.
           runbook_url: "https://docs.example.com/runbooks/ws_subscribe_delay"
