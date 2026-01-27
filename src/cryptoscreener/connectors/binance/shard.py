@@ -290,7 +290,11 @@ class WebSocketShard:
 
         Per BINANCE_LIMITS.md: exponential backoff + jitter for reconnects.
         DEC-023b: Checks ReconnectLimiter before attempting reconnect.
+        DEC-025: Tracks reconnect_attempts (all attempts) and total_disconnects.
         """
+        # DEC-025: Count every reconnect attempt (before limiter check)
+        self._metrics.reconnect_attempts += 1
+
         # DEC-023b: Check reconnect limiter before attempting
         if self._reconnect_limiter is not None:
             if not self._reconnect_limiter.can_reconnect(self._shard_id):
@@ -567,6 +571,8 @@ class WebSocketShard:
 
         # Trigger reconnect if not intentionally closing
         if self._state not in (ConnectionState.CLOSING, ConnectionState.CLOSED):
+            # DEC-025: Count unintentional disconnects (connection dropped)
+            self._metrics.total_disconnects += 1
             task = asyncio.create_task(self.reconnect())
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
