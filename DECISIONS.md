@@ -2676,6 +2676,9 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
    - Pytest `tests/monitoring/test_alert_rules_validation.py`: forbidden label keys + forbidden selectors in expr.
    - 5 tests (2 positive against real rules, 3 negative with synthetic bad YAML).
    - `pyyaml>=6.0` added to dev dependencies.
+7. **DEC-025-e2e-smoke (PR#TBD):** E2e smoke test for exporter+endpoint runtime correctness.
+   - `tests/monitoring/test_metrics_endpoint_smoke.py`: 4 async tests via `AioHTTPTestCase`.
+   - Verifies all 12 `REQUIRED_METRIC_NAMES` present, `# TYPE` counter/gauge correct, counter monotonicity, gauge latest-value semantics.
 
 ---
 
