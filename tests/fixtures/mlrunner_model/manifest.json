@@ -1,12 +1,10 @@
 {
   "version": "1.0.0",
-  "description": "Deterministic MLRunner test fixture",
+  "description": "Deterministic MLRunner test fixture (model.pkl generated at runtime)",
   "files": {
-    "model": "model.pkl",
     "calibration": "calibration.json"
   },
   "checksums": {
-    "model.pkl": "25a8dddab9d992c6924263c2f5c3e1046930413f21599fb2d0d4b5c6e6ac9b3c",
-    "calibration.json": "6fc486ccc080d56f44fdb9f3418b1bd7e0e4d7d0386d7afe09eea7f5315e256f"
+    "calibration.json": "19d3d37c26ac98eed4c119a1e1a54f7072149cc3c88bba9e7f89931591581128"
   }
 }

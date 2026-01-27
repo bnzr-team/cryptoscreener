@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from textwrap import dedent
+from typing import Any
 
 import pytest
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 # Forbidden label keys — must never appear in alert rule `labels:` blocks.
 # Aligned with FORBIDDEN_LABELS in exporter.py.
@@ -47,13 +48,13 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 ALERT_RULES_PATH = PROJECT_ROOT / "monitoring" / "alert_rules.yml"
 
 
-def _load_alert_rules() -> dict:
+def _load_alert_rules() -> dict[str, Any]:
     """Load and parse alert_rules.yml."""
     content = ALERT_RULES_PATH.read_text()
-    return yaml.safe_load(content)
+    return yaml.safe_load(content)  # type: ignore[no-any-return]
 
 
-def _extract_rules(data: dict) -> list[dict]:
+def _extract_rules(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract all rule dicts from alert_rules.yml structure."""
     rules = []
     for group in data.get("groups", []):

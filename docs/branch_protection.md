@@ -2,7 +2,7 @@
 
 **Repo:** `bnzr-team/cryptoscreener`
 **Branch:** `main`
-**Last updated:** 2026-01-27
+**Last updated:** 2026-01-27 (v2: added hardening gates)
 
 ---
 
@@ -24,6 +24,9 @@
     - `check-rules` (Promtool workflow: `promtool check rules`, triggers on `monitoring/**`)
     - `proof-guard` (Proof Guard workflow: acceptance packet validation)
     - `acceptance-packet` (Acceptance Packet workflow: auto-generates packet in PR body)
+    - `checksum-guard` (Checksum Guard: SHA256 verification of fixture/artifact manifests, triggers on `tests/fixtures/**`, `artifacts/**`, `src/cryptoscreener/registry/**`)
+    - `replay-determinism` (Replay Determinism: double-run digest match, triggers on `tests/fixtures/sample_run/**`, `tests/replay/**`, `scripts/run_replay.py`, ranker/scoring/alerting)
+    - `contracts-roundtrip` (Contracts Roundtrip: `pytest tests/contracts/`, triggers on `src/cryptoscreener/contracts/**`)
 
 ### Conversation Resolution
 
@@ -81,7 +84,7 @@ gh api -X PUT repos/bnzr-team/cryptoscreener/branches/main/protection \
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["checks", "check-rules", "proof-guard", "acceptance-packet"]
+    "contexts": ["checks", "check-rules", "proof-guard", "acceptance-packet", "checksum-guard", "replay-determinism", "contracts-roundtrip"]
   },
   "enforce_admins": true,
   "required_pull_request_reviews": {
@@ -118,7 +121,7 @@ gh api repos/bnzr-team/cryptoscreener/branches/main/protection \
 Expected output:
 ```json
 {
-  "required_status_checks": ["checks", "check-rules", "proof-guard", "acceptance-packet"],
+  "required_status_checks": ["checks", "check-rules", "proof-guard", "acceptance-packet", "checksum-guard", "replay-determinism", "contracts-roundtrip"],
   "enforce_admins": true,
   "required_reviews": 1,
   "dismiss_stale": true,
