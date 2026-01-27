@@ -48,6 +48,7 @@ from cryptoscreener.alerting.alerter import (
 )
 from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
 from cryptoscreener.connectors.binance.types import ConnectorConfig
+from cryptoscreener.connectors.metrics_server import start_metrics_server, stop_metrics_server
 from cryptoscreener.features.engine import FeatureEngine, FeatureEngineConfig
 from cryptoscreener.model_runner import BaselineRunner, ModelRunnerConfig
 from cryptoscreener.ranker.ranker import Ranker, RankerConfig
@@ -85,6 +86,9 @@ class LivePipelineConfig:
 
     # Verbose logging
     verbose: bool = False
+
+    # Metrics server port (0 = disabled)
+    metrics_port: int = 9090
 
 
 @dataclass
@@ -495,6 +499,16 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
     # Setup signal handlers (only sets flags, does not call stop())
     setup_signal_handlers(pipeline)
 
+    # Start metrics server (DEC-025)
+    # Serves GET /metrics with Prometheus exposition format.
+    # MetricsExporter update() wiring into pipeline loop is a follow-up task.
+    metrics_runner = None
+    if config.metrics_port > 0:
+        from prometheus_client.registry import CollectorRegistry
+
+        registry = CollectorRegistry()
+        metrics_runner = await start_metrics_server(registry, port=config.metrics_port)
+
     try:
         await pipeline.start()
         return 0
@@ -503,6 +517,8 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
         return 1
     finally:
         await pipeline.stop()
+        if metrics_runner is not None:
+            await stop_metrics_server(metrics_runner)
 
 
 def main() -> int:
@@ -551,6 +567,12 @@ def main() -> int:
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=9090,
+        help="Prometheus /metrics port (0 to disable, default: 9090)",
+    )
 
     args = parser.parse_args()
 
@@ -570,6 +592,7 @@ def main() -> int:
         output_file=args.output,
         duration_s=args.duration_s,
         verbose=args.verbose,
+        metrics_port=args.metrics_port,
     )
 
     logger.info("Starting CryptoScreener Live Pipeline")
