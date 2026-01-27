@@ -49,7 +49,7 @@ from cryptoscreener.alerting.alerter import (
     ExplainLLMProtocol,
 )
 from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
-from cryptoscreener.connectors.binance.types import ConnectorConfig
+from cryptoscreener.connectors.binance.types import ConnectorConfig, ConnectorMetrics
 from cryptoscreener.connectors.exporter import MetricsExporter
 from cryptoscreener.connectors.metrics_server import start_metrics_server, stop_metrics_server
 from cryptoscreener.features.engine import FeatureEngine, FeatureEngineConfig
@@ -208,6 +208,8 @@ class LivePipeline:
         self._last_fault_drop_ts: float = 0.0
         self._start_monotonic: float = 0.0
         self._stop_monotonic: float = 0.0
+        self._final_connector_metrics: ConnectorMetrics | None = None
+        self._final_shard_count: int = 1
 
         # Initialize components
         self._stream_manager = BinanceStreamManager(
@@ -459,6 +461,10 @@ class LivePipeline:
         logger.info("Stopping live pipeline")
         self._running = False
 
+        # DEC-027: Snapshot connector metrics BEFORE stopping (stop clears shards)
+        self._final_connector_metrics = self._stream_manager.get_metrics()
+        self._final_shard_count = max(1, len(self._stream_manager._shards))
+
         # Stop components
         await self._feature_engine.stop()
         await self._stream_manager.stop()
@@ -484,7 +490,7 @@ class LivePipeline:
     def _build_soak_summary(self) -> SoakSummary:
         """DEC-027: Build soak summary from pipeline and connector metrics."""
         m = self._metrics
-        cm = self._stream_manager.get_metrics()
+        cm = self._final_connector_metrics or ConnectorMetrics()
         cb = self._stream_manager.circuit_breaker
 
         # Use monotonic clock for accurate wall-time duration
@@ -493,7 +499,7 @@ class LivePipeline:
         # Compute max reconnect rate per minute per shard from samples.
         # Samples are (monotonic_ts, cumulative_total_attempts).
         # We find the max delta over any 60s+ window, then divide by shard count.
-        shard_count = max(1, cm.active_shards, len(self._stream_manager._shards))
+        shard_count = self._final_shard_count
         max_rate_total = 0.0
         samples = list(self._reconnect_samples)
         for i, (ts_i, count_i) in enumerate(samples):
