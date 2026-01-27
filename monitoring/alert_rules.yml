@@ -3,9 +3,9 @@
 # Prometheus alerting rules for connector infrastructure metrics.
 # Follows DEC-025 threshold planning and metric mapping from DECISIONS.md.
 #
-# STATUS: TEMPLATE ONLY - No runtime exporter implemented yet.
-# These rules will become active when prometheus_client exporter is added.
-# See: future PR "DEC-025-exporter" for runtime metrics export.
+# STATUS: READY - Exporter implemented in src/cryptoscreener/connectors/exporter.py
+# HTTP /metrics endpoint pending (separate PR).
+# See: DEC-025-exporter PR for implementation details.
 #
 # IMPORTANT: These rules assume metrics are exported with the following names:
 # - cryptoscreener_gov_* : RestGovernor metrics
@@ -54,11 +54,11 @@ groups:
       - alert: GOV_SUSTAINED_DROPS_WARNING
         expr: |
           (
-            rate(cryptoscreener_gov_requests_dropped[5m])
-            / clamp_min(rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m]), 0.001)
+            rate(cryptoscreener_gov_requests_dropped_total[5m])
+            / clamp_min(rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m]), 0.001)
           ) > 0.001
           and
-          (rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m])) * 60 > 10
+          (rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m])) * 60 > 10
         for: 10m
         labels:
           severity: warning
@@ -73,11 +73,11 @@ groups:
       - alert: GOV_SUSTAINED_DROPS_CRITICAL
         expr: |
           (
-            rate(cryptoscreener_gov_requests_dropped[5m])
-            / clamp_min(rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m]), 0.001)
+            rate(cryptoscreener_gov_requests_dropped_total[5m])
+            / clamp_min(rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m]), 0.001)
           ) > 0.01
           and
-          (rate(cryptoscreener_gov_requests_allowed[5m]) + rate(cryptoscreener_gov_requests_dropped[5m])) * 60 > 10
+          (rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m])) * 60 > 10
         for: 5m
         labels:
           severity: critical
@@ -123,7 +123,7 @@ groups:
       # CB_FLAPPING: Circuit breaker opening frequently
       - alert: CB_FLAPPING_WARNING
         expr: |
-          increase(cryptoscreener_cb_transitions_closed_to_open[10m]) >= 3
+          increase(cryptoscreener_cb_transitions_closed_to_open_total[10m]) >= 3
         labels:
           severity: warning
           component: circuit_breaker
@@ -136,7 +136,7 @@ groups:
 
       - alert: CB_FLAPPING_CRITICAL
         expr: |
-          increase(cryptoscreener_cb_transitions_closed_to_open[10m]) >= 10
+          increase(cryptoscreener_cb_transitions_closed_to_open_total[10m]) >= 10
         labels:
           severity: critical
           component: circuit_breaker
@@ -182,9 +182,9 @@ groups:
       # Primary signals: actual disconnects/attempts (catches storms even when limiter allows)
       - alert: WS_RECONNECT_STORM_WARNING
         expr: |
-          increase(cryptoscreener_ws_total_disconnects[5m]) >= 10
+          increase(cryptoscreener_ws_total_disconnects_total[5m]) >= 10
           or
-          increase(cryptoscreener_ws_total_reconnect_attempts[5m]) >= 20
+          increase(cryptoscreener_ws_total_reconnect_attempts_total[5m]) >= 20
         labels:
           severity: warning
           component: websocket
@@ -197,9 +197,9 @@ groups:
 
       - alert: WS_RECONNECT_STORM_CRITICAL
         expr: |
-          increase(cryptoscreener_ws_total_disconnects[5m]) >= 30
+          increase(cryptoscreener_ws_total_disconnects_total[5m]) >= 30
           or
-          increase(cryptoscreener_ws_total_reconnect_attempts[5m]) >= 60
+          increase(cryptoscreener_ws_total_reconnect_attempts_total[5m]) >= 60
         labels:
           severity: critical
           component: websocket
@@ -213,7 +213,7 @@ groups:
       # WS_PING_TIMEOUTS: Ping/pong failures
       - alert: WS_PING_TIMEOUTS_WARNING
         expr: |
-          increase(cryptoscreener_ws_total_ping_timeouts[5m]) > 0
+          increase(cryptoscreener_ws_total_ping_timeouts_total[5m]) > 0
         for: 5m
         labels:
           severity: warning
@@ -227,7 +227,7 @@ groups:
 
       - alert: WS_PING_TIMEOUTS_CRITICAL
         expr: |
-          increase(cryptoscreener_ws_total_ping_timeouts[5m]) >= 5
+          increase(cryptoscreener_ws_total_ping_timeouts_total[5m]) >= 5
         labels:
           severity: critical
           component: websocket
@@ -243,7 +243,7 @@ groups:
       # WARNING: > 10 delayed/5m, CRITICAL: >= 30 delayed/5m
       - alert: WS_SUBSCRIBE_DELAY_WARNING
         expr: |
-          increase(cryptoscreener_ws_total_subscribe_delayed[5m]) > 10
+          increase(cryptoscreener_ws_total_subscribe_delayed_total[5m]) > 10
         for: 5m
         labels:
           severity: warning
@@ -257,7 +257,7 @@ groups:
 
       - alert: WS_SUBSCRIBE_DELAY_CRITICAL
         expr: |
-          increase(cryptoscreener_ws_total_subscribe_delayed[5m]) >= 30
+          increase(cryptoscreener_ws_total_subscribe_delayed_total[5m]) >= 30
         for: 5m
         labels:
           severity: critical
