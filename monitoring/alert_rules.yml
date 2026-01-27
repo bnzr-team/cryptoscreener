@@ -3,9 +3,10 @@
 # Prometheus alerting rules for connector infrastructure metrics.
 # Follows DEC-025 threshold planning and metric mapping from DECISIONS.md.
 #
-# STATUS: READY - Exporter implemented in src/cryptoscreener/connectors/exporter.py
-# HTTP /metrics endpoint pending (separate PR).
-# See: DEC-025-exporter PR for implementation details.
+# STATUS: ACTIVE - Full stack implemented:
+#   - Exporter: src/cryptoscreener/connectors/exporter.py (PR#84)
+#   - HTTP endpoint: src/cryptoscreener/connectors/metrics_server.py (PR#85)
+#   - CLI: scripts/run_live.py --metrics-port 9090
 #
 # IMPORTANT: These rules assume metrics are exported with the following names:
 # - cryptoscreener_gov_* : RestGovernor metrics

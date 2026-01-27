@@ -2325,7 +2325,7 @@ Extend `scripts/proof_dec023d_determinism.py` to include metrics:
 
 ---
 
-## DEC-025: Alert Thresholds & Runbooks (PLANNING)
+## DEC-025: Alert Thresholds & Runbooks (IMPLEMENTED)
 
 ### Goal
 Define production-grade alert thresholds and runbooks for CryptoScreener operational safety and observability (DEC-023/DEC-024 stack), with low-noise detection, low-cardinality labeling, and security-safe context.
@@ -2657,11 +2657,21 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
    - Add missing metrics: `total_disconnects`, `reconnect_attempts` to `ShardMetrics`/`ConnectorMetrics`.
    - Update metric mapping table (missing → exists).
    - Document CB_STUCK_OPEN proxy decision.
-3. **DEC-025-queries (PR#TBD):** 🔄 IN PROGRESS
-   - Implement concrete alert rules in `monitoring/alert_rules.yml`.
+3. **DEC-025-queries (PR#83):** ✅ MERGED
+   - Concrete alert rules in `monitoring/alert_rules.yml` (16 rules, validated with `promtool check rules`).
    - Prometheus alerting rules format with PromQL queries.
    - Low-cardinality labels only (instance, job, severity, component).
-4. **DEC-025-validation (follow-up PR):**
+4. **DEC-025-exporter (PR#84):** ✅ MERGED
+   - `MetricsExporter` class in `src/cryptoscreener/connectors/exporter.py`.
+   - 12 metrics (6 Gauges + 6 Counters) matching `alert_rules.yml` exactly.
+   - Counter `_total` suffix alignment validated.
+   - `FORBIDDEN_LABELS` and `REQUIRED_METRIC_NAMES` contract sets.
+   - `prometheus_client>=0.19.0` dependency added.
+5. **DEC-025-metrics-endpoint (PR#85):** ✅ MERGED
+   - Minimal HTTP `GET /metrics` endpoint via `aiohttp.web` in `src/cryptoscreener/connectors/metrics_server.py`.
+   - `--metrics-port` CLI flag in `scripts/run_live.py` (default 9090, 0 to disable).
+   - 6 smoke tests for status, content-type, metric content, empty registry, 404.
+6. **DEC-025-validation (follow-up PR):**
    - Add lightweight tests or static checks for:
      - no high-cardinality alert labels
      - no secrets/PII in log fields used for annotations

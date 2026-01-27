@@ -20,6 +20,14 @@
 - [x] 39 unit tests passing (contracts, roundtrip, LLM guardrails)
 - [x] Tooling: ruff + mypy (strict) configured and passing
 
+### Done (DEC-025: Prometheus Observability)
+- [x] Alert thresholds & runbooks planning (PR#81)
+- [x] WS storm metrics added to ShardMetrics/ConnectorMetrics (PR#82)
+- [x] 16 PromQL alert rules in `monitoring/alert_rules.yml`, validated with `promtool` (PR#83)
+- [x] `MetricsExporter` — 12 Prometheus metrics (6 Gauge + 6 Counter), low-cardinality only (PR#84)
+- [x] `GET /metrics` HTTP endpoint via aiohttp.web, `--metrics-port` CLI flag (PR#85)
+- [x] 1024+ tests passing (ruff ✓, mypy ✓, pytest ✓)
+
 ### In Progress
 - None
 
