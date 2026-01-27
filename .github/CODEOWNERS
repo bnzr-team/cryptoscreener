@@ -1,12 +1,35 @@
-```txt
+# CODEOWNERS — CryptoScreener
+#
+# GitHub requires approval from listed owners when PRs touch matching paths.
+# Requires "Require review from Code Owners" enabled in branch protection.
+#
+# Owner: @bnzr-hub (sole maintainer)
+
+# Default: all files require owner review
 * @bnzr-hub
 
-DECISIONS.md @bnzr-hub
-STATE.md @bnzr-hub
-CHANGELOG.md @bnzr-hub
-docs/** @bnzr-hub
-src/cryptoscreener/contracts/** @bnzr-hub
-tests/fixtures/** @bnzr-hub
-scripts/run_replay.py @bnzr-hub
-CLAUDE.md @bnzr-hub
-STATUS_UPDATE_TEMPLATE.md @bnzr-hub
+# SSOT documents
+DECISIONS.md                          @bnzr-hub
+STATE.md                              @bnzr-hub
+CHANGELOG.md                          @bnzr-hub
+CLAUDE.md                             @bnzr-hub
+STATUS_UPDATE_TEMPLATE.md             @bnzr-hub
+
+# Documentation
+docs/**                               @bnzr-hub
+
+# Monitoring / alerting rules
+monitoring/**                         @bnzr-hub
+
+# CI/CD workflows and proof tooling
+.github/workflows/**                  @bnzr-hub
+scripts/**                            @bnzr-hub
+
+# Connector infrastructure (exporter, metrics endpoint, backoff)
+src/cryptoscreener/connectors/**      @bnzr-hub
+
+# Data contracts
+src/cryptoscreener/contracts/**       @bnzr-hub
+
+# Test fixtures (replay determinism)
+tests/fixtures/**                     @bnzr-hub
