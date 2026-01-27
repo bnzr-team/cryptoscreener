@@ -8,8 +8,8 @@
 ## Current status
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
-- **Test count:** 1033 passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-026 — Live pipeline wiring (real WS + ML + metrics)
+- **Test count:** 1041+ passing (ruff ✓, mypy ✓, pytest ✓)
+- **Next milestone:** DEC-028 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -39,6 +39,7 @@
 - [x] E2E smoke test: exporter + endpoint runtime correctness (PR#89)
 - [x] DEC-025-validation: `promtool` CI + forbidden label checks (PR#87)
 - [x] Live runner metrics wiring (DEC-026): `MetricsExporter.update()` called every cadence tick
+- [x] WS resilience validation & soak tests (DEC-027): fault injection, SoakSummary JSON, fake WS integration test
 
 ### Done — ML Pipeline (DEC-012–021, PR#54–71)
 

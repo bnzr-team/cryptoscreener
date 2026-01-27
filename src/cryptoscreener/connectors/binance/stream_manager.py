@@ -493,6 +493,16 @@ class BinanceStreamManager:
             total_reconnect_attempts=total_reconnect_attempts,
         )
 
+    async def force_disconnect(self) -> None:
+        """
+        DEC-027: Force-close all shard WS connections.
+
+        Used for fault injection during soak tests. Each shard's reconnect
+        logic will handle recovery via its existing backoff/limiter path.
+        """
+        for shard in self._shards.values():
+            await shard.disconnect()
+
     @property
     def circuit_breaker(self) -> CircuitBreaker:
         """Read-only access to circuit breaker (DEC-026: metrics wiring)."""

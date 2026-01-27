@@ -9,6 +9,14 @@
 
 ### Added
 
+#### WS Resilience Validation & Soak Tests (DEC-027, PR#93)
+- `SoakSummary` dataclass + `--summary-json PATH` CLI flag for post-run JSON report
+- Fault injection: `--fault-drop-ws-every-s N` (periodic WS disconnect), `--fault-slow-consumer-ms M` (consumer delay)
+- `BinanceStreamManager.force_disconnect()` method for clean fault injection
+- Reconnect rate tracking (rolling window) with `max_reconnect_rate_per_min` in summary
+- Fake WS server integration test (`test_ws_resilience.py`): reconnect discipline + backoff verification
+- 4 new tests for reconnect behavior and force_disconnect
+
 #### Live Runner Metrics Wiring (DEC-026, PR#92)
 - Wired `MetricsExporter.update()` into `run_live.py` main loop (every cadence tick ~1s)
 - Added read-only `circuit_breaker` and `governor` properties to `BinanceStreamManager`
