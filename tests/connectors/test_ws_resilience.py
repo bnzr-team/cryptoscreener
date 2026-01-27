@@ -220,20 +220,28 @@ class TestForceDisconnect:
         await mgr.force_disconnect()
 
     @pytest.mark.asyncio
-    async def test_force_disconnect_calls_shard_disconnect(self) -> None:
-        """force_disconnect disconnects all shards."""
-        from unittest.mock import AsyncMock
+    async def test_force_disconnect_closes_ws_connections(self) -> None:
+        """force_disconnect closes raw WS on each shard (not graceful disconnect)."""
+        from unittest.mock import AsyncMock, MagicMock
 
         from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
 
         mgr = BinanceStreamManager(on_event=None)
 
-        # Create mock shards
-        mock_shard_1 = AsyncMock()
-        mock_shard_2 = AsyncMock()
+        # Create mock shards with mock _ws
+        mock_ws_1 = AsyncMock()
+        mock_ws_1.closed = False
+        mock_shard_1 = MagicMock()
+        mock_shard_1._ws = mock_ws_1
+
+        mock_ws_2 = AsyncMock()
+        mock_ws_2.closed = False
+        mock_shard_2 = MagicMock()
+        mock_shard_2._ws = mock_ws_2
+
         mgr._shards = {0: mock_shard_1, 1: mock_shard_2}
 
         await mgr.force_disconnect()
 
-        mock_shard_1.disconnect.assert_awaited_once()
-        mock_shard_2.disconnect.assert_awaited_once()
+        mock_ws_1.close.assert_awaited_once()
+        mock_ws_2.close.assert_awaited_once()
