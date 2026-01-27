@@ -9,6 +9,22 @@
 
 ### Added
 
+#### Prometheus Observability Stack (DEC-025)
+- `MetricsExporter` in `src/cryptoscreener/connectors/exporter.py` (PR#84):
+  - 12 low-cardinality Prometheus metrics (6 Gauge + 6 Counter)
+  - Metric names aligned 1:1 with `monitoring/alert_rules.yml`
+  - `FORBIDDEN_LABELS` contract (no symbol/endpoint/path/query/ip)
+  - `REQUIRED_METRIC_NAMES` frozenset for test validation
+  - Counter delta tracking for monotonic increment semantics
+- Minimal HTTP `/metrics` endpoint in `src/cryptoscreener/connectors/metrics_server.py` (PR#85):
+  - `aiohttp.web` server serving `generate_latest(registry)`
+  - Content-Type: `text/plain; version=0.0.4; charset=utf-8`
+  - `--metrics-port` CLI flag in `scripts/run_live.py` (default 9090, 0 to disable)
+- 16 PromQL alert rules in `monitoring/alert_rules.yml` (PR#83):
+  - `promtool check rules` validated (SUCCESS 16 rules)
+  - Counter references use `_total` suffix per prometheus_client convention
+- `prometheus_client>=0.19.0` added to dependencies
+
 #### Replay Gate Trigger Expansion (DEC-022)
 - Expanded `require_replay()` in `acceptance_packet.sh` to include critical inference modules
 - New trigger paths:
