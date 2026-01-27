@@ -493,6 +493,18 @@ class BinanceStreamManager:
             total_reconnect_attempts=total_reconnect_attempts,
         )
 
+    async def force_disconnect(self) -> None:
+        """
+        DEC-027: Force-close all shard WS connections (simulates network drop).
+
+        Closes the raw WebSocket without going through graceful disconnect(),
+        so the shard's receive loop detects the close and triggers auto-reconnect
+        via its existing backoff/limiter path.
+        """
+        for shard in self._shards.values():
+            if shard._ws and not shard._ws.closed:
+                await shard._ws.close()
+
     @property
     def circuit_breaker(self) -> CircuitBreaker:
         """Read-only access to circuit breaker (DEC-026: metrics wiring)."""

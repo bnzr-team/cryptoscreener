@@ -2786,3 +2786,45 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 - [ ] `BinanceStreamManager.circuit_breaker` returns `CircuitBreaker` instance (tested)
 - [ ] `BinanceStreamManager.governor` returns `None` by default (tested)
 - [ ] `exporter.update()` works with stream manager accessors (tested)
+
+---
+
+## DEC-027 — WebSocket Resilience Validation & Soak Tests
+
+**Date:** 2026-01-27
+**Status:** Accepted
+**PR:** #93
+
+### Objective
+
+Prove that the live pipeline's WebSocket reconnect logic behaves safely under adversity: no reconnect storms, backoff observed, resource sanity maintained, cardinality bounded.
+
+### Deliverables
+
+1. **SoakSummary JSON** (`--summary-json PATH`): Written at pipeline exit with duration, event counts, latency stats, WS disconnect/reconnect counts, `max_reconnect_rate_per_min`, fault config, and `passed` boolean.
+2. **Fault injection hooks:**
+   - `--fault-drop-ws-every-s N`: Force-close all WS shard connections every N seconds via `BinanceStreamManager.force_disconnect()`.
+   - `--fault-slow-consumer-ms M`: Add M ms delay after each routed event (slow consumer simulation).
+3. **`BinanceStreamManager.force_disconnect()`**: Iterates all shards and calls `shard.disconnect()`. Shard reconnect logic handles recovery via existing backoff/limiter path.
+4. **Integration test** (`tests/connectors/test_ws_resilience.py`): Fake WS server (aiohttp) that sends messages then force-closes. Asserts reconnect attempts > 0, rate ≤ 12/min (bounded), and backoff delay > 400ms.
+5. **Reconnect rate tracking**: Rolling `(timestamp, cumulative_attempts)` samples in main loop, pruned to last 10 minutes. Max rate per minute per shard computed at summary time (total rate / shard count).
+
+### Acceptance criteria
+
+- Reconnect rate: ≤ 6/min per shard (max total rate over any 60s window, divided by shard count)
+- No tight loop: minimum backoff > 0ms (tested: > 400ms)
+- Cardinality: No per-symbol labels in /metrics (enforced by DEC-025)
+- `ruff check .` / `mypy .` / `pytest -q` all pass
+
+### Non-goals
+
+- New alert rules or dashboards
+- REST 429 simulation
+- RSS memory tracking (deferred)
+- MLRunner or UI changes
+
+### Files changed
+
+- `scripts/run_live.py` — SoakSummary dataclass, fault injection config + CLI args, reconnect rate sampling, summary JSON output
+- `src/cryptoscreener/connectors/binance/stream_manager.py` — `force_disconnect()` method
+- `tests/connectors/test_ws_resilience.py` — **NEW** fake WS server + reconnect discipline tests

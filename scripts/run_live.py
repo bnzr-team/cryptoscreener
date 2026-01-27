@@ -26,13 +26,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import signal
 import sys
 import time
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 if TYPE_CHECKING:
     from cryptoscreener.contracts.events import (
@@ -47,7 +49,7 @@ from cryptoscreener.alerting.alerter import (
     ExplainLLMProtocol,
 )
 from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
-from cryptoscreener.connectors.binance.types import ConnectorConfig
+from cryptoscreener.connectors.binance.types import ConnectorConfig, ConnectorMetrics
 from cryptoscreener.connectors.exporter import MetricsExporter
 from cryptoscreener.connectors.metrics_server import start_metrics_server, stop_metrics_server
 from cryptoscreener.features.engine import FeatureEngine, FeatureEngineConfig
@@ -91,6 +93,13 @@ class LivePipelineConfig:
     # Metrics server port (0 = disabled)
     metrics_port: int = 9090
 
+    # DEC-027: Fault injection
+    fault_drop_ws_every_s: int | None = None
+    fault_slow_consumer_ms: int | None = None
+
+    # DEC-027: Soak summary output
+    summary_json: Path | None = None
+
 
 @dataclass
 class PipelineMetrics:
@@ -132,6 +141,28 @@ class PipelineMetrics:
         return self.market_events_received / elapsed_s
 
 
+@dataclass
+class SoakSummary:
+    """DEC-027: Summary written to --summary-json at pipeline exit."""
+
+    duration_s: float = 0.0
+    market_events: int = 0
+    events_per_second: float = 0.0
+    snapshots: int = 0
+    predictions: int = 0
+    alerts: int = 0
+    avg_latency_ms: float = 0.0
+    max_latency_ms: int = 0
+    ws_disconnects: int = 0
+    ws_reconnect_attempts: int = 0
+    ws_reconnects_denied: int = 0
+    ws_ping_timeouts: int = 0
+    cb_transitions_to_open: int = 0
+    max_reconnect_rate_per_min: float = 0.0
+    faults_injected: dict[str, Any] = field(default_factory=dict)
+    passed: bool = False
+
+
 class LivePipeline:
     """
     Live pipeline connecting all components.
@@ -170,6 +201,15 @@ class LivePipeline:
         self._metrics = PipelineMetrics()
         self._running = False
         self._metrics_exporter = metrics_exporter
+
+        # DEC-027: Reconnect rate tracking (deque of (ts_s, cumulative_attempts))
+        # Pruned to last 10 minutes to bound memory and O(n) computation.
+        self._reconnect_samples: deque[tuple[float, int]] = deque()
+        self._last_fault_drop_ts: float = 0.0
+        self._start_monotonic: float = 0.0
+        self._stop_monotonic: float = 0.0
+        self._final_connector_metrics: ConnectorMetrics | None = None
+        self._final_shard_count: int = 1
 
         # Initialize components
         self._stream_manager = BinanceStreamManager(
@@ -348,6 +388,28 @@ class LivePipeline:
                         connector_metrics=self._stream_manager.get_metrics(),
                     )
 
+                # DEC-027: Sample reconnect rate for soak summary
+                cm = self._stream_manager.get_metrics()
+                now_s = time.monotonic()
+                self._reconnect_samples.append((now_s, cm.total_reconnect_attempts))
+                # Prune samples older than 10 minutes
+                cutoff = now_s - 600.0
+                while self._reconnect_samples and self._reconnect_samples[0][0] < cutoff:
+                    self._reconnect_samples.popleft()
+
+                # DEC-027: Fault injection — periodic WS disconnect
+                if (
+                    self._config.fault_drop_ws_every_s is not None
+                    and now_s - self._last_fault_drop_ts >= self._config.fault_drop_ws_every_s
+                ):
+                        self._last_fault_drop_ts = now_s
+                        logger.warning("DEC-027 FAULT: forcing WS disconnect")
+                        await self._stream_manager.force_disconnect()
+
+            # DEC-027: Fault injection — slow consumer
+            if self._config.fault_slow_consumer_ms is not None:
+                await asyncio.sleep(self._config.fault_slow_consumer_ms / 1000)
+
     async def start(self) -> None:
         """Start the live pipeline."""
         if self._running:
@@ -356,6 +418,7 @@ class LivePipeline:
         logger.info("Starting live pipeline")
         self._running = True
         self._metrics.start_ts = int(time.time() * 1000)
+        self._start_monotonic = time.monotonic()
 
         # Open output file if specified
         if self._output_file:
@@ -398,6 +461,10 @@ class LivePipeline:
         logger.info("Stopping live pipeline")
         self._running = False
 
+        # DEC-027: Snapshot connector metrics BEFORE stopping (stop clears shards)
+        self._final_connector_metrics = self._stream_manager.get_metrics()
+        self._final_shard_count = max(1, len(self._stream_manager._shards))
+
         # Stop components
         await self._feature_engine.stop()
         await self._stream_manager.stop()
@@ -407,10 +474,67 @@ class LivePipeline:
             self._output_handle.close()
             self._output_handle = None
 
+        self._stop_monotonic = time.monotonic()
+
         # Log final metrics
         self._log_metrics()
 
+        # DEC-027: Write soak summary JSON
+        if self._config.summary_json is not None:
+            summary = self._build_soak_summary()
+            self._config.summary_json.write_text(json.dumps(asdict(summary), indent=2))
+            logger.info("Soak summary written to %s", self._config.summary_json)
+
         logger.info("Live pipeline stopped")
+
+    def _build_soak_summary(self) -> SoakSummary:
+        """DEC-027: Build soak summary from pipeline and connector metrics."""
+        m = self._metrics
+        cm = self._final_connector_metrics or ConnectorMetrics()
+        cb = self._stream_manager.circuit_breaker
+
+        # Use monotonic clock for accurate wall-time duration
+        duration_s = self._stop_monotonic - self._start_monotonic
+
+        # Compute max reconnect rate per minute per shard from samples.
+        # Samples are (monotonic_ts, cumulative_total_attempts).
+        # We find the max delta over any 60s+ window, then divide by shard count.
+        shard_count = self._final_shard_count
+        max_rate_total = 0.0
+        samples = list(self._reconnect_samples)
+        for i, (ts_i, count_i) in enumerate(samples):
+            for ts_j, count_j in samples[i + 1 :]:
+                window = ts_j - ts_i
+                if window >= 60.0:
+                    rate = (count_j - count_i) / (window / 60.0)
+                    max_rate_total = max(max_rate_total, rate)
+                    break
+        max_rate_per_shard = max_rate_total / shard_count
+
+        faults: dict[str, Any] = {}
+        if self._config.fault_drop_ws_every_s is not None:
+            faults["drop_ws_every_s"] = self._config.fault_drop_ws_every_s
+        if self._config.fault_slow_consumer_ms is not None:
+            faults["slow_consumer_ms"] = self._config.fault_slow_consumer_ms
+
+        return SoakSummary(
+            duration_s=round(duration_s, 1),
+            market_events=m.market_events_received,
+            events_per_second=round(m.events_per_second(), 1),
+            snapshots=m.snapshots_emitted,
+            predictions=m.predictions_made,
+            alerts=m.alerts_emitted,
+            avg_latency_ms=round(m.avg_event_latency_ms(), 1),
+            max_latency_ms=m.max_event_latency_ms,
+            ws_disconnects=cm.total_disconnects,
+            ws_reconnect_attempts=cm.total_reconnect_attempts,
+            ws_reconnects_denied=cm.total_reconnects_denied,
+            ws_ping_timeouts=cm.total_ping_timeouts,
+            cb_transitions_to_open=cb.metrics.transitions_closed_to_open,
+            max_reconnect_rate_per_min=round(max_rate_per_shard, 1),
+            faults_injected=faults,
+            passed=max_rate_per_shard <= 6.0,
+        )
 
     def _log_metrics(self) -> None:
         """Log pipeline metrics summary."""
@@ -587,6 +711,24 @@ def main() -> int:
         default=9090,
         help="Prometheus /metrics port (0 to disable, default: 9090)",
     )
+    parser.add_argument(
+        "--fault-drop-ws-every-s",
+        type=int,
+        default=None,
+        help="DEC-027: Force-close all WS connections every N seconds",
+    )
+    parser.add_argument(
+        "--fault-slow-consumer-ms",
+        type=int,
+        default=None,
+        help="DEC-027: Add N ms delay after each event (slow consumer simulation)",
+    )
+    parser.add_argument(
+        "--summary-json",
+        type=Path,
+        default=None,
+        help="DEC-027: Write soak summary JSON to this path at exit",
+    )
 
     args = parser.parse_args()
 
@@ -607,6 +749,9 @@ def main() -> int:
         duration_s=args.duration_s,
         verbose=args.verbose,
         metrics_port=args.metrics_port,
+        fault_drop_ws_every_s=args.fault_drop_ws_every_s,
+        fault_slow_consumer_ms=args.fault_slow_consumer_ms,
+        summary_json=args.summary_json,
     )
 
     logger.info("Starting CryptoScreener Live Pipeline")
