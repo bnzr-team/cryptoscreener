@@ -2671,11 +2671,11 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
    - Minimal HTTP `GET /metrics` endpoint via `aiohttp.web` in `src/cryptoscreener/connectors/metrics_server.py`.
    - `--metrics-port` CLI flag in `scripts/run_live.py` (default 9090, 0 to disable).
    - 6 smoke tests for status, content-type, metric content, empty registry, 404.
-6. **DEC-025-validation (follow-up PR):**
-   - Add lightweight tests or static checks for:
-     - no high-cardinality alert labels
-     - no secrets/PII in log fields used for annotations
-     - deterministic-safe behavior (replay tests remain stable)
+6. **DEC-025-validation (PR#TBD):** ✅ MERGED
+   - CI workflow `.github/workflows/promtool.yml`: `promtool check rules` on `monitoring/**` changes.
+   - Pytest `tests/monitoring/test_alert_rules_validation.py`: forbidden label keys + forbidden selectors in expr.
+   - 5 tests (2 positive against real rules, 3 negative with synthetic bad YAML).
+   - `pyyaml>=6.0` added to dev dependencies.
 
 ---
 

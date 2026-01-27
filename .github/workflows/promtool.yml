@@ -1,0 +1,23 @@
+name: Promtool
+
+on:
+  pull_request:
+    paths:
+      - "monitoring/**"
+  push:
+    branches: [main]
+    paths:
+      - "monitoring/**"
+
+jobs:
+  check-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate alert rules with promtool
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "${{ github.workspace }}/monitoring:/mnt" \
+            prom/prometheus:latest \
+            check rules /mnt/alert_rules.yml
