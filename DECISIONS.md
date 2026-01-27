@@ -2745,7 +2745,7 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
 - No re-architecture of `run_live.py`
 
 **Approach:**
-1. Add read-only `circuit_breaker` and `governor` properties to `BinanceStreamManager` (avoids reaching into private fields).
+1. Add read-only `circuit_breaker` and `governor` properties to `BinanceStreamManager`. Governor reference stored directly on StreamManager (no cross-object private field access).
 2. Create `MetricsExporter` in `run_pipeline()`, pass to `LivePipeline`.
 3. Call `exporter.update(governor, circuit_breaker, connector_metrics)` every cadence tick (~1s) in the main loop, after snapshot processing.
 4. Call is synchronous (pure CPU gauge/counter updates, no I/O) — does not block the event loop.

@@ -69,9 +69,11 @@ class BinanceStreamManager:
         self._on_event = on_event
 
         self._circuit_breaker = CircuitBreaker()
+        self._governor: RestGovernor | None = None  # DEC-026: stored for metrics access
         self._rest_client = BinanceRestClient(
             config=self._config,
             circuit_breaker=self._circuit_breaker,
+            governor=self._governor,
         )
 
         # DEC-023b: Global reconnect limiter shared across all shards
@@ -84,7 +86,7 @@ class BinanceStreamManager:
         self._time_fn = time_fn
 
         self._shards: dict[int, WebSocketShard] = {}
-        self._next_shard_id: int = 0
+        self._next_shard_id = 0
         self._subscriptions: dict[str, StreamSubscription] = {}
         self._stream_to_shard: dict[str, int] = {}
 
@@ -499,4 +501,4 @@ class BinanceStreamManager:
     @property
     def governor(self) -> RestGovernor | None:
         """Read-only access to REST governor, if configured (DEC-026: metrics wiring)."""
-        return self._rest_client._governor
+        return self._governor
