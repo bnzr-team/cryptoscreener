@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 from prometheus_client.registry import CollectorRegistry
@@ -119,12 +120,20 @@ def _parse_metric_values(body: str, name: str) -> float:
 class TestMetricsEndpointSmoke(AioHTTPTestCase):
     """E2E smoke: exporter + /metrics endpoint runtime correctness."""
 
-    async def get_application(self) -> None:  # type: ignore[override]
+    async def get_application(self):
         self.registry = CollectorRegistry()
         self.exporter = MetricsExporter(registry=self.registry)
         return create_metrics_app(self.registry)
 
     # -- helpers --
+
+    def _update(
+        self,
+        gov: Any = None,
+        cb: Any = None,
+        cm: Any = None,
+    ) -> None:
+        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
 
     async def _fetch_metrics(self) -> str:
         resp = await self.client.get("/metrics")
@@ -151,7 +160,7 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
             total_ping_timeouts=1,
             total_subscribe_delayed=2,
         )
-        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
+        self._update(gov, cb, cm)
 
         body = await self._fetch_metrics()
         missing = []
@@ -166,7 +175,7 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
         gov = _StubGovernor()
         cb = _StubCircuitBreaker()
         cm = _StubConnectorMetrics()
-        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
+        self._update(gov, cb, cm)
 
         body = await self._fetch_metrics()
         types = _parse_type_lines(body)
@@ -196,7 +205,7 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
         cm.total_reconnect_attempts = 3
         cm.total_ping_timeouts = 1
         cm.total_subscribe_delayed = 2
-        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
+        self._update(gov, cb, cm)
 
         body1 = await self._fetch_metrics()
 
@@ -208,7 +217,7 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
         cm.total_reconnect_attempts = 6
         cm.total_ping_timeouts = 4
         cm.total_subscribe_delayed = 7
-        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
+        self._update(gov, cb, cm)
 
         body2 = await self._fetch_metrics()
 
@@ -236,7 +245,7 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
         gov.metrics.current_concurrent = 3
         gov.config.max_concurrent_requests = 10
         cb.metrics.last_open_duration_ms = 1000
-        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
+        self._update(gov, cb, cm)
 
         body1 = await self._fetch_metrics()
         assert _parse_metric_values(body1, "cryptoscreener_gov_current_queue_depth") == 5.0
@@ -249,7 +258,7 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
         gov.metrics.current_concurrent = 8
         gov.config.max_concurrent_requests = 10
         cb.metrics.last_open_duration_ms = 2500
-        self.exporter.update(governor=gov, circuit_breaker=cb, connector_metrics=cm)
+        self._update(gov, cb, cm)
 
         body2 = await self._fetch_metrics()
         assert _parse_metric_values(body2, "cryptoscreener_gov_current_queue_depth") == 12.0
