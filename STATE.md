@@ -39,7 +39,6 @@
 - [x] E2E smoke test: exporter + endpoint runtime correctness (PR#89)
 - [x] DEC-025-validation: `promtool` CI + forbidden label checks (PR#87)
 - [x] Live runner metrics wiring (DEC-026): `MetricsExporter.update()` called every cadence tick
-- [x] WS resilience validation & soak tests (DEC-027): fault injection, SoakSummary JSON, fake WS integration test
 
 ### Done — ML Pipeline (DEC-012–021, PR#54–71)
 
@@ -67,7 +66,7 @@
 - [x] Feature engine, scorer, ranker, alerter
 
 ### In Progress
-- None
+- [ ] WS resilience validation & soak tests (DEC-027): code + tests done, runtime soak proof pending
 
 ### Blocked
 - None

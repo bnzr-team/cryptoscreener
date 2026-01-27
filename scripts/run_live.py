@@ -203,8 +203,11 @@ class LivePipeline:
         self._metrics_exporter = metrics_exporter
 
         # DEC-027: Reconnect rate tracking (deque of (ts_s, cumulative_attempts))
+        # Pruned to last 10 minutes to bound memory and O(n) computation.
         self._reconnect_samples: deque[tuple[float, int]] = deque()
         self._last_fault_drop_ts: float = 0.0
+        self._start_monotonic: float = 0.0
+        self._stop_monotonic: float = 0.0
 
         # Initialize components
         self._stream_manager = BinanceStreamManager(
@@ -387,6 +390,10 @@ class LivePipeline:
                 cm = self._stream_manager.get_metrics()
                 now_s = time.monotonic()
                 self._reconnect_samples.append((now_s, cm.total_reconnect_attempts))
+                # Prune samples older than 10 minutes
+                cutoff = now_s - 600.0
+                while self._reconnect_samples and self._reconnect_samples[0][0] < cutoff:
+                    self._reconnect_samples.popleft()
 
                 # DEC-027: Fault injection — periodic WS disconnect
                 if (
@@ -409,6 +416,7 @@ class LivePipeline:
         logger.info("Starting live pipeline")
         self._running = True
         self._metrics.start_ts = int(time.time() * 1000)
+        self._start_monotonic = time.monotonic()
 
         # Open output file if specified
         if self._output_file:
@@ -460,6 +468,8 @@ class LivePipeline:
             self._output_handle.close()
             self._output_handle = None
 
+        self._stop_monotonic = time.monotonic()
+
         # Log final metrics
         self._log_metrics()
 
@@ -477,18 +487,23 @@ class LivePipeline:
         cm = self._stream_manager.get_metrics()
         cb = self._stream_manager.circuit_breaker
 
-        duration_s = (m.last_snapshot_ts - m.start_ts) / 1000 if m.start_ts else 0.0
+        # Use monotonic clock for accurate wall-time duration
+        duration_s = self._stop_monotonic - self._start_monotonic
 
-        # Compute max reconnect rate per minute from samples
-        max_rate = 0.0
+        # Compute max reconnect rate per minute per shard from samples.
+        # Samples are (monotonic_ts, cumulative_total_attempts).
+        # We find the max delta over any 60s+ window, then divide by shard count.
+        shard_count = max(1, cm.active_shards, len(self._stream_manager._shards))
+        max_rate_total = 0.0
         samples = list(self._reconnect_samples)
         for i, (ts_i, count_i) in enumerate(samples):
             for ts_j, count_j in samples[i + 1 :]:
                 window = ts_j - ts_i
                 if window >= 60.0:
                     rate = (count_j - count_i) / (window / 60.0)
-                    max_rate = max(max_rate, rate)
+                    max_rate_total = max(max_rate_total, rate)
                     break
+        max_rate_per_shard = max_rate_total / shard_count
 
         faults: dict[str, Any] = {}
         if self._config.fault_drop_ws_every_s is not None:
@@ -510,9 +525,9 @@ class LivePipeline:
             ws_reconnects_denied=cm.total_reconnects_denied,
             ws_ping_timeouts=cm.total_ping_timeouts,
             cb_transitions_to_open=cb.metrics.transitions_closed_to_open,
-            max_reconnect_rate_per_min=round(max_rate, 1),
+            max_reconnect_rate_per_min=round(max_rate_per_shard, 1),
             faults_injected=faults,
-            passed=max_rate <= 6.0,
+            passed=max_rate_per_shard <= 6.0,
         )
 
     def _log_metrics(self) -> None:

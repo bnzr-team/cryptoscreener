@@ -2807,11 +2807,11 @@ Prove that the live pipeline's WebSocket reconnect logic behaves safely under ad
    - `--fault-slow-consumer-ms M`: Add M ms delay after each routed event (slow consumer simulation).
 3. **`BinanceStreamManager.force_disconnect()`**: Iterates all shards and calls `shard.disconnect()`. Shard reconnect logic handles recovery via existing backoff/limiter path.
 4. **Integration test** (`tests/connectors/test_ws_resilience.py`): Fake WS server (aiohttp) that sends messages then force-closes. Asserts reconnect attempts > 0, rate ≤ 12/min (bounded), and backoff delay > 400ms.
-5. **Reconnect rate tracking**: Rolling `(timestamp, cumulative_attempts)` samples in main loop. Max rate per minute computed at summary time.
+5. **Reconnect rate tracking**: Rolling `(timestamp, cumulative_attempts)` samples in main loop, pruned to last 10 minutes. Max rate per minute per shard computed at summary time (total rate / shard count).
 
 ### Acceptance criteria
 
-- Reconnect rate: ≤ 6/min/shard averaged over run duration
+- Reconnect rate: ≤ 6/min per shard (max total rate over any 60s window, divided by shard count)
 - No tight loop: minimum backoff > 0ms (tested: > 400ms)
 - Cardinality: No per-symbol labels in /metrics (enforced by DEC-025)
 - `ruff check .` / `mypy .` / `pytest -q` all pass
