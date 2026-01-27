@@ -9,6 +9,13 @@
 
 ### Added
 
+#### Live Runner Metrics Wiring (DEC-026, PR#92)
+- Wired `MetricsExporter.update()` into `run_live.py` main loop (every cadence tick ~1s)
+- Added read-only `circuit_breaker` and `governor` properties to `BinanceStreamManager`
+- 12 Prometheus metrics now update continuously during live operation
+- No new metrics, no new labels — reuses DEC-025 exporter contract
+- 4 new tests for wiring correctness and cardinality safety
+
 #### ML/Artifacts Hardening CI Gates (PR#90)
 - Three path-triggered CI execution gates preventing silent drift:
   - `checksum-guard`: SHA256 verification of fixture/artifact manifests, untracked file detection, symlink/path traversal protection

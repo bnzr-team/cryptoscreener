@@ -2727,3 +2727,62 @@ WebSocket reconnection attempts are being denied or happening excessively, indic
   - repo gates (ruff/mypy/pytest)
   - determinism sanity (`tests/replay/test_e2e_determinism.py`)
   - logging compliance tests remain green (DEC-024)
+
+---
+
+## DEC-026: Live Runner Metrics Wiring (IMPLEMENTED)
+
+**Date:** 2026-01-27
+
+**Decision:** Wire `MetricsExporter.update()` into `scripts/run_live.py` main loop so that `/metrics` reflects live infrastructure state continuously during operation.
+
+**Non-goals:**
+- No MLRunner wiring (BaselineRunner is the MVP runner; MLRunner is a separate DEC once trained models exist)
+- No trained model requirement
+- No new alert rules or thresholds (DEC-025 rules already reference these metrics)
+- No UI/dashboard work
+- No WS reconnect redesign or soak testing
+- No re-architecture of `run_live.py`
+
+**Approach:**
+1. Add read-only `circuit_breaker` and `governor` properties to `BinanceStreamManager` (avoids reaching into private fields).
+2. Create `MetricsExporter` in `run_pipeline()`, pass to `LivePipeline`.
+3. Call `exporter.update(governor, circuit_breaker, connector_metrics)` every cadence tick (~1s) in the main loop, after snapshot processing.
+4. Call is synchronous (pure CPU gauge/counter updates, no I/O) — does not block the event loop.
+
+**Metrics updated (12 total — all from DEC-025):**
+
+| Metric Name | Type | Source |
+|---|---|---|
+| `cryptoscreener_gov_current_queue_depth` | Gauge | `RestGovernor.metrics` |
+| `cryptoscreener_gov_max_queue_depth` | Gauge | `RestGovernorConfig` |
+| `cryptoscreener_gov_current_concurrent` | Gauge | `RestGovernor.metrics` |
+| `cryptoscreener_gov_max_concurrent_requests` | Gauge | `RestGovernorConfig` |
+| `cryptoscreener_gov_requests_allowed_total` | Counter | `RestGovernor.metrics` (delta) |
+| `cryptoscreener_gov_requests_dropped_total` | Counter | `RestGovernor.metrics` (delta) |
+| `cryptoscreener_cb_transitions_closed_to_open_total` | Counter | `CircuitBreaker.metrics` (delta) |
+| `cryptoscreener_cb_last_open_duration_ms` | Gauge | `CircuitBreaker.metrics` |
+| `cryptoscreener_ws_total_disconnects_total` | Counter | `ConnectorMetrics` (delta) |
+| `cryptoscreener_ws_total_reconnect_attempts_total` | Counter | `ConnectorMetrics` (delta) |
+| `cryptoscreener_ws_total_ping_timeouts_total` | Counter | `ConnectorMetrics` (delta) |
+| `cryptoscreener_ws_total_subscribe_delayed_total` | Counter | `ConnectorMetrics` (delta) |
+
+**Update cadence:** Every snapshot tick (~1s, `snapshot_cadence_ms`).
+
+**Cardinality:** Zero per-symbol labels. All metrics use only default Prometheus labels (`instance`, `job`). `FORBIDDEN_LABELS` contract (DEC-025) enforced.
+
+**Governor availability:** `BinanceStreamManager` does not create a `RestGovernor` by default (governor is `None`). `MetricsExporter.update()` gracefully skips governor metrics when `governor=None`. Governor gauges remain at 0.
+
+**Files changed:**
+- `src/cryptoscreener/connectors/binance/stream_manager.py` — added `circuit_breaker` and `governor` properties
+- `scripts/run_live.py` — created `MetricsExporter`, wired `update()` into cadence tick
+- `tests/connectors/test_exporter.py` — 4 new tests for DEC-026 wiring
+
+**Acceptance criteria:**
+- [ ] `ruff check .` passes
+- [ ] `mypy .` passes (no issues in 134+ source files)
+- [ ] `pytest -q` passes (1033+ tests)
+- [ ] No forbidden labels in metrics output (tested)
+- [ ] `BinanceStreamManager.circuit_breaker` returns `CircuitBreaker` instance (tested)
+- [ ] `BinanceStreamManager.governor` returns `None` by default (tested)
+- [ ] `exporter.update()` works with stream manager accessors (tested)
