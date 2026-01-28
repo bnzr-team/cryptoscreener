@@ -1,0 +1,63 @@
+# DEC-035: Example Prometheus scrape config for plain (non-Operator) clusters.
+#
+# Use this as a reference when configuring Prometheus without the Operator.
+# If using Prometheus Operator (ServiceMonitor), this file is NOT needed —
+# ServiceMonitor handles target discovery automatically (see DEC-033).
+#
+# Add this job to your prometheus.yml under `scrape_configs:`.
+
+scrape_configs:
+  - job_name: cryptoscreener
+    # Option A: Kubernetes service discovery (recommended for K8s)
+    kubernetes_sd_configs:
+      - role: service
+        namespaces:
+          own_namespace: false
+          names:
+            - default  # Change to your namespace
+
+    relabel_configs:
+      # Keep only services with prometheus.io/scrape=true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+
+      # Filter to cryptoscreener only
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+        action: keep
+        regex: cryptoscreener
+
+      # Use annotated port
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+        replacement: "${1}"
+      - source_labels:
+          - __meta_kubernetes_service_name
+          - __meta_kubernetes_namespace
+          - __meta_kubernetes_service_annotation_prometheus_io_port
+        action: replace
+        target_label: __address__
+        regex: (.+);(.+);(.+)
+        replacement: "${1}.${2}.svc:${3}"
+
+      # Use annotated path
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+
+      # Preserve useful labels
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service
+
+  # Option B: Static target (simplest, for docker-compose or single-node)
+  # Uncomment and adjust if not running in K8s.
+  # - job_name: cryptoscreener
+  #   static_configs:
+  #     - targets: ["cryptoscreener:9090"]
+  #   metrics_path: /metrics
+  #   scrape_interval: 15s

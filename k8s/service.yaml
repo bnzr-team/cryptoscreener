@@ -7,6 +7,10 @@ metadata:
     app.kubernetes.io/name: cryptoscreener
     app.kubernetes.io/component: pipeline
     app.kubernetes.io/part-of: cryptoscreener-x
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
 spec:
   type: ClusterIP
   selector:
