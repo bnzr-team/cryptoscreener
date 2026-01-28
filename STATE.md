@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-033 — TBD
+- **Next milestone:** DEC-034 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -104,6 +104,14 @@
 - [x] `monitoring/soak_thresholds.yml` — threshold config
 - [x] `.github/workflows/nightly_soak.yml` — nightly + dispatch CI workflow
 - [x] `tests/test_check_soak_thresholds.py` — 15 threshold checker tests
+
+### Done — Prometheus Operator Integration (DEC-033)
+
+- [x] `k8s/servicemonitor.yaml` — auto-discovery for Prometheus Operator (15s scrape, `/metrics`)
+- [x] `k8s/prometheusrule.yaml` — all 16 alert rules from DEC-025 packaged as CRD
+- [x] K8s label standardization: `app.kubernetes.io/part-of: cryptoscreener-x` on all resources
+- [x] Kustomize wiring (commentable for non-operator clusters)
+- [x] Runbook: Prometheus Operator setup, verification, troubleshooting
 
 ### In Progress
 - None

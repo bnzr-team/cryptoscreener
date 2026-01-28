@@ -9,6 +9,13 @@
 
 ### Added
 
+#### Prometheus Operator Integration (DEC-033)
+- `k8s/servicemonitor.yaml`: ServiceMonitor for auto-discovery (15s scrape interval, `/metrics` path)
+- `k8s/prometheusrule.yaml`: All 16 alert rules from `monitoring/alert_rules.yml` packaged as PrometheusRule CRD
+- K8s label standardization: `app.kubernetes.io/part-of: cryptoscreener-x` added to Deployment, Service, and CRD metadata
+- Kustomize updated to include ServiceMonitor + PrometheusRule (commentable for non-operator clusters)
+- `docs/RUNBOOK_K8S.md`: Prometheus Operator setup, verification, and troubleshooting section
+
 #### Nightly Soak Regression Gate (DEC-032)
 - `--ws-url` CLI flag on `run_live.py` for offline soak with FakeWSServer
 - `scripts/run_fake_soak.py`: ContinuousFakeWSServer + pipeline runner (no outbound network)

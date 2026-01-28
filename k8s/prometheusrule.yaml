@@ -1,0 +1,250 @@
+# DEC-033: PrometheusRule packaging alert_rules.yml for Prometheus Operator.
+# Requires: monitoring.coreos.com/v1 CRD (Prometheus Operator).
+# Source of truth: monitoring/alert_rules.yml (DEC-025).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cryptoscreener
+  labels:
+    app: cryptoscreener
+    app.kubernetes.io/name: cryptoscreener
+    app.kubernetes.io/component: pipeline
+    app.kubernetes.io/part-of: cryptoscreener-x
+spec:
+  groups:
+    - name: cryptoscreener_governor
+      rules:
+        - alert: GOV_QUEUE_SATURATED_WARNING
+          expr: |
+            (cryptoscreener_gov_current_queue_depth / clamp_min(cryptoscreener_gov_max_queue_depth, 1)) >= 0.80
+          for: 1m
+          labels:
+            severity: warning
+            component: rest_governor
+          annotations:
+            summary: "REST governor queue saturated (>= 80%)"
+            description: |
+              Queue depth at {{ $value | humanizePercentage }} of max capacity.
+              Risk of request drops/timeouts. Check upstream rate limits.
+            runbook_url: "https://docs.example.com/runbooks/gov_queue_saturated"
+
+        - alert: GOV_QUEUE_SATURATED_CRITICAL
+          expr: |
+            (cryptoscreener_gov_current_queue_depth / clamp_min(cryptoscreener_gov_max_queue_depth, 1)) >= 0.95
+          for: 2m
+          labels:
+            severity: critical
+            component: rest_governor
+          annotations:
+            summary: "REST governor queue critically saturated (>= 95%)"
+            description: |
+              Queue depth at {{ $value | humanizePercentage }} of max capacity.
+              Requests are likely being dropped. Immediate action required.
+            runbook_url: "https://docs.example.com/runbooks/gov_queue_saturated"
+
+        - alert: GOV_SUSTAINED_DROPS_WARNING
+          expr: |
+            (
+              rate(cryptoscreener_gov_requests_dropped_total[5m])
+              / clamp_min(rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m]), 0.001)
+            ) > 0.001
+            and
+            (rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m])) * 60 > 10
+          for: 10m
+          labels:
+            severity: warning
+            component: rest_governor
+          annotations:
+            summary: "REST governor dropping > 0.1% of requests"
+            description: |
+              Drop ratio: {{ $value | humanizePercentage }}.
+              Check drop_reason breakdown for cause (queue_full, timeout, breaker_open).
+            runbook_url: "https://docs.example.com/runbooks/gov_sustained_drops"
+
+        - alert: GOV_SUSTAINED_DROPS_CRITICAL
+          expr: |
+            (
+              rate(cryptoscreener_gov_requests_dropped_total[5m])
+              / clamp_min(rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m]), 0.001)
+            ) > 0.01
+            and
+            (rate(cryptoscreener_gov_requests_allowed_total[5m]) + rate(cryptoscreener_gov_requests_dropped_total[5m])) * 60 > 10
+          for: 5m
+          labels:
+            severity: critical
+            component: rest_governor
+          annotations:
+            summary: "REST governor dropping > 1% of requests"
+            description: |
+              Drop ratio: {{ $value | humanizePercentage }}.
+              Significant request loss. Check Binance status and circuit breaker state.
+            runbook_url: "https://docs.example.com/runbooks/gov_sustained_drops"
+
+        - alert: GOV_CONCURRENCY_PINNED_WARNING
+          expr: |
+            cryptoscreener_gov_current_concurrent == cryptoscreener_gov_max_concurrent_requests
+          for: 2m
+          labels:
+            severity: warning
+            component: rest_governor
+          annotations:
+            summary: "REST governor concurrency pinned at max"
+            description: |
+              All {{ $value }} concurrent slots occupied for > 2m.
+              Possible slow/stuck requests or upstream latency.
+            runbook_url: "https://docs.example.com/runbooks/gov_concurrency_pinned"
+
+        - alert: GOV_CONCURRENCY_PINNED_CRITICAL
+          expr: |
+            cryptoscreener_gov_current_concurrent == cryptoscreener_gov_max_concurrent_requests
+          for: 10m
+          labels:
+            severity: critical
+            component: rest_governor
+          annotations:
+            summary: "REST governor concurrency pinned at max for > 10m"
+            description: |
+              All {{ $value }} concurrent slots occupied for > 10m.
+              Requests likely timing out. Check for stuck connections.
+            runbook_url: "https://docs.example.com/runbooks/gov_concurrency_pinned"
+
+    - name: cryptoscreener_circuit_breaker
+      rules:
+        - alert: CB_FLAPPING_WARNING
+          expr: |
+            increase(cryptoscreener_cb_transitions_closed_to_open_total[10m]) >= 3
+          labels:
+            severity: warning
+            component: circuit_breaker
+          annotations:
+            summary: "Circuit breaker flapping (>= 3 opens in 10m)"
+            description: |
+              {{ $value }} CLOSED->OPEN transitions in 10 minutes.
+              Check open_reason breakdown (429, 418, error_code, threshold).
+            runbook_url: "https://docs.example.com/runbooks/cb_flapping"
+
+        - alert: CB_FLAPPING_CRITICAL
+          expr: |
+            increase(cryptoscreener_cb_transitions_closed_to_open_total[10m]) >= 10
+          labels:
+            severity: critical
+            component: circuit_breaker
+          annotations:
+            summary: "Circuit breaker severe flapping (>= 10 opens in 10m)"
+            description: |
+              {{ $value }} CLOSED->OPEN transitions in 10 minutes.
+              System unstable. Check Binance status and API key limits.
+            runbook_url: "https://docs.example.com/runbooks/cb_flapping"
+
+        - alert: CB_STUCK_OPEN_WARNING
+          expr: |
+            cryptoscreener_cb_last_open_duration_ms > 300000
+          labels:
+            severity: warning
+            component: circuit_breaker
+          annotations:
+            summary: "Circuit breaker was stuck OPEN > 5 minutes"
+            description: |
+              Last OPEN period lasted {{ $value | printf "%.0f" }}ms (> 5 min threshold).
+              REST requests were blocked during this time.
+            runbook_url: "https://docs.example.com/runbooks/cb_stuck_open"
+
+        - alert: CB_STUCK_OPEN_CRITICAL
+          expr: |
+            cryptoscreener_cb_last_open_duration_ms > 600000
+          labels:
+            severity: critical
+            component: circuit_breaker
+          annotations:
+            summary: "Circuit breaker was stuck OPEN > 10 minutes"
+            description: |
+              Last OPEN period lasted {{ $value | printf "%.0f" }}ms (> 10 min threshold).
+              Prolonged API blockage. Review logs for root cause.
+            runbook_url: "https://docs.example.com/runbooks/cb_stuck_open"
+
+    - name: cryptoscreener_websocket
+      rules:
+        - alert: WS_RECONNECT_STORM_WARNING
+          expr: |
+            increase(cryptoscreener_ws_total_disconnects_total[5m]) >= 10
+            or
+            increase(cryptoscreener_ws_total_reconnect_attempts_total[5m]) >= 20
+          labels:
+            severity: warning
+            component: websocket
+          annotations:
+            summary: "WebSocket reconnect storm detected"
+            description: |
+              Threshold breached: >= 10 disconnects or >= 20 reconnect attempts in 5m.
+              Connection instability detected. Check network and Binance WS status.
+            runbook_url: "https://docs.example.com/runbooks/ws_reconnect_storm"
+
+        - alert: WS_RECONNECT_STORM_CRITICAL
+          expr: |
+            increase(cryptoscreener_ws_total_disconnects_total[5m]) >= 30
+            or
+            increase(cryptoscreener_ws_total_reconnect_attempts_total[5m]) >= 60
+          labels:
+            severity: critical
+            component: websocket
+          annotations:
+            summary: "Severe WebSocket reconnect storm"
+            description: |
+              Threshold breached: >= 30 disconnects or >= 60 reconnect attempts in 5m.
+              Severe connectivity issues. Market data likely stale. Investigate immediately.
+            runbook_url: "https://docs.example.com/runbooks/ws_reconnect_storm"
+
+        - alert: WS_PING_TIMEOUTS_WARNING
+          expr: |
+            increase(cryptoscreener_ws_total_ping_timeouts_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: websocket
+          annotations:
+            summary: "WebSocket ping timeouts occurring"
+            description: |
+              {{ $value }} ping timeouts in 5 minutes.
+              Possible connectivity issues or event loop stalls.
+            runbook_url: "https://docs.example.com/runbooks/ws_ping_timeouts"
+
+        - alert: WS_PING_TIMEOUTS_CRITICAL
+          expr: |
+            increase(cryptoscreener_ws_total_ping_timeouts_total[5m]) >= 5
+          labels:
+            severity: critical
+            component: websocket
+          annotations:
+            summary: "Frequent WebSocket ping timeouts"
+            description: |
+              {{ $value }} ping timeouts in 5 minutes.
+              Connections may be stale. Check network and process health.
+            runbook_url: "https://docs.example.com/runbooks/ws_ping_timeouts"
+
+        - alert: WS_SUBSCRIBE_DELAY_WARNING
+          expr: |
+            increase(cryptoscreener_ws_total_subscribe_delayed_total[5m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: websocket
+          annotations:
+            summary: "WebSocket subscribe requests being throttled"
+            description: |
+              {{ $value }} subscribe requests delayed by throttler in 5 minutes.
+              Subscription bursts may cause delays in stream activation.
+            runbook_url: "https://docs.example.com/runbooks/ws_subscribe_delay"
+
+        - alert: WS_SUBSCRIBE_DELAY_CRITICAL
+          expr: |
+            increase(cryptoscreener_ws_total_subscribe_delayed_total[5m]) >= 30
+          for: 5m
+          labels:
+            severity: critical
+            component: websocket
+          annotations:
+            summary: "Severe WebSocket subscribe throttling"
+            description: |
+              {{ $value }} subscribe requests delayed by throttler in 5 minutes.
+              Significant subscription delays affecting stream activation. Check throttler config.
+            runbook_url: "https://docs.example.com/runbooks/ws_subscribe_delay"

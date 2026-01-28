@@ -6,6 +6,7 @@ metadata:
     app: cryptoscreener
     app.kubernetes.io/name: cryptoscreener
     app.kubernetes.io/component: pipeline
+    app.kubernetes.io/part-of: cryptoscreener-x
 spec:
   replicas: 1
   selector:
@@ -17,6 +18,7 @@ spec:
         app: cryptoscreener
         app.kubernetes.io/name: cryptoscreener
         app.kubernetes.io/component: pipeline
+        app.kubernetes.io/part-of: cryptoscreener-x
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
