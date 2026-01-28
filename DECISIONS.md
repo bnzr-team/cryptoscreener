@@ -3099,3 +3099,42 @@ Make cryptoscreener observable out of the box in clusters running Prometheus Ope
 - No Ingress/Grafana dashboards
 - No changes to application metrics semantics
 - No new alert rules (exact copy of DEC-025 `monitoring/alert_rules.yml`)
+
+---
+
+## DEC-034 — Secrets Strategy (ExternalSecrets + Hygiene CI Gate)
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Establish a production-ready secrets workflow using External Secrets Operator (ESO) for automated secret provisioning, plus a CI gate that scans for leaked secrets on every PR.
+
+### Deliverables
+
+1. **`k8s/externalsecret.yaml`** — ExternalSecret materializing `cryptoscreener-secrets` from any ESO-supported backend (3 keys: `BINANCE_API_KEY`, `BINANCE_SECRET_KEY`, `ANTHROPIC_API_KEY`)
+2. **`k8s/secretstore.yaml`** — SecretStore template with commented provider examples (AWS Secrets Manager, HashiCorp Vault) and active Kubernetes dev backend
+3. **`scripts/secret_guard.py`** — CI scanner detecting AWS key patterns, long hex strings, and env var secret assignments
+4. **`.github/workflows/secret_guard.yml`** — CI job running secret guard on push/PR
+5. **`docs/RUNBOOK_SECRETS.md`** — Setup guide for ESO, manual secrets, CI guard, and runtime redaction
+6. **Kustomize wiring** — ESO resources added to `kustomization.yaml` (commented out by default, uncomment when ESO is installed)
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| ESO over Sealed Secrets | ESO supports multiple backends (AWS, Vault, GCP, Azure); Sealed Secrets is kubeseal-only |
+| SecretStore (not ClusterSecretStore) | Namespace-scoped = least privilege; one store per namespace |
+| Commented out in kustomization by default | ESO CRDs may not be installed; prevents `kubectl apply` failures |
+| Kubernetes dev backend active | Allows local dev/test without external provider; swap for production backend |
+| `refreshInterval: 1h` | Balance between freshness and API cost; configurable per-deployment |
+| Pattern-based CI guard (not entropy-only) | Reduces false positives; known patterns (AKIA, base64 assignments) are high-signal |
+| `REDACTED_ENV_VARS` reused from DEC-030 | Single source of truth for secret env var names |
+
+### Non-goals
+
+- No Vault/AWS/GCP backend provisioning (user configures their own)
+- No secret rotation automation beyond ESO refresh
+- No ClusterSecretStore (single-namespace deployment)
+- No changes to runtime secret consumption (env vars stay the same)
