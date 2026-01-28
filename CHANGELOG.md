@@ -9,6 +9,12 @@
 
 ### Added
 
+#### Grafana Dashboards Pack (DEC-036)
+- `monitoring/grafana/dashboards/cryptoscreener-overview.json`: 12-panel dashboard covering WS health (reconnects, disconnects, ping timeouts, subscribe delays), circuit breaker (transitions, OPEN duration), REST governor (queue depth, concurrency, request rates, saturation gauge)
+- `monitoring/grafana/dashboards/cryptoscreener-backpressure.json`: 8-panel dashboard covering pipeline queue depths, event/snapshot drop rates, tick drift, process RSS
+- `docs/RUNBOOK_GRAFANA.md`: Import guide (manual, provisioning, docker-compose), template variables, panel inventory, troubleshooting
+- Template variables: `$datasource`, `$namespace`, `$pod`, `$job` with "All" defaults
+
 #### Dual-mode Prometheus Scrape (DEC-035)
 - `k8s/service.yaml`: Added `prometheus.io/scrape`, `prometheus.io/port`, `prometheus.io/path` annotations for plain Prometheus service discovery
 - `monitoring/prometheus_scrape_k8s_example.yml`: Example scrape job with `kubernetes_sd_configs` (role: service), label filtering, and static target fallback
