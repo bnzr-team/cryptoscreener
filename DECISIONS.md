@@ -3172,3 +3172,38 @@ Make metrics scraping work out-of-the-box in both Prometheus Operator clusters (
 - No Grafana dashboards (separate DEC)
 - No Helm
 - No runtime code changes
+
+## DEC-036 — Grafana Dashboards Pack
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Provide importable Grafana dashboards for all 18 `cryptoscreener_*` Prometheus metrics, split into two focused views: system overview and backpressure/resource health.
+
+### Deliverables
+
+1. **`monitoring/grafana/dashboards/cryptoscreener-overview.json`** — WS health (reconnects, disconnects, ping timeouts, subscribe delays), circuit breaker (transitions, OPEN duration), REST governor (queue depth, concurrency, request rates, queue saturation gauge)
+2. **`monitoring/grafana/dashboards/cryptoscreener-backpressure.json`** — Pipeline queue depths (event, snapshot), drop rates, tick drift, process RSS
+3. **`docs/RUNBOOK_GRAFANA.md`** — Import steps (manual, provisioning, docker-compose), template variables, panel inventory, troubleshooting
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| Two dashboards (overview + backpressure) | Separation of concerns: connectivity/API health vs pipeline resource health |
+| `$datasource` variable (type: datasource) | Multi-cluster support without hardcoding Prometheus UID |
+| `$namespace`, `$pod`, `$job` template variables | Standard K8s filtering; all default to "All" with regex matching |
+| schemaVersion 39 (Grafana 9+) | Current stable schema; compatible with Grafana 9–11 |
+| No provisioning YAML shipped | Non-goal; documented in runbook as optional setup |
+| Counter metrics queried with `_total` suffix | Matches prometheus_client exposition format |
+| `rate()` over 5m windows for counters | Matches alert_rules.yml convention (DEC-025) |
+| Stat panels with `increase()` for 5m counts | Quick glance at recent activity without needing rate math |
+
+### Non-goals
+
+- No new metrics or alert rules
+- No Grafana provisioning via Helm/K8s ConfigMap
+- No Grafana Operator CRDs (GrafanaDashboard)
+- No runtime code changes

@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-036 — TBD
+- **Next milestone:** DEC-037 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -128,6 +128,13 @@
 - [x] `k8s/service.yaml` — Service annotations for plain Prometheus discovery
 - [x] `monitoring/prometheus_scrape_k8s_example.yml` — example scrape job (K8s SD + static fallback)
 - [x] `docs/RUNBOOK_K8S.md` — plain Prometheus setup path + troubleshooting
+
+### Done — Grafana Dashboards Pack (DEC-036)
+
+- [x] `monitoring/grafana/dashboards/cryptoscreener-overview.json` — WS health, circuit breaker, REST governor (12 panels)
+- [x] `monitoring/grafana/dashboards/cryptoscreener-backpressure.json` — queue depths, drops, tick drift, RSS (8 panels)
+- [x] `docs/RUNBOOK_GRAFANA.md` — import steps, template variables, panel inventory, troubleshooting
+- [x] Template variables: `$datasource`, `$namespace`, `$pod`, `$job`
 
 ### In Progress
 - None
