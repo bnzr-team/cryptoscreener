@@ -271,6 +271,9 @@ class ConnectorMetrics:
     # === DEC-025 additions ===
     total_disconnects: int = 0  # DEC-025: total WS disconnection events
     total_reconnect_attempts: int = 0  # DEC-025: total reconnect attempts (all shards)
+    # === DEC-028 additions ===
+    event_queue_depth: int = 0  # DEC-028: current event queue depth
+    events_dropped: int = 0  # DEC-028: events dropped due to queue full
 
 
 @dataclass

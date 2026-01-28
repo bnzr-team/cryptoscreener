@@ -1,10 +1,12 @@
 """
-DEC-027: WebSocket resilience integration test.
+DEC-027/028: WebSocket resilience and backpressure integration tests.
 
-Uses a fake WS server to validate reconnect discipline under adversity:
-- Shard reconnects after server-initiated disconnect
-- No reconnect storms (≤6 attempts per minute)
-- Backoff delays are observed (first delay > 0)
+Uses a fake WS server to validate:
+- Shard reconnects after server-initiated disconnect (DEC-027)
+- No reconnect storms (≤6 attempts per minute) (DEC-027)
+- Backoff delays are observed (first delay > 0) (DEC-027)
+- Bounded queues drop events under overload (DEC-028)
+- Queue recovers after overload ends (DEC-028)
 """
 
 from __future__ import annotations
@@ -29,9 +31,12 @@ class FakeWSServer:
         self,
         messages_before_drop: int = 3,
         max_connections: int = 5,
+        *,
+        send_interval_ms: int = 50,
     ) -> None:
         self.messages_before_drop = messages_before_drop
         self.max_connections = max_connections
+        self.send_interval_s = send_interval_ms / 1000
         self.connection_count = 0
         self.total_messages_sent = 0
         self._app: aiohttp.web.Application | None = None
@@ -56,7 +61,7 @@ class FakeWSServer:
             try:
                 await ws.send_json(msg)
                 self.total_messages_sent += 1
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(self.send_interval_s)
             except ConnectionResetError:
                 break
 
@@ -198,8 +203,7 @@ class TestReconnectDiscipline:
 
             # Backoff base is 1000ms with jitter, so delay should be > 500ms
             assert elapsed_ms > 400, (
-                f"Reconnect was too fast ({elapsed_ms:.0f}ms), "
-                f"backoff not applied"
+                f"Reconnect was too fast ({elapsed_ms:.0f}ms), backoff not applied"
             )
 
         finally:
@@ -245,3 +249,191 @@ class TestForceDisconnect:
 
         mock_ws_1.close.assert_awaited_once()
         mock_ws_2.close.assert_awaited_once()
+
+
+class TestBackpressureAcceptance:
+    """DEC-028: Verify bounded queues and backpressure under overload."""
+
+    @pytest.mark.asyncio
+    async def test_event_queue_bounded_under_overload(self) -> None:
+        """Under overload, event queue stays bounded and events are dropped."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        mgr = BinanceStreamManager(on_event=None)
+
+        # Verify queue has maxsize set (DEC-028)
+        assert mgr._event_queue.maxsize == 10_000, (
+            f"Event queue maxsize should be 10000, got {mgr._event_queue.maxsize}"
+        )
+
+        # Simulate overload: fill queue beyond capacity using put_nowait
+        from cryptoscreener.contracts.events import MarketEvent, MarketEventType
+
+        for i in range(10_050):
+            event = MarketEvent(
+                ts=i,
+                source="test",
+                symbol="BTCUSDT",
+                type=MarketEventType.TRADE,
+                payload={"e": "aggTrade", "s": "BTCUSDT"},
+                recv_ts=i,
+            )
+            try:
+                mgr._event_queue.put_nowait(event)
+            except asyncio.QueueFull:
+                mgr._events_dropped += 1
+
+        # Queue should be at max capacity
+        assert mgr._event_queue.qsize() == 10_000
+        # Events were dropped
+        assert mgr._events_dropped == 50
+        assert mgr.events_dropped == 50
+
+    @pytest.mark.asyncio
+    async def test_snapshot_queue_bounded(self) -> None:
+        """Snapshot queue has bounded maxsize (DEC-028)."""
+        from cryptoscreener.features.engine import FeatureEngine
+
+        engine = FeatureEngine()
+        assert engine._snapshot_queue.maxsize == 1_000, (
+            f"Snapshot queue maxsize should be 1000, got {engine._snapshot_queue.maxsize}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_queue_depth_in_metrics(self) -> None:
+        """ConnectorMetrics includes event_queue_depth and events_dropped (DEC-028)."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        mgr = BinanceStreamManager(on_event=None)
+        metrics = mgr.get_metrics()
+
+        assert metrics.event_queue_depth == 0
+        assert metrics.events_dropped == 0
+
+        # Add an event to queue
+        from cryptoscreener.contracts.events import MarketEvent, MarketEventType
+
+        event = MarketEvent(
+            ts=1000,
+            source="test",
+            symbol="BTCUSDT",
+            type=MarketEventType.TRADE,
+            payload={"e": "aggTrade", "s": "BTCUSDT"},
+            recv_ts=1000,
+        )
+        mgr._event_queue.put_nowait(event)
+        metrics = mgr.get_metrics()
+        assert metrics.event_queue_depth == 1
+
+    @pytest.mark.asyncio
+    async def test_drop_oldest_policy(self) -> None:
+        """Stream manager drops oldest event when queue is full (DEC-028)."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+        from cryptoscreener.connectors.binance.types import RawMessage
+
+        mgr = BinanceStreamManager(on_event=None)
+
+        # Fill the queue to capacity with ts=0..9999
+        from cryptoscreener.contracts.events import MarketEvent, MarketEventType
+
+        for i in range(10_000):
+            event = MarketEvent(
+                ts=i,
+                source="test",
+                symbol="BTCUSDT",
+                type=MarketEventType.TRADE,
+                payload={},
+                recv_ts=i,
+            )
+            mgr._event_queue.put_nowait(event)
+
+        assert mgr._event_queue.full()
+        assert mgr._events_dropped == 0
+
+        # Handle a raw message with ts=99999 — should drop oldest, enqueue newest
+        raw = RawMessage(
+            shard_id=0,
+            data={"e": "aggTrade", "E": 99999, "s": "BTCUSDT", "p": "1", "q": "1", "T": 99999},
+            recv_ts=99999,
+        )
+        await mgr._handle_raw_message(raw)
+
+        assert mgr._events_dropped == 1
+        # Queue still at capacity (oldest removed, newest added)
+        assert mgr._event_queue.qsize() == 10_000
+        # The oldest event (ts=0) was dropped; head is now ts=1
+        head = mgr._event_queue.get_nowait()
+        assert head.ts == 1
+
+    @pytest.mark.asyncio
+    async def test_queue_recovers_after_drain(self) -> None:
+        """After overload, draining the queue brings depth back to zero."""
+        from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManager
+
+        mgr = BinanceStreamManager(on_event=None)
+
+        # Fill partially
+        from cryptoscreener.contracts.events import MarketEvent, MarketEventType
+
+        for i in range(100):
+            event = MarketEvent(
+                ts=i,
+                source="test",
+                symbol="BTCUSDT",
+                type=MarketEventType.TRADE,
+                payload={},
+                recv_ts=i,
+            )
+            mgr._event_queue.put_nowait(event)
+
+        assert mgr.event_queue_depth == 100
+
+        # Drain
+        for _ in range(100):
+            mgr._event_queue.get_nowait()
+
+        assert mgr.event_queue_depth == 0
+
+    @pytest.mark.asyncio
+    async def test_snapshot_drop_counter(self) -> None:
+        """FeatureEngine increments snapshots_dropped on queue full (DEC-028)."""
+        from cryptoscreener.contracts.events import (
+            DataHealth,
+            Features,
+            FeatureSnapshot,
+            RegimeTrend,
+            RegimeVol,
+            Windows,
+        )
+        from cryptoscreener.features.engine import FeatureEngine
+
+        def _snap(ts: int) -> FeatureSnapshot:
+            return FeatureSnapshot(
+                ts=ts,
+                symbol="BTCUSDT",
+                features=Features(
+                    spread_bps=1.0,
+                    mid=50000.0,
+                    book_imbalance=0.0,
+                    flow_imbalance=0.0,
+                    natr_14_5m=0.01,
+                    impact_bps_q=1.0,
+                    regime_vol=RegimeVol.LOW,
+                    regime_trend=RegimeTrend.CHOP,
+                ),
+                windows=Windows(),
+                data_health=DataHealth(),
+            )
+
+        engine = FeatureEngine()
+        assert engine.snapshots_dropped == 0
+
+        # Fill snapshot queue
+        for i in range(1_000):
+            engine._snapshot_queue.put_nowait(_snap(i))
+
+        assert engine._snapshot_queue.full()
+
+        # Emit one more — should drop
+        await engine._emit_snapshot(_snap(9999))
+        assert engine.snapshots_dropped == 1

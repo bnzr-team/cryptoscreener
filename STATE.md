@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1041+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-028 — TBD
+- **Next milestone:** DEC-029 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -67,7 +67,7 @@
 - [x] Feature engine, scorer, ranker, alerter
 
 ### In Progress
-- None
+- [ ] Backpressure, resource bounds, queue-growth acceptance (DEC-028): bounded queues, drop policy, tick drift/RSS/queue depth instrumentation
 
 ### Blocked
 - None

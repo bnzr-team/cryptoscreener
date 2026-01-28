@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import json
 import logging
+import resource
 import signal
 import sys
 import time
@@ -125,6 +126,14 @@ class PipelineMetrics:
     llm_cache_hits: int = 0
     llm_failures: int = 0
 
+    # DEC-028: Backpressure instrumentation
+    max_event_queue_depth: int = 0
+    max_snapshot_queue_depth: int = 0
+    max_tick_drift_ms: int = 0
+    max_rss_mb: float = 0.0
+    events_dropped: int = 0
+    snapshots_dropped: int = 0
+
     def avg_event_latency_ms(self) -> float:
         """Get average event latency."""
         if self.market_events_received == 0:
@@ -159,6 +168,13 @@ class SoakSummary:
     ws_ping_timeouts: int = 0
     cb_transitions_to_open: int = 0
     max_reconnect_rate_per_min: float = 0.0
+    # DEC-028: Backpressure fields
+    max_event_queue_depth: int = 0
+    max_snapshot_queue_depth: int = 0
+    max_tick_drift_ms: int = 0
+    max_rss_mb: float = 0.0
+    events_dropped: int = 0
+    snapshots_dropped: int = 0
     faults_injected: dict[str, Any] = field(default_factory=dict)
     passed: bool = False
 
@@ -210,6 +226,7 @@ class LivePipeline:
         self._stop_monotonic: float = 0.0
         self._final_connector_metrics: ConnectorMetrics | None = None
         self._final_shard_count: int = 1
+        self._last_tick_monotonic: float = 0.0  # DEC-028: for tick drift
 
         # Initialize components
         self._stream_manager = BinanceStreamManager(
@@ -380,17 +397,48 @@ class LivePipeline:
 
                 last_process_ts = current_ts
 
+                # DEC-028: Tick drift, queue depth, RSS sampling
+                now_s = time.monotonic()
+                if self._last_tick_monotonic > 0:
+                    expected_s = self._config.snapshot_cadence_ms / 1000
+                    drift_ms = max(
+                        0, int(((now_s - self._last_tick_monotonic) - expected_s) * 1000)
+                    )
+                    self._metrics.max_tick_drift_ms = max(self._metrics.max_tick_drift_ms, drift_ms)
+                self._last_tick_monotonic = now_s
+
+                eq_depth = self._stream_manager.event_queue_depth
+                self._metrics.max_event_queue_depth = max(
+                    self._metrics.max_event_queue_depth, eq_depth
+                )
+                sq_depth = self._feature_engine.snapshot_queue_depth
+                self._metrics.max_snapshot_queue_depth = max(
+                    self._metrics.max_snapshot_queue_depth, sq_depth
+                )
+
+                rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+                self._metrics.max_rss_mb = max(self._metrics.max_rss_mb, rss_mb)
+                self._metrics.events_dropped = self._stream_manager.events_dropped
+                self._metrics.snapshots_dropped = self._feature_engine.snapshots_dropped
+
                 # DEC-026: Push infrastructure metrics to Prometheus
+                cm = self._stream_manager.get_metrics()
                 if self._metrics_exporter is not None:
                     self._metrics_exporter.update(
                         governor=self._stream_manager.governor,
                         circuit_breaker=self._stream_manager.circuit_breaker,
-                        connector_metrics=self._stream_manager.get_metrics(),
+                        connector_metrics=cm,
+                        pipeline_metrics={
+                            "event_queue_depth": eq_depth,
+                            "snapshot_queue_depth": sq_depth,
+                            "tick_drift_ms": self._metrics.max_tick_drift_ms,
+                            "rss_mb": rss_mb,
+                            "events_dropped": self._metrics.events_dropped,
+                            "snapshots_dropped": self._metrics.snapshots_dropped,
+                        },
                     )
 
                 # DEC-027: Sample reconnect rate for soak summary
-                cm = self._stream_manager.get_metrics()
-                now_s = time.monotonic()
                 self._reconnect_samples.append((now_s, cm.total_reconnect_attempts))
                 # Prune samples older than 10 minutes
                 cutoff = now_s - 600.0
@@ -402,9 +450,9 @@ class LivePipeline:
                     self._config.fault_drop_ws_every_s is not None
                     and now_s - self._last_fault_drop_ts >= self._config.fault_drop_ws_every_s
                 ):
-                        self._last_fault_drop_ts = now_s
-                        logger.warning("DEC-027 FAULT: forcing WS disconnect")
-                        await self._stream_manager.force_disconnect()
+                    self._last_fault_drop_ts = now_s
+                    logger.warning("DEC-027 FAULT: forcing WS disconnect")
+                    await self._stream_manager.force_disconnect()
 
             # DEC-027: Fault injection — slow consumer
             if self._config.fault_slow_consumer_ms is not None:
@@ -532,6 +580,13 @@ class LivePipeline:
             ws_ping_timeouts=cm.total_ping_timeouts,
             cb_transitions_to_open=cb.metrics.transitions_closed_to_open,
             max_reconnect_rate_per_min=round(max_rate_per_shard, 1),
+            # DEC-028: Backpressure fields
+            max_event_queue_depth=m.max_event_queue_depth,
+            max_snapshot_queue_depth=m.max_snapshot_queue_depth,
+            max_tick_drift_ms=m.max_tick_drift_ms,
+            max_rss_mb=round(m.max_rss_mb, 1),
+            events_dropped=m.events_dropped,
+            snapshots_dropped=m.snapshots_dropped,
             faults_injected=faults,
             passed=max_rate_per_shard <= 6.0,
         )
@@ -641,7 +696,9 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
         metrics_runner = await start_metrics_server(registry, port=config.metrics_port)
 
     pipeline = LivePipeline(
-        config=config, explainer=explainer, metrics_exporter=exporter,
+        config=config,
+        explainer=explainer,
+        metrics_exporter=exporter,
     )
 
     # Setup signal handlers (only sets flags, does not call stop())

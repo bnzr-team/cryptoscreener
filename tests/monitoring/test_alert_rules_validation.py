@@ -83,9 +83,8 @@ class TestForbiddenLabels:
                 if key in FORBIDDEN_LABEL_KEYS:
                     violations.append(f"{alert_name}: labels contains '{key}'")
 
-        assert not violations, (
-            "Forbidden labels found in alert rules:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Forbidden labels found in alert rules:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
     def test_no_forbidden_selectors_in_expr(self) -> None:
@@ -105,9 +104,8 @@ class TestForbiddenLabels:
                 if pattern in expr:
                     violations.append(f"{alert_name}: expr contains '{pattern}'")
 
-        assert not violations, (
-            "Forbidden selectors found in alert rule expressions:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Forbidden selectors found in alert rule expressions:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 

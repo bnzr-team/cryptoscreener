@@ -224,13 +224,9 @@ class TestMetricsEndpointSmoke(AioHTTPTestCase):
         for counter_name in sorted(EXPECTED_COUNTERS):
             v1 = _parse_metric_values(body1, counter_name)
             v2 = _parse_metric_values(body2, counter_name)
-            assert v2 >= v1, (
-                f"{counter_name}: decreased from {v1} to {v2} (not monotonic)"
-            )
+            assert v2 >= v1, f"{counter_name}: decreased from {v1} to {v2} (not monotonic)"
             # Also verify counters actually increased
-            assert v2 > v1, (
-                f"{counter_name}: did not increase ({v1} -> {v2})"
-            )
+            assert v2 > v1, f"{counter_name}: did not increase ({v1} -> {v2})"
 
     @unittest_run_loop
     async def test_gauges_reflect_latest_values(self) -> None:

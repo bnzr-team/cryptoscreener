@@ -2828,3 +2828,49 @@ Prove that the live pipeline's WebSocket reconnect logic behaves safely under ad
 - `scripts/run_live.py` — SoakSummary dataclass, fault injection config + CLI args, reconnect rate sampling, summary JSON output
 - `src/cryptoscreener/connectors/binance/stream_manager.py` — `force_disconnect()` method
 - `tests/connectors/test_ws_resilience.py` — **NEW** fake WS server + reconnect discipline tests
+
+---
+
+## DEC-028 — Backpressure, Resource Bounds, and Queue-Growth Acceptance
+
+**Date:** 2026-01-27
+**Status:** Accepted
+**PR:** #94
+
+### Objective
+
+Instrument queue depths, event-loop lag, and process RSS; enforce hard limits with documented drop policy; prove bounded growth under overload via integration tests.
+
+### Deliverables
+
+1. **Bounded queues** — `BinanceStreamManager._event_queue` maxsize=10,000 with **drop-oldest** policy; `FeatureEngine._snapshot_queue` maxsize=1,000 with drop-newest (existing handler)
+   - **Event queue: drop-oldest / keep-latest.** On `QueueFull`, discard the oldest queued event and enqueue the newest. Rationale: in a real-time market pipeline, keeping stale events causes "catch-up" on outdated data; dropping the oldest ensures the consumer always processes the most recent market state and recovers to current quickly after overload.
+   - **Snapshot queue: drop-newest.** Snapshots are complete state replacements emitted on cadence. Dropping the newest snapshot is safe because the next cadence tick will produce a fresh one; keeping the existing queue preserves ordering for the consumer.
+2. **New Prometheus metrics** — 4 gauges (`pipeline_event_queue_depth`, `pipeline_snapshot_queue_depth`, `pipeline_tick_drift_ms`, `pipeline_rss_mb`) + 2 counters (`pipeline_events_dropped`, `pipeline_snapshots_dropped`)
+3. **SoakSummary extensions** — `max_event_queue_depth`, `max_snapshot_queue_depth`, `max_tick_drift_ms`, `max_rss_mb`, `events_dropped`, `snapshots_dropped`
+4. **Tick drift + RSS sampling** in main loop cadence block via `time.monotonic()` drift and `resource.getrusage()` max RSS
+5. **6 integration tests** for backpressure acceptance: queue bounding, drop-newest policy, recovery after drain, snapshot drop counter, metrics wiring
+
+### Acceptance Criteria
+
+- A) Event queue bounded at `maxsize=10,000`; snapshot queue at `maxsize=1,000`
+- B) Under overload, drop-newest activates; no crash/OOM
+- C) After overload ends, queue drains to near-zero
+- D) `ConnectorMetrics` includes `event_queue_depth` and `events_dropped`
+- E) 6 new pipeline Prometheus metrics present in `/metrics`, no forbidden labels
+- F) Quality gates: ruff + mypy + pytest pass
+
+### Non-goals
+
+- No new PromQL alert rules (metrics only; alerts deferred to future DEC)
+- No UI / dashboard
+- No deployment manifests
+
+### Files Changed
+
+- `src/cryptoscreener/connectors/binance/types.py` — `event_queue_depth`, `events_dropped` on `ConnectorMetrics`
+- `src/cryptoscreener/connectors/binance/stream_manager.py` — bounded queue, drop-newest, `event_queue_depth`/`events_dropped` properties
+- `src/cryptoscreener/features/engine.py` — `maxsize=1,000`, `snapshot_queue_depth`/`snapshots_dropped` properties
+- `src/cryptoscreener/connectors/exporter.py` — 6 new pipeline metrics, `_update_pipeline_metrics()`
+- `scripts/run_live.py` — tick drift, RSS, queue depth sampling; SoakSummary extensions; exporter wiring
+- `tests/connectors/test_ws_resilience.py` — `TestBackpressureAcceptance` (6 tests)
