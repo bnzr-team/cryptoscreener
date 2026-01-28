@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-034 — TBD
+- **Next milestone:** DEC-035 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -112,6 +112,16 @@
 - [x] K8s label standardization: `app.kubernetes.io/part-of: cryptoscreener-x` on all resources
 - [x] Kustomize wiring (commentable for non-operator clusters)
 - [x] Runbook: Prometheus Operator setup, verification, troubleshooting
+
+### Done — Secrets Strategy (DEC-034)
+
+- [x] `k8s/externalsecret.yaml` — ESO ExternalSecret syncing 3 keys into `cryptoscreener-secrets`
+- [x] `k8s/secretstore.yaml` — SecretStore template (AWS/Vault/K8s dev backend)
+- [x] `scripts/secret_guard.py` — CI scanner for leaked secrets (AWS keys, hex strings, base64 env vars)
+- [x] `.github/workflows/secret_guard.yml` — CI gate on push/PR
+- [x] `docs/RUNBOOK_SECRETS.md` — ESO setup, manual secrets, hygiene rules
+- [x] Kustomize wiring (commented out by default for non-ESO clusters)
+- [x] `tests/test_secret_guard.py` — 14 unit tests for secret guard
 
 ### In Progress
 - None

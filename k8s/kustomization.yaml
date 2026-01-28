@@ -18,3 +18,8 @@ resources:
   # Comment out if cluster does not have Prometheus Operator installed.
   - servicemonitor.yaml
   - prometheusrule.yaml
+  # DEC-034: External Secrets Operator (requires external-secrets.io/v1beta1).
+  # Uncomment when ESO is installed and SecretStore provider is configured.
+  # See docs/RUNBOOK_SECRETS.md for setup instructions.
+  # - secretstore.yaml
+  # - externalsecret.yaml

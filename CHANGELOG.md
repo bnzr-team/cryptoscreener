@@ -9,6 +9,15 @@
 
 ### Added
 
+#### Secrets Strategy (DEC-034)
+- `k8s/externalsecret.yaml`: ExternalSecret syncing 3 keys (`BINANCE_API_KEY`, `BINANCE_SECRET_KEY`, `ANTHROPIC_API_KEY`) from ESO backend into `cryptoscreener-secrets`
+- `k8s/secretstore.yaml`: SecretStore template with AWS Secrets Manager, HashiCorp Vault, and Kubernetes dev backend examples
+- `scripts/secret_guard.py`: CI scanner detecting AWS key patterns, long hex strings, and base64 env var assignments
+- `.github/workflows/secret_guard.yml`: CI gate running secret guard on push and PR
+- `docs/RUNBOOK_SECRETS.md`: Setup guide for ESO, manual secrets, CI guard, runtime redaction rules
+- Kustomize updated with ESO resources (commented out by default for non-ESO clusters)
+- 14 unit tests for secret guard (`tests/test_secret_guard.py`)
+
 #### Prometheus Operator Integration (DEC-033)
 - `k8s/servicemonitor.yaml`: ServiceMonitor for auto-discovery (15s scrape interval, `/metrics` path)
 - `k8s/prometheusrule.yaml`: All 16 alert rules from `monitoring/alert_rules.yml` packaged as PrometheusRule CRD
