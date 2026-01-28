@@ -1,8 +1,9 @@
 """
-Smoke tests for Prometheus /metrics and /healthz HTTP endpoints.
+Smoke tests for Prometheus /metrics, /healthz, and /readyz HTTP endpoints.
 
 DEC-025: Validates GET /metrics returns correct format and content.
 DEC-029: Validates GET /healthz returns pipeline health JSON.
+DEC-030: Validates GET /readyz returns readiness status (200/503).
 """
 
 from __future__ import annotations
@@ -150,4 +151,53 @@ class TestHealthzEndpoint:
         app = create_metrics_app(empty_registry)
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/healthz")
+            assert resp.content_type == "application/json"
+
+
+class TestReadyzEndpoint:
+    """DEC-030: GET /readyz returns readiness status."""
+
+    @pytest.mark.asyncio
+    async def test_readyz_default_returns_200(self, empty_registry: CollectorRegistry) -> None:
+        """GET /readyz without ready_fn returns 200."""
+        app = create_metrics_app(empty_registry)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/readyz")
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_readyz_ready_returns_200(self, empty_registry: CollectorRegistry) -> None:
+        """GET /readyz returns 200 when ready_fn says ready."""
+        def ready_fn() -> tuple[bool, dict[str, object]]:
+            return True, {"ready": True, "ws_connected": True, "last_event_age_s": 1.0}
+
+        app = create_metrics_app(empty_registry, ready_fn=ready_fn)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/readyz")
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_readyz_not_ready_returns_503(self, empty_registry: CollectorRegistry) -> None:
+        """GET /readyz returns 503 when ready_fn says not ready."""
+        def ready_fn() -> tuple[bool, dict[str, object]]:
+            return False, {"ready": False, "reason": "no WS shards connected"}
+
+        app = create_metrics_app(empty_registry, ready_fn=ready_fn)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/readyz")
+            assert resp.status == 503
+            data = await resp.json()
+            assert data["ready"] is False
+            assert "reason" in data
+
+    @pytest.mark.asyncio
+    async def test_readyz_content_type(self, empty_registry: CollectorRegistry) -> None:
+        """GET /readyz returns application/json."""
+        app = create_metrics_app(empty_registry)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/readyz")
             assert resp.content_type == "application/json"

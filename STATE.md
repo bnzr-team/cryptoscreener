@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-030 — TBD
+- **Next milestone:** DEC-031 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -78,6 +78,14 @@
 - [x] CI docker smoke workflow
 - [x] Ops runbook (`docs/RUNBOOK_DEPLOYMENT.md`)
 - [x] 4 healthz endpoint tests
+
+### Done — Production Readiness v1.5 (DEC-030)
+
+- [x] `GET /readyz` endpoint (200 ready, 503 not ready)
+- [x] Config validation (`__post_init__`): port/cadence/symbol/duration, fault flag gating
+- [x] `--dry-run` + `--graceful-timeout-s` rollout knobs
+- [x] Readiness transition + config validation tests
+- [x] Runbook: readiness stuck, reconnect storm, backpressure checklists
 
 ### In Progress
 - None

@@ -9,6 +9,15 @@
 
 ### Added
 
+#### Production Readiness v1.5 (DEC-030)
+- `GET /readyz` endpoint: 200 when ready, 503 when not (WS connected + events fresh)
+- Config validation (`__post_init__`): port/cadence/symbol/duration bounds, fault flag gating (`ALLOW_FAULTS=1`)
+- `--dry-run` flag: validate config + start metrics server, exit without processing
+- `--graceful-timeout-s` flag for shutdown timeout
+- Readiness transition tests (503→200→503 on staleness)
+- Config validation tests (14 cases)
+- Runbook: readiness stuck 503, reconnect storm, backpressure checklists
+
 #### Deployment Readiness MVP (DEC-029)
 - `GET /healthz` endpoint on metrics server returning pipeline health JSON (`status`, `uptime_s`, `ws_connected`, `last_event_ts`)
 - Multi-stage Dockerfile with non-root user and built-in HEALTHCHECK
