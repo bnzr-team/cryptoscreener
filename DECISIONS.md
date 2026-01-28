@@ -3240,3 +3240,72 @@ Replace the `MinimalReplayPipeline` stub in `scripts/run_replay.py` with real pi
 - No new fixture data (existing 11-event fixture retained)
 - No changes to live pipeline (`run_live.py`)
 - No new Prometheus metrics or alerts
+
+---
+
+## DEC-039 — RankEvent Delivery UX Pack
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Route RankEvents to operators via configurable sinks (Telegram, Slack, webhook) with anti-spam controls, deterministic formatting, and dry-run mode.
+
+### Deliverables
+
+1. **`src/cryptoscreener/delivery/`** — New delivery module package
+   - `config.py` — Sink configs (Telegram, Slack, Webhook), dedupe config, main delivery config
+   - `formatter.py` — Deterministic template-based RankEvent formatting (text/HTML/markdown variants)
+   - `dedupe.py` — Anti-spam: per-symbol cooldown, global rate limit, status transition filtering
+   - `router.py` — DeliveryRouter orchestrating deduplication, formatting, multi-sink dispatch
+   - `sinks/base.py` — DeliverySink ABC, DeliveryResult dataclass
+   - `sinks/telegram.py` — Telegram Bot API sink
+   - `sinks/slack.py` — Slack Incoming Webhooks sink
+   - `sinks/webhook.py` — Generic HTTP webhook sink
+2. **`scripts/run_live.py`** — Integration with CLI flags (`--delivery-telegram`, `--delivery-slack`, `--delivery-webhook`, `--delivery-dry-run`, `--delivery-cooldown-s`)
+3. **`tests/delivery/`** — 58 tests covering formatter, dedupe, all sinks, router
+4. **`docs/RUNBOOK_DELIVERY.md`** — Setup, troubleshooting, K8s deployment guidance
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| Three sinks (Telegram, Slack, Webhook) | Covers personal notifications, team channels, and custom integrations |
+| Per-symbol cooldown (default 120s) | Prevents spam from same symbol repeating; matches existing Alerter pattern |
+| Global rate limit (30/min) | Prevents notification storms across all symbols |
+| Status transition only (default enabled) | Only notify on actual status changes, not repeated same-status events |
+| Deterministic template formatting | LLM-safe fallback; works without calling LLM |
+| Env var secrets (TELEGRAM_BOT_TOKEN, etc.) | Follows DEC-034 secrets strategy; added to DELIVERY_REDACTED_ENV_VARS |
+| Disabled by default | Opt-in activation via CLI flags; safe default |
+| Dry-run mode | Test configuration without sending; logs formatted messages |
+| Concurrent sink dispatch | Uses asyncio.gather() for parallel delivery to all enabled sinks |
+| aiohttp for HTTP | Async HTTP client consistent with existing codebase |
+
+### Anti-spam controls
+
+| Control | Default | Purpose |
+|---|---|---|
+| Per-symbol cooldown | 120s | Same symbol+event_type blocked within window |
+| Global rate limit | 30/min | Max deliveries per minute across all symbols |
+| Status transition | enabled | Only deliver on status changes |
+
+### Message format
+
+```
+[ALERT_TRADABLE] BTCUSDT
+
+Status: TRADEABLE
+Rank: #1 | Score: 0.92
+Time: 2024-01-28 12:34:56 UTC
+```
+
+Three format variants generated: plain text, HTML (for Telegram), markdown (for Slack).
+
+### Non-goals
+
+- No RankEvent schema changes
+- No trading package integration
+- No UI/dashboard
+- No new Prometheus metrics (internal delivery/dedupe metrics are dataclass counters for logging, not prom_client exports)
+- No Helm chart updates
