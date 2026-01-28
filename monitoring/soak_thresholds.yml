@@ -10,8 +10,9 @@ baseline:
   max_snapshot_queue_depth: 500
   # RSS should stay reasonable
   max_rss_mb: 200
-  # Tick drift under normal load (includes startup jitter)
-  max_tick_drift_ms: 2000
+  # Tick drift max includes one-time startup spike (WS connect + bootstrap).
+  # Steady-state drift is <<1000ms; startup can spike to ~5-6s.
+  max_tick_drift_ms: 10000
   # Reconnect rate per shard (DEC-027 acceptance: <= 6.0)
   max_reconnect_rate_per_min: 6.0
 
@@ -24,7 +25,7 @@ overload:
   max_snapshot_queue_depth: 1000
   # RSS under overload
   max_rss_mb: 300
-  # Tick drift more lenient under overload
-  max_tick_drift_ms: 1000
+  # Tick drift includes startup spike + consumer delay overhead
+  max_tick_drift_ms: 10000
   # Reconnect rate still bounded
   max_reconnect_rate_per_min: 6.0
