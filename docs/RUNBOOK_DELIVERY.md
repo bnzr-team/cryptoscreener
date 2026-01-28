@@ -169,20 +169,6 @@ containers:
           name: cryptoscreener-delivery-secrets
 ```
 
-## Metrics
-
-Delivery metrics are available via the `/metrics` endpoint:
-
-| Metric | Description |
-|---|---|
-| `delivery_total_received` | Total events received for delivery |
-| `delivery_total_delivered` | Successfully delivered batches |
-| `delivery_total_failed` | Failed delivery attempts |
-| `delivery_total_suppressed` | Events blocked by anti-spam |
-| `dedupe_suppressed_cooldown` | Blocked by per-symbol cooldown |
-| `dedupe_suppressed_rate_limit` | Blocked by global rate limit |
-| `dedupe_suppressed_duplicate` | Blocked by status transition filter |
-
 ## Troubleshooting
 
 ### No messages received
@@ -197,10 +183,7 @@ Delivery metrics are available via the `/metrics` endpoint:
    echo $TELEGRAM_BOT_TOKEN | head -c 10  # Should show partial token
    ```
 
-3. **Check anti-spam**: Events may be suppressed. Check dedupe metrics:
-   ```bash
-   curl localhost:9090/metrics | grep dedupe
-   ```
+3. **Check anti-spam**: Events may be suppressed. Check delivery logs for "Suppressed events" entries.
 
 4. **Use dry-run**: Test formatting without sending:
    ```bash

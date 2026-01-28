@@ -3307,5 +3307,5 @@ Three format variants generated: plain text, HTML (for Telegram), markdown (for 
 - No RankEvent schema changes
 - No trading package integration
 - No UI/dashboard
-- No new Prometheus metrics (delivery metrics exposed via /metrics but not custom prom_client counters)
+- No new Prometheus metrics (internal delivery/dedupe metrics are dataclass counters for logging, not prom_client exports)
 - No Helm chart updates

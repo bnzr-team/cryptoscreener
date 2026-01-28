@@ -162,7 +162,7 @@
 
 ## Known issues
 - No trained model artifact in registry (MLRunner falls back to BaselineRunner)
-- No frontend/dashboard (RankEvents delivered via Telegram/Slack/Webhook sinks — DEC-039)
+- No frontend/dashboard UI (RankEvents delivered via notification sinks per DEC-039)
 
 ## Artifact checksums (DEC-037 fixture — real pipeline)
 - `market_events.jsonl`: `58958f3199b360f16667f4d1db459d943e5f5af694fa5ac5ce9fc01992f737b9`
