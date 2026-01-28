@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-032 — TBD
+- **Next milestone:** DEC-033 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -95,6 +95,15 @@
 - [x] `k8s/secret.yaml` template (empty values, created out-of-band)
 - [x] `k8s/kustomization.yaml` Kustomize entrypoint
 - [x] `docs/RUNBOOK_K8S.md` quick start + troubleshooting
+
+### Done — Nightly Soak Regression Gate (DEC-032)
+
+- [x] `--ws-url` CLI flag for offline soak (overrides ConnectorConfig.base_ws_url)
+- [x] `scripts/run_fake_soak.py` — ContinuousFakeWSServer + pipeline runner
+- [x] `scripts/check_soak_thresholds.py` — threshold checker (baseline + overload)
+- [x] `monitoring/soak_thresholds.yml` — threshold config
+- [x] `.github/workflows/nightly_soak.yml` — nightly + dispatch CI workflow
+- [x] `tests/test_check_soak_thresholds.py` — 15 threshold checker tests
 
 ### In Progress
 - None

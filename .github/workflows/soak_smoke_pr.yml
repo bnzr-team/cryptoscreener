@@ -1,0 +1,71 @@
+name: Soak Smoke (PR)
+
+on:
+  pull_request:
+    paths:
+      - "scripts/run_fake_soak.py"
+      - "scripts/check_soak_thresholds.py"
+      - "scripts/run_live.py"
+      - "monitoring/soak_thresholds.yml"
+      - ".github/workflows/soak_smoke_pr.yml"
+      - ".github/workflows/nightly_soak.yml"
+      - "src/**"
+
+jobs:
+  soak-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install ".[dev]"
+
+      - name: Baseline soak smoke (90s)
+        env:
+          ALLOW_FAULTS: "1"
+        run: |
+          python -m scripts.run_fake_soak \
+            --duration-s 90 \
+            --summary-json baseline.json \
+            --send-interval-ms 10 \
+            --num-symbols 5 \
+            --cadence-ms 1000
+          echo "=== Baseline Summary ==="
+          python -m json.tool baseline.json
+
+      - name: Overload soak smoke (90s, slow consumer)
+        env:
+          ALLOW_FAULTS: "1"
+        run: |
+          python -m scripts.run_fake_soak \
+            --duration-s 90 \
+            --summary-json overload.json \
+            --fault-slow-consumer-ms 200 \
+            --send-interval-ms 1 \
+            --num-symbols 20 \
+            --cadence-ms 500
+          echo "=== Overload Summary ==="
+          python -m json.tool overload.json
+
+      - name: Check thresholds
+        run: |
+          python -m scripts.check_soak_thresholds \
+            --baseline-json baseline.json \
+            --overload-json overload.json \
+            --config monitoring/soak_thresholds.yml
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-smoke-summaries
+          path: |
+            baseline.json
+            overload.json
+          retention-days: 7
