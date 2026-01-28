@@ -53,6 +53,14 @@ from cryptoscreener.connectors.binance.stream_manager import BinanceStreamManage
 from cryptoscreener.connectors.binance.types import ConnectorConfig, ConnectorMetrics
 from cryptoscreener.connectors.exporter import MetricsExporter
 from cryptoscreener.connectors.metrics_server import start_metrics_server, stop_metrics_server
+from cryptoscreener.delivery import DeliveryConfig, DeliveryRouter
+from cryptoscreener.delivery.config import (
+    DedupeConfig,
+    SinkConfig,
+    SlackSinkConfig,
+    TelegramSinkConfig,
+    WebhookSinkConfig,
+)
 from cryptoscreener.features.engine import FeatureEngine, FeatureEngineConfig
 from cryptoscreener.model_runner import BaselineRunner, ModelRunnerConfig
 from cryptoscreener.ranker.ranker import Ranker, RankerConfig
@@ -114,6 +122,9 @@ class LivePipelineConfig:
 
     # DEC-032: Override WebSocket base URL (for offline soak with FakeWSServer)
     ws_url: str | None = None
+
+    # DEC-039: Delivery configuration
+    delivery: DeliveryConfig = field(default_factory=DeliveryConfig)
 
     def __post_init__(self) -> None:
         """DEC-030: Validate config values at construction time."""
@@ -325,6 +336,11 @@ class LivePipeline:
         # Predictions storage for ranker
         self._predictions: dict[str, PredictionSnapshot] = {}
 
+        # DEC-039: Delivery router (optional)
+        self._delivery_router: DeliveryRouter | None = None
+        if config.delivery.enabled:
+            self._delivery_router = DeliveryRouter(config.delivery)
+
         # Output file handle
         self._output_file: Path | None = config.output_file
         self._output_handle: TextIO | None = None
@@ -508,6 +524,10 @@ class LivePipeline:
                 for rank_event in rank_events:
                     self._write_event(rank_event)
 
+                # DEC-039: Deliver events to configured sinks
+                if self._delivery_router is not None and rank_events:
+                    await self._delivery_router.publish(rank_events)
+
                 last_process_ts = current_ts
 
                 # DEC-028: Tick drift, queue depth, RSS sampling
@@ -630,6 +650,10 @@ class LivePipeline:
         await self._feature_engine.stop()
         await self._stream_manager.stop()
 
+        # DEC-039: Close delivery router
+        if self._delivery_router is not None:
+            await self._delivery_router.close()
+
         # Close output file
         if self._output_handle:
             self._output_handle.close()
@@ -746,6 +770,17 @@ class LivePipeline:
             ranker_m.enter_events,
             ranker_m.exit_events,
         )
+
+        # DEC-039: Delivery metrics
+        if self._delivery_router is not None:
+            dm = self._delivery_router.metrics
+            logger.info(
+                "Delivery: %d received, %d delivered, %d failed, %d suppressed",
+                dm.total_received,
+                dm.total_delivered,
+                dm.total_failed,
+                dm.total_suppressed,
+            )
         logger.info("=" * 60)
 
     def request_shutdown(self) -> None:
@@ -932,6 +967,33 @@ def main() -> int:
         default=None,
         help="DEC-032: Override WebSocket base URL (for offline soak with FakeWSServer)",
     )
+    # DEC-039: Delivery arguments
+    parser.add_argument(
+        "--delivery-telegram",
+        action="store_true",
+        help="DEC-039: Enable Telegram delivery (requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars)",
+    )
+    parser.add_argument(
+        "--delivery-slack",
+        action="store_true",
+        help="DEC-039: Enable Slack delivery (requires SLACK_WEBHOOK_URL env var)",
+    )
+    parser.add_argument(
+        "--delivery-webhook",
+        action="store_true",
+        help="DEC-039: Enable webhook delivery (requires DELIVERY_WEBHOOK_URL env var)",
+    )
+    parser.add_argument(
+        "--delivery-dry-run",
+        action="store_true",
+        help="DEC-039: Delivery dry-run mode (log but don't send)",
+    )
+    parser.add_argument(
+        "--delivery-cooldown-s",
+        type=float,
+        default=120.0,
+        help="DEC-039: Per-symbol delivery cooldown in seconds (default: 120)",
+    )
 
     args = parser.parse_args()
 
@@ -942,6 +1004,19 @@ def main() -> int:
     symbols: list[str] = []
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",")]
+
+    # DEC-039: Build delivery config from args
+    delivery_enabled = args.delivery_telegram or args.delivery_slack or args.delivery_webhook
+    delivery_config = DeliveryConfig(
+        enabled=delivery_enabled,
+        sinks=SinkConfig(
+            telegram=TelegramSinkConfig(enabled=args.delivery_telegram),
+            slack=SlackSinkConfig(enabled=args.delivery_slack),
+            webhook=WebhookSinkConfig(enabled=args.delivery_webhook),
+        ),
+        dedupe=DedupeConfig(per_symbol_cooldown_s=args.delivery_cooldown_s),
+        dry_run=args.delivery_dry_run,
+    )
 
     config = LivePipelineConfig(
         symbols=symbols,
@@ -958,6 +1033,7 @@ def main() -> int:
         dry_run=args.dry_run,
         graceful_timeout_s=args.graceful_timeout_s,
         ws_url=args.ws_url,
+        delivery=delivery_config,
     )
 
     logger.info("Starting CryptoScreener Live Pipeline")
@@ -965,6 +1041,15 @@ def main() -> int:
     logger.info("  Cadence: %dms", config.snapshot_cadence_ms)
     logger.info("  Duration: %s", f"{config.duration_s}s" if config.duration_s else "until signal")
     logger.info("  LLM: %s", "enabled" if config.llm_enabled else "disabled")
+    if delivery_enabled:
+        sinks = []
+        if args.delivery_telegram:
+            sinks.append("telegram")
+        if args.delivery_slack:
+            sinks.append("slack")
+        if args.delivery_webhook:
+            sinks.append("webhook")
+        logger.info("  Delivery: %s%s", ", ".join(sinks), " (dry-run)" if args.delivery_dry_run else "")
 
     return asyncio.run(run_pipeline(config))
 

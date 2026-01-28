@@ -7,9 +7,9 @@
 
 ## Current status
 
-- **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
-- **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-038 — TBD
+- **Phase:** Pre-live (all offline components built, CI hardened, observability ready, delivery sinks available)
+- **Test count:** 1174+ passing (ruff ✓, mypy ✓, pytest ✓)
+- **Next milestone:** DEC-040 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -144,6 +144,16 @@
 - [x] Updated fixture checksums in `tests/contracts/test_replay_determinism.py`
 - [x] Removed stale known issue about stub pipeline
 
+### Done — RankEvent Delivery UX Pack (DEC-039)
+
+- [x] `src/cryptoscreener/delivery/` module with config, formatter, dedupe, router, sinks
+- [x] Three delivery sinks: Telegram (Bot API), Slack (Webhooks), generic Webhook
+- [x] Anti-spam: per-symbol cooldown (120s), global rate limit (30/min), status transition filtering
+- [x] Deterministic template formatting (text/HTML/markdown variants)
+- [x] `scripts/run_live.py` integration: `--delivery-telegram`, `--delivery-slack`, `--delivery-webhook`, `--delivery-dry-run`, `--delivery-cooldown-s`
+- [x] `tests/delivery/` — 58 tests covering all components
+- [x] `docs/RUNBOOK_DELIVERY.md` — setup, troubleshooting, K8s guidance
+
 ### In Progress
 - None
 
@@ -152,7 +162,7 @@
 
 ## Known issues
 - No trained model artifact in registry (MLRunner falls back to BaselineRunner)
-- No frontend/dashboard (RankEvents go to logs only)
+- No frontend/dashboard (RankEvents delivered via Telegram/Slack/Webhook sinks — DEC-039)
 
 ## Artifact checksums (DEC-037 fixture — real pipeline)
 - `market_events.jsonl`: `58958f3199b360f16667f4d1db459d943e5f5af694fa5ac5ce9fc01992f737b9`

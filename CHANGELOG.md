@@ -17,6 +17,24 @@
 
 ### Added
 
+#### RankEvent Delivery UX Pack (DEC-039)
+- `src/cryptoscreener/delivery/` package: config, formatter, dedupe, router, sinks
+- Three delivery sinks:
+  - `sinks/telegram.py`: Telegram Bot API (sendMessage with HTML parse mode)
+  - `sinks/slack.py`: Slack Incoming Webhooks (mrkdwn format)
+  - `sinks/webhook.py`: Generic HTTP webhook (JSON payload with text/html/markdown variants)
+- Anti-spam controls:
+  - Per-symbol cooldown (default 120s, configurable via `--delivery-cooldown-s`)
+  - Global rate limit (30 deliveries/minute)
+  - Status transition filtering (only notify on status changes)
+- Deterministic template formatting (`formatter.py`): no LLM required
+- `scripts/run_live.py` integration:
+  - `--delivery-telegram` / `--delivery-slack` / `--delivery-webhook` enable flags
+  - `--delivery-dry-run` for testing without sending
+  - `--delivery-cooldown-s N` for custom cooldown
+- `docs/RUNBOOK_DELIVERY.md`: setup guide, K8s secrets, troubleshooting
+- 58 new tests (`tests/delivery/`): formatter, dedupe, all sinks, router
+
 #### Grafana Dashboards Pack (DEC-036)
 - `monitoring/grafana/dashboards/cryptoscreener-overview.json`: 12-panel dashboard covering WS health (reconnects, disconnects, ping timeouts, subscribe delays), circuit breaker (transitions, OPEN duration), REST governor (queue depth, concurrency, request rates, saturation gauge)
 - `monitoring/grafana/dashboards/cryptoscreener-backpressure.json`: 8-panel dashboard covering pipeline queue depths, event/snapshot drop rates, tick drift, process RSS
