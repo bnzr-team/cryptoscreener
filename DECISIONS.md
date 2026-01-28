@@ -2920,3 +2920,44 @@ Make CryptoScreener runnable "prod-like" via Docker + docker-compose with health
 - `.github/workflows/docker_smoke.yml` — New: CI smoke
 - `docs/RUNBOOK_DEPLOYMENT.md` — New: ops runbook
 - `tests/connectors/test_metrics_server.py` — 4 new healthz tests
+
+## DEC-030 — Production Readiness v1.5
+
+**Date:** 2026-01-28
+**Status:** Implemented
+**PR:** TBD
+
+### Objective
+
+Make the service safe to operate continuously: readiness vs liveness semantics, config validation, rollout knobs, CI readiness transition tests.
+
+### Deliverables
+
+1. **`GET /readyz`** — Returns 200 when pipeline is ready (running + WS connected + events fresh), 503 otherwise. Separate from `/healthz` (process alive).
+2. **Config validation** — `LivePipelineConfig.__post_init__` validates port/cadence/symbol/duration ranges. Fault flags require `ALLOW_FAULTS=1` or `ENV=dev`.
+3. **Rollout knobs** — `--dry-run` (validate + exit), `--graceful-timeout-s` (shutdown timeout)
+4. **Readiness tests** — Transition tests (503→200→503 on staleness), `get_ready_info()` unit tests
+5. **Config validation tests** — 14 test cases for all validation rules + fault flag gating
+6. **Runbook updates** — Readiness stuck 503, reconnect storm, backpressure checklists
+
+### Design Decisions
+
+- **ReadyFn callback**: `Callable[[], tuple[bool, dict[str, Any]]]` — returns `(is_ready, info)`. Status code derived from `is_ready` bool.
+- **Staleness window**: Default 30s (`readiness_staleness_s`). Pipeline not ready if `last_event_ts` older than staleness window.
+- **Fault flag gating**: `__post_init__` checks `os.environ` at construction time. No global state.
+
+### Non-goals
+
+- No Kubernetes / Helm (deferred to DEC-031)
+- No new alert rules
+- No Grafana dashboards
+
+### Files Changed
+
+- `src/cryptoscreener/connectors/metrics_server.py` — `/readyz` route, `ReadyFn` type alias
+- `scripts/run_live.py` — `get_ready_info()`, config validation, `--dry-run`, `--graceful-timeout-s`
+- `tests/test_config_validation.py` — New: 14 config validation tests
+- `tests/connectors/test_readiness.py` — New: readiness transition + unit tests
+- `tests/connectors/test_metrics_server.py` — 4 new readyz tests
+- `.github/workflows/docker_smoke.yml` — Added /readyz check
+- `docs/RUNBOOK_DEPLOYMENT.md` — Troubleshooting checklists

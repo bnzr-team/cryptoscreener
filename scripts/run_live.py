@@ -66,6 +66,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# DEC-030: Env var names that must never be logged
+REDACTED_ENV_VARS = frozenset({"ANTHROPIC_API_KEY", "BINANCE_API_KEY", "BINANCE_SECRET_KEY"})
+
+
 @dataclass
 class LivePipelineConfig:
     """Configuration for live pipeline."""
@@ -100,6 +104,50 @@ class LivePipelineConfig:
 
     # DEC-027: Soak summary output
     summary_json: Path | None = None
+
+    # DEC-030: Rollout knobs
+    dry_run: bool = False
+    graceful_timeout_s: int = 10
+
+    # DEC-030: Readiness staleness window (seconds)
+    readiness_staleness_s: int = 30
+
+    def __post_init__(self) -> None:
+        """DEC-030: Validate config values at construction time."""
+        import os
+        import re
+
+        if not 0 <= self.metrics_port <= 65535:
+            msg = f"metrics_port must be 0..65535, got {self.metrics_port}"
+            raise ValueError(msg)
+        if not 1 <= self.top_n <= 2000:
+            msg = f"top_n must be 1..2000, got {self.top_n}"
+            raise ValueError(msg)
+        if not 100 <= self.snapshot_cadence_ms <= 60000:
+            msg = f"snapshot_cadence_ms must be 100..60000, got {self.snapshot_cadence_ms}"
+            raise ValueError(msg)
+        if self.duration_s is not None and self.duration_s <= 0:
+            msg = f"duration_s must be > 0, got {self.duration_s}"
+            raise ValueError(msg)
+        if self.graceful_timeout_s < 0:
+            msg = f"graceful_timeout_s must be >= 0, got {self.graceful_timeout_s}"
+            raise ValueError(msg)
+        # Fault flags require ALLOW_FAULTS=1 or ENV=dev
+        has_faults = self.fault_drop_ws_every_s is not None or self.fault_slow_consumer_ms is not None
+        if has_faults:
+            allow = os.environ.get("ALLOW_FAULTS") == "1" or os.environ.get("ENV") == "dev"
+            if not allow:
+                msg = (
+                    "Fault injection flags require ALLOW_FAULTS=1 or ENV=dev. "
+                    "Set environment variable to enable."
+                )
+                raise ValueError(msg)
+        # Symbol format validation
+        symbol_re = re.compile(r"^[A-Z0-9]+$")
+        for s in self.symbols:
+            if not symbol_re.match(s):
+                msg = f"Invalid symbol format: {s!r} (must be uppercase alphanumeric)"
+                raise ValueError(msg)
 
 
 @dataclass
@@ -293,6 +341,50 @@ class LivePipeline:
             "uptime_s": uptime_s,
             "ws_connected": ws_connected,
             "last_event_ts": self._metrics.last_snapshot_ts,
+        }
+
+    def get_ready_info(self) -> tuple[bool, dict[str, Any]]:
+        """DEC-030: Return readiness status for /readyz endpoint.
+
+        Ready when: running AND ws_connected AND last_event_ts within staleness window.
+        Returns (is_ready, info_dict).
+        """
+        if not self._running:
+            return False, {"ready": False, "reason": "pipeline not running"}
+
+        ws_connected = False
+        if self._stream_manager:
+            cm = self._stream_manager.get_metrics()
+            ws_connected = cm.active_shards > 0
+
+        if not ws_connected:
+            return False, {"ready": False, "ws_connected": False, "reason": "no WS shards connected"}
+
+        last_ts = self._metrics.last_snapshot_ts
+        now_ms = int(time.time() * 1000)
+        staleness_ms = self._config.readiness_staleness_s * 1000
+        last_event_age_s = round((now_ms - last_ts) / 1000, 1) if last_ts > 0 else -1.0
+
+        if last_ts == 0:
+            return False, {
+                "ready": False,
+                "ws_connected": True,
+                "last_event_age_s": -1.0,
+                "reason": "no events received yet",
+            }
+
+        if (now_ms - last_ts) > staleness_ms:
+            return False, {
+                "ready": False,
+                "ws_connected": True,
+                "last_event_age_s": last_event_age_s,
+                "reason": f"stale: last event {last_event_age_s}s ago",
+            }
+
+        return True, {
+            "ready": True,
+            "ws_connected": True,
+            "last_event_age_s": last_event_age_s,
         }
 
     async def _on_snapshot(self, snapshot: FeatureSnapshot) -> None:
@@ -716,11 +808,21 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
         metrics_exporter=exporter,
     )
 
-    # DEC-029: Start metrics server after pipeline so we can pass health_fn
+    # DEC-029/030: Start metrics server after pipeline so we can pass health_fn + ready_fn
     if registry is not None:
         metrics_runner = await start_metrics_server(
-            registry, port=config.metrics_port, health_fn=pipeline.get_health_info
+            registry,
+            port=config.metrics_port,
+            health_fn=pipeline.get_health_info,
+            ready_fn=pipeline.get_ready_info,
         )
+
+    # DEC-030: --dry-run exits after validation + metrics server start
+    if config.dry_run:
+        logger.info("Dry-run mode: config valid, metrics server up, exiting")
+        if metrics_runner is not None:
+            await stop_metrics_server(metrics_runner)
+        return 0
 
     # Setup signal handlers (only sets flags, does not call stop())
     setup_signal_handlers(pipeline)
@@ -807,6 +909,17 @@ def main() -> int:
         default=None,
         help="DEC-027: Write soak summary JSON to this path at exit",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="DEC-030: Validate config, start metrics server, exit without processing",
+    )
+    parser.add_argument(
+        "--graceful-timeout-s",
+        type=int,
+        default=10,
+        help="DEC-030: Graceful shutdown timeout in seconds (default: 10)",
+    )
 
     args = parser.parse_args()
 
@@ -830,6 +943,8 @@ def main() -> int:
         fault_drop_ws_every_s=args.fault_drop_ws_every_s,
         fault_slow_consumer_ms=args.fault_slow_consumer_ms,
         summary_json=args.summary_json,
+        dry_run=args.dry_run,
+        graceful_timeout_s=args.graceful_timeout_s,
     )
 
     logger.info("Starting CryptoScreener Live Pipeline")

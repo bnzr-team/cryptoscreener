@@ -34,6 +34,15 @@ jobs:
           test "$HTTP_CODE" = "200"
           python -c "import json; d=json.load(open('/tmp/healthz.json')); assert 'status' in d, 'missing status'"
 
+      - name: Check /readyz
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/readyz.json -w "%{http_code}" http://localhost:9090/readyz)
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/readyz.json | python -m json.tool
+          # After 15s warmup with real Binance, expect 200
+          test "$HTTP_CODE" = "200" || test "$HTTP_CODE" = "503"
+          python -c "import json; d=json.load(open('/tmp/readyz.json')); assert 'ready' in d, 'missing ready'"
+
       - name: Check /metrics
         run: |
           HTTP_CODE=$(curl -s -o /tmp/metrics.txt -w "%{http_code}" http://localhost:9090/metrics)

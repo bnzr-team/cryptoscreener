@@ -1,8 +1,9 @@
 """
-Minimal HTTP server for Prometheus /metrics and /healthz endpoints.
+Minimal HTTP server for Prometheus /metrics, /healthz, and /readyz endpoints.
 
 DEC-025: Serves generate_latest(registry) on GET /metrics.
 DEC-029: Serves pipeline health JSON on GET /healthz.
+DEC-030: Serves pipeline readiness on GET /readyz (200 ready, 503 not ready).
 
 Uses aiohttp.web (already a project dependency for WS/REST client).
 """
@@ -30,6 +31,9 @@ _Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 # Type alias for health info callback
 HealthFn = Callable[[], dict[str, Any]]
+
+# Type alias for readiness callback: returns (is_ready, info_dict)
+ReadyFn = Callable[[], tuple[bool, dict[str, Any]]]
 
 
 def _make_metrics_handler(
@@ -68,17 +72,43 @@ def _make_healthz_handler(
     return handler
 
 
+def _make_readyz_handler(
+    ready_fn: ReadyFn | None = None,
+) -> _Handler:
+    """Create GET /readyz handler.
+
+    Args:
+        ready_fn: Optional callback returning (is_ready, info_dict).
+            If None, always returns 200 with {"ready": true}.
+    """
+
+    async def handler(request: web.Request) -> web.Response:
+        if ready_fn is not None:
+            is_ready, info = ready_fn()
+        else:
+            is_ready, info = True, {"ready": True}
+        return web.Response(
+            body=json.dumps(info),
+            status=200 if is_ready else 503,
+            content_type="application/json",
+        )
+
+    return handler
+
+
 def create_metrics_app(
     registry: CollectorRegistry,
     *,
     health_fn: HealthFn | None = None,
+    ready_fn: ReadyFn | None = None,
 ) -> web.Application:
     """
-    Create aiohttp Application with /metrics and /healthz routes.
+    Create aiohttp Application with /metrics, /healthz, and /readyz routes.
 
     Args:
         registry: Prometheus CollectorRegistry to serve.
         health_fn: Optional callback for /healthz pipeline health info.
+        ready_fn: Optional callback for /readyz readiness check.
 
     Returns:
         aiohttp.web.Application ready to be started.
@@ -86,6 +116,7 @@ def create_metrics_app(
     app = web.Application()
     app.router.add_get("/metrics", _make_metrics_handler(registry))
     app.router.add_get("/healthz", _make_healthz_handler(health_fn))
+    app.router.add_get("/readyz", _make_readyz_handler(ready_fn))
     return app
 
 
@@ -95,6 +126,7 @@ async def start_metrics_server(
     port: int = 9090,
     *,
     health_fn: HealthFn | None = None,
+    ready_fn: ReadyFn | None = None,
 ) -> web.AppRunner:
     """
     Start the metrics HTTP server.
@@ -104,11 +136,12 @@ async def start_metrics_server(
         host: Bind address (default: 0.0.0.0).
         port: Bind port (default: 9090).
         health_fn: Optional callback for /healthz pipeline health info.
+        ready_fn: Optional callback for /readyz readiness check.
 
     Returns:
         AppRunner (call runner.cleanup() on shutdown).
     """
-    app = create_metrics_app(registry, health_fn=health_fn)
+    app = create_metrics_app(registry, health_fn=health_fn, ready_fn=ready_fn)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
