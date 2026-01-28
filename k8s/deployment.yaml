@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cryptoscreener
+  labels:
+    app: cryptoscreener
+    app.kubernetes.io/name: cryptoscreener
+    app.kubernetes.io/component: pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cryptoscreener
+  template:
+    metadata:
+      labels:
+        app: cryptoscreener
+        app.kubernetes.io/name: cryptoscreener
+        app.kubernetes.io/component: pipeline
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: cryptoscreener
+          image: cryptoscreener:latest
+          args:
+            - "--top"
+            - "50"
+            - "--metrics-port"
+            - "9090"
+            - "--cadence-ms"
+            - "1000"
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: cryptoscreener-config
+            - secretRef:
+                name: cryptoscreener-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      restartPolicy: Always

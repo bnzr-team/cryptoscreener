@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cryptoscreener
+  labels:
+    app: cryptoscreener
+    app.kubernetes.io/name: cryptoscreener
+    app.kubernetes.io/component: pipeline
+spec:
+  type: ClusterIP
+  selector:
+    app: cryptoscreener
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

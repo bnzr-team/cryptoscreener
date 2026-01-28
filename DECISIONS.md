@@ -2961,3 +2961,47 @@ Make the service safe to operate continuously: readiness vs liveness semantics, 
 - `tests/connectors/test_metrics_server.py` — 4 new readyz tests
 - `.github/workflows/docker_smoke.yml` — Added /readyz check
 - `docs/RUNBOOK_DEPLOYMENT.md` — Troubleshooting checklists
+
+---
+
+## DEC-031 — Kubernetes Manifests MVP
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Provide production-ready Kubernetes manifests for deploying CryptoScreener-X with proper probe wiring, resource limits, security context, and secrets management.
+
+### Deliverables
+
+1. **`k8s/deployment.yaml`** — Single-replica Deployment with liveness (`/healthz`) and readiness (`/readyz`) probes, resource requests/limits, non-root security context, read-only root filesystem.
+2. **`k8s/service.yaml`** — ClusterIP Service exposing metrics port 9090.
+3. **`k8s/configmap.yaml`** — Non-secret pipeline configuration (TOP_N, CADENCE, etc.).
+4. **`k8s/secret.yaml`** — Template only with empty values. Real secrets created via `kubectl create secret`.
+5. **`k8s/kustomization.yaml`** — Kustomize entrypoint referencing deployment, service, configmap.
+6. **`docs/RUNBOOK_K8S.md`** — Quick start, probe semantics, troubleshooting.
+
+### Design Decisions
+
+- **No Helm**: Kustomize is sufficient for MVP; Helm deferred until overlays needed.
+- **Secret template**: Empty values committed as documentation; real secrets created out-of-band.
+- **Security context**: `runAsNonRoot`, `readOnlyRootFilesystem`, all capabilities dropped.
+- **Resource defaults**: 100m/256Mi request, 500m/512Mi limit — tunable per environment.
+- **Probe timing**: Liveness starts at 5s/30s period; readiness at 10s/10s period — matches DEC-030 semantics.
+
+### Non-goals
+
+- No Helm chart
+- No HPA / autoscaling
+- No Ingress / external access
+- No PersistentVolumeClaims
+
+### Files Created
+
+- `k8s/deployment.yaml`
+- `k8s/service.yaml`
+- `k8s/configmap.yaml`
+- `k8s/secret.yaml`
+- `k8s/kustomization.yaml`
+- `docs/RUNBOOK_K8S.md`

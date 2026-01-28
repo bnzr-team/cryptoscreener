@@ -1,7 +1,7 @@
 # STATE
 
 **Project:** In‑Play Predictor (CryptoScreener‑X) — ML + LLM
-**Updated:** 2026-01-27
+**Updated:** 2026-01-28
 
 ---
 
@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-031 — TBD
+- **Next milestone:** DEC-032 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -86,6 +86,15 @@
 - [x] `--dry-run` + `--graceful-timeout-s` rollout knobs
 - [x] Readiness transition + config validation tests
 - [x] Runbook: readiness stuck, reconnect storm, backpressure checklists
+
+### Done — Kubernetes Manifests MVP (DEC-031)
+
+- [x] `k8s/deployment.yaml` with liveness/readiness probes, resource limits, security context
+- [x] `k8s/service.yaml` ClusterIP on port 9090
+- [x] `k8s/configmap.yaml` non-secret pipeline config
+- [x] `k8s/secret.yaml` template (empty values, created out-of-band)
+- [x] `k8s/kustomization.yaml` Kustomize entrypoint
+- [x] `docs/RUNBOOK_K8S.md` quick start + troubleshooting
 
 ### In Progress
 - None
