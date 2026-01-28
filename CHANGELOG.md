@@ -1,13 +1,21 @@
 # CHANGELOG
 
 **Project:** In‑Play Predictor (CryptoScreener‑X) — ML + LLM
-**Updated:** 2026-01-27
+**Updated:** 2026-01-28
 
 ---
 
 ## Unreleased
 
 ### Added
+
+#### Kubernetes Manifests MVP (DEC-031)
+- `k8s/deployment.yaml`: Deployment with liveness (`/healthz`) and readiness (`/readyz`) probes, resource requests/limits, non-root security context, read-only root filesystem
+- `k8s/service.yaml`: ClusterIP Service exposing metrics port 9090
+- `k8s/configmap.yaml`: Non-secret pipeline configuration (TOP_N, CADENCE, etc.)
+- `k8s/secret.yaml`: Template with empty values (real secrets created via `kubectl create secret`)
+- `k8s/kustomization.yaml`: Kustomize entrypoint
+- `docs/RUNBOOK_K8S.md`: Quick start, probe semantics, troubleshooting guide
 
 #### Production Readiness v1.5 (DEC-030)
 - `GET /readyz` endpoint: 200 when ready, 503 when not (WS connected + events fresh)

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cryptoscreener-config
+  labels:
+    app: cryptoscreener
+    app.kubernetes.io/name: cryptoscreener
+    app.kubernetes.io/component: pipeline
+data:
+  # Pipeline configuration (non-secret)
+  TOP_N: "50"
+  SNAPSHOT_CADENCE_MS: "1000"
+  METRICS_PORT: "9090"
+  READINESS_STALENESS_S: "30"
+  GRACEFUL_TIMEOUT_S: "10"
+  # Set to "1" to enable LLM scoring (requires ANTHROPIC_API_KEY secret)
+  LLM_ENABLED: "false"
