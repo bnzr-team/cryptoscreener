@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-029 — TBD
+- **Next milestone:** DEC-030 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -69,6 +69,15 @@
 ### Done — Observability & Resilience (PR#91–94)
 
 - [x] Backpressure, resource bounds, queue-growth acceptance (DEC-028, PR#94): bounded queues, drop-oldest policy, tick drift/RSS/queue depth instrumentation, 6 Prometheus metrics, runtime soak proof
+
+### Done — Deployment Readiness (DEC-029)
+
+- [x] `GET /healthz` endpoint with pipeline health JSON
+- [x] Dockerfile (multi-stage, non-root, HEALTHCHECK)
+- [x] docker-compose.yml (cryptoscreener + Prometheus)
+- [x] CI docker smoke workflow
+- [x] Ops runbook (`docs/RUNBOOK_DEPLOYMENT.md`)
+- [x] 4 healthz endpoint tests
 
 ### In Progress
 - None

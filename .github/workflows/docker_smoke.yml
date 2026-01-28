@@ -1,0 +1,54 @@
+name: Docker Smoke
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "monitoring/**"
+      - "src/**"
+      - "scripts/**"
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t cryptoscreener:test .
+
+      - name: Start container
+        run: |
+          docker run -d --name cs-smoke -p 9090:9090 \
+            cryptoscreener:test --top 5 --duration-s 30 --metrics-port 9090
+          sleep 15
+
+      - name: Check /healthz
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/healthz.json -w "%{http_code}" http://localhost:9090/healthz)
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/healthz.json | python -m json.tool
+          test "$HTTP_CODE" = "200"
+          python -c "import json; d=json.load(open('/tmp/healthz.json')); assert 'status' in d, 'missing status'"
+
+      - name: Check /metrics
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/metrics.txt -w "%{http_code}" http://localhost:9090/metrics)
+          echo "HTTP status: $HTTP_CODE"
+          test "$HTTP_CODE" = "200"
+          for m in cryptoscreener_pipeline_event_queue_depth \
+                   cryptoscreener_pipeline_snapshot_queue_depth \
+                   cryptoscreener_pipeline_tick_drift_ms \
+                   cryptoscreener_pipeline_rss_mb \
+                   cryptoscreener_pipeline_events_dropped \
+                   cryptoscreener_pipeline_snapshots_dropped; do
+            grep -q "$m" /tmp/metrics.txt || { echo "MISSING: $m"; exit 1; }
+            echo "FOUND: $m"
+          done
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f cs-smoke || true

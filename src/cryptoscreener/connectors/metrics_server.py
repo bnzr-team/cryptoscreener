@@ -1,17 +1,18 @@
 """
-Minimal HTTP server for Prometheus /metrics endpoint.
+Minimal HTTP server for Prometheus /metrics and /healthz endpoints.
 
 DEC-025: Serves generate_latest(registry) on GET /metrics.
-No new metrics, labels, or business logic. Just wiring.
+DEC-029: Serves pipeline health JSON on GET /healthz.
 
 Uses aiohttp.web (already a project dependency for WS/REST client).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 from prometheus_client import generate_latest
@@ -26,6 +27,9 @@ METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 # Type alias for aiohttp handler
 _Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
+
+# Type alias for health info callback
+HealthFn = Callable[[], dict[str, Any]]
 
 
 def _make_metrics_handler(
@@ -44,18 +48,44 @@ def _make_metrics_handler(
     return handler
 
 
-def create_metrics_app(registry: CollectorRegistry) -> web.Application:
+def _make_healthz_handler(
+    health_fn: HealthFn | None = None,
+) -> _Handler:
+    """Create GET /healthz handler.
+
+    Args:
+        health_fn: Optional callback returning pipeline health dict.
+            If None, returns a minimal {"status": "ok"} response.
     """
-    Create aiohttp Application with a single GET /metrics route.
+
+    async def handler(request: web.Request) -> web.Response:
+        info = health_fn() if health_fn is not None else {"status": "ok"}
+        return web.Response(
+            body=json.dumps(info),
+            content_type="application/json",
+        )
+
+    return handler
+
+
+def create_metrics_app(
+    registry: CollectorRegistry,
+    *,
+    health_fn: HealthFn | None = None,
+) -> web.Application:
+    """
+    Create aiohttp Application with /metrics and /healthz routes.
 
     Args:
         registry: Prometheus CollectorRegistry to serve.
+        health_fn: Optional callback for /healthz pipeline health info.
 
     Returns:
         aiohttp.web.Application ready to be started.
     """
     app = web.Application()
     app.router.add_get("/metrics", _make_metrics_handler(registry))
+    app.router.add_get("/healthz", _make_healthz_handler(health_fn))
     return app
 
 
@@ -63,6 +93,8 @@ async def start_metrics_server(
     registry: CollectorRegistry,
     host: str = "0.0.0.0",
     port: int = 9090,
+    *,
+    health_fn: HealthFn | None = None,
 ) -> web.AppRunner:
     """
     Start the metrics HTTP server.
@@ -71,11 +103,12 @@ async def start_metrics_server(
         registry: Prometheus CollectorRegistry to serve.
         host: Bind address (default: 0.0.0.0).
         port: Bind port (default: 9090).
+        health_fn: Optional callback for /healthz pipeline health info.
 
     Returns:
         AppRunner (call runner.cleanup() on shutdown).
     """
-    app = create_metrics_app(registry)
+    app = create_metrics_app(registry, health_fn=health_fn)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
