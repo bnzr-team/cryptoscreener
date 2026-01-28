@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-037 — TBD
+- **Next milestone:** DEC-038 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -136,6 +136,14 @@
 - [x] `docs/RUNBOOK_GRAFANA.md` — import steps, template variables, panel inventory, troubleshooting
 - [x] Template variables: `$datasource`, `$namespace`, `$pod`, `$job`
 
+### Done — Replay Pipeline Parity (DEC-037)
+
+- [x] Replaced `MinimalReplayPipeline` stub with real components (FeatureEngine → BaselineRunner → Ranker → Alerter)
+- [x] `scripts/run_replay.py`: `ReplayPipeline` class mirrors live pipeline processing path
+- [x] Regenerated fixtures: `expected_rank_events.jsonl`, `manifest.json` (v2.0.0)
+- [x] Updated fixture checksums in `tests/contracts/test_replay_determinism.py`
+- [x] Removed stale known issue about stub pipeline
+
 ### In Progress
 - None
 
@@ -143,11 +151,10 @@
 - None
 
 ## Known issues
-- `run_live.py` uses stub/minimal pipeline logic — real ML inference path not yet wired
 - No trained model artifact in registry (MLRunner falls back to BaselineRunner)
 - No frontend/dashboard (RankEvents go to logs only)
 
-## Artifact checksums (PR#1 fixture)
-- `market_events.jsonl`: `ba7d6e2018426517893ac4de3052a145e72b88f20d82f8d864558fca99eea277`
-- `expected_rank_events.jsonl`: `901a6cc399a2de563f55c1b3458edba8250b08a785978848ef890ca435e34335`
-- RankEvent stream digest: `08f158e3d78b74e0b75318772bf0cd689859783de25c3b404ad501153efcd44d`
+## Artifact checksums (DEC-037 fixture — real pipeline)
+- `market_events.jsonl`: `58958f3199b360f16667f4d1db459d943e5f5af694fa5ac5ce9fc01992f737b9`
+- `expected_rank_events.jsonl`: `3eeff0d6f838717e8363a050026b92bec1c9a2eedf0e07da4a7dbf431ea9b30f`
+- RankEvent stream digest: `7ca62321812f48133fb82d692ad95e85e0269fbea7a67a9a434bec90a0f01d9d`

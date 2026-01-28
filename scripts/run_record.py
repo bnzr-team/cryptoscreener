@@ -320,9 +320,14 @@ def run_record(
     market_events.sort(key=lambda e: (e.ts, e.recv_ts))
     logger.info(f"Recorded {len(market_events)} market events")
 
-    # Process through pipeline to get expected rank events
-    pipeline = MinimalRecordPipeline(seed=42, llm_enabled=llm_enabled)
-    rank_events = pipeline.record(market_events)
+    # Process through real pipeline (shared with run_replay.py)
+    try:
+        from scripts.run_replay import ReplayPipeline
+    except ModuleNotFoundError:
+        from run_replay import ReplayPipeline  # type: ignore[import-not-found,no-redef]
+
+    pipeline = ReplayPipeline()
+    rank_events = pipeline.replay(market_events)
 
     # Write output files
     market_events_file = out_dir / "market_events.jsonl"

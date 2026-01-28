@@ -1,22 +1,22 @@
 {
-  "version": "1.0.0",
-  "created_at": "2026-01-24T00:00:00Z",
-  "description": "Sample fixture for replay determinism testing",
+  "version": "2.0.0",
+  "created_at": "2026-01-28T00:00:00Z",
+  "description": "Sample fixture for replay determinism testing (real pipeline)",
   "files": {
     "market_events": "market_events.jsonl",
     "expected_rank_events": "expected_rank_events.jsonl"
   },
   "checksums": {
-    "market_events.jsonl": "ba7d6e2018426517893ac4de3052a145e72b88f20d82f8d864558fca99eea277",
-    "expected_rank_events.jsonl": "901a6cc399a2de563f55c1b3458edba8250b08a785978848ef890ca435e34335"
+    "market_events.jsonl": "58958f3199b360f16667f4d1db459d943e5f5af694fa5ac5ce9fc01992f737b9",
+    "expected_rank_events.jsonl": "3eeff0d6f838717e8363a050026b92bec1c9a2eedf0e07da4a7dbf431ea9b30f"
   },
-  "expected_rank_events_digest": "08f158e3d78b74e0b75318772bf0cd689859783de25c3b404ad501153efcd44d",
-  "market_events_count": 11,
-  "expected_rank_events_count": 3,
+  "expected_rank_events_digest": "7ca62321812f48133fb82d692ad95e85e0269fbea7a67a9a434bec90a0f01d9d",
+  "market_events_count": 35,
+  "expected_rank_events_count": 1,
   "stats": {
-    "total_market_events": 11,
-    "total_rank_events": 3,
+    "total_market_events": 35,
+    "total_rank_events": 1,
     "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-    "time_range_ms": [1706140800000, 1706140801000]
+    "time_range_ms": [1706140800000, 1706140804400]
   }
 }

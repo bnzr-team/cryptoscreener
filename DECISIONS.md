@@ -3207,3 +3207,36 @@ Provide importable Grafana dashboards for all 18 `cryptoscreener_*` Prometheus m
 - No Grafana provisioning via Helm/K8s ConfigMap
 - No Grafana Operator CRDs (GrafanaDashboard)
 - No runtime code changes
+
+---
+
+## DEC-037 — Replay Pipeline Parity
+
+### Objective
+
+Replace the `MinimalReplayPipeline` stub in `scripts/run_replay.py` with real pipeline components (FeatureEngine → BaselineRunner → Ranker → Alerter), ensuring replay and live pipelines use identical processing logic.
+
+### Deliverables
+
+1. **`scripts/run_replay.py`** — `ReplayPipeline` class using real components with `asyncio.run()` wrapper
+2. **Regenerated fixtures** — `expected_rank_events.jsonl` and `manifest.json` (v2.0.0) reflecting real pipeline output
+3. **Updated checksums** — `tests/contracts/test_replay_determinism.py` aligned with new fixture hashes
+4. **Removed stale known issue** — "run_live.py uses stub/minimal pipeline logic" (was factually incorrect)
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| `ReplayPipeline` wraps real components directly | Mirrors `LivePipeline` init: same configs, same processing order |
+| `asyncio.run()` for async `FeatureEngine.process_event()` | Simplest sync wrapper; replay is single-threaded |
+| Cadence-based snapshot emission in replay loop | Matches live pipeline's cadence tick pattern |
+| 0 rank events from minimal fixture is valid | BaselineRunner heuristics need sufficient market data; empty output is deterministic |
+| Fixture `version` bumped to `2.0.0` | Breaking change: stub output incompatible with real pipeline output |
+| `llm_enabled=False` for replay Alerter | Deterministic replay must not call external LLM |
+
+### Non-goals
+
+- No shared pipeline module (live + replay still separate; shared later if drift occurs)
+- No new fixture data (existing 11-event fixture retained)
+- No changes to live pipeline (`run_live.py`)
+- No new Prometheus metrics or alerts

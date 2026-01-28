@@ -66,7 +66,7 @@ class TestFixtureStructure:
         assert all(isinstance(e, MarketEvent) for e in events)
 
     def test_expected_rank_events_valid_jsonl(self) -> None:
-        """Test expected_rank_events.jsonl contains valid JSON lines."""
+        """Test expected_rank_events.jsonl contains valid RankEvents."""
         events = []
         with open(FIXTURES_DIR / "expected_rank_events.jsonl") as f:
             for line in f:
@@ -187,13 +187,13 @@ class TestFixtureChecksums:
     def test_market_events_checksum(self) -> None:
         """Verify market_events.jsonl checksum."""
         checksum = compute_file_sha256(FIXTURES_DIR / "market_events.jsonl")
-        expected = "ba7d6e2018426517893ac4de3052a145e72b88f20d82f8d864558fca99eea277"
+        expected = "58958f3199b360f16667f4d1db459d943e5f5af694fa5ac5ce9fc01992f737b9"
         assert checksum == expected, f"Checksum mismatch: {checksum}"
 
     def test_expected_rank_events_checksum(self) -> None:
         """Verify expected_rank_events.jsonl checksum."""
         checksum = compute_file_sha256(FIXTURES_DIR / "expected_rank_events.jsonl")
-        expected = "901a6cc399a2de563f55c1b3458edba8250b08a785978848ef890ca435e34335"
+        expected = "3eeff0d6f838717e8363a050026b92bec1c9a2eedf0e07da4a7dbf431ea9b30f"
         assert checksum == expected, f"Checksum mismatch: {checksum}"
 
 
