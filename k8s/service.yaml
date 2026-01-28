@@ -6,6 +6,7 @@ metadata:
     app: cryptoscreener
     app.kubernetes.io/name: cryptoscreener
     app.kubernetes.io/component: pipeline
+    app.kubernetes.io/part-of: cryptoscreener-x
 spec:
   type: ClusterIP
   selector:

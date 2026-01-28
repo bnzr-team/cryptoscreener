@@ -37,6 +37,8 @@ kubectl get pods -l app=cryptoscreener
 | `configmap.yaml` | Non-secret pipeline configuration |
 | `secret.yaml` | **Template only** — create via `kubectl create secret` |
 | `kustomization.yaml` | Kustomize entrypoint |
+| `servicemonitor.yaml` | Prometheus Operator auto-discovery (DEC-033) |
+| `prometheusrule.yaml` | Alert rules packaged as PrometheusRule CRD (DEC-033) |
 
 ## Probe Semantics
 
@@ -101,6 +103,72 @@ Monitor via:
 ```bash
 kubectl top pod -l app=cryptoscreener
 ```
+
+## Prometheus Operator Integration (DEC-033)
+
+### Prerequisites
+
+- Prometheus Operator installed (CRDs `ServiceMonitor` and `PrometheusRule` must exist)
+- Verify: `kubectl get crd servicemonitors.monitoring.coreos.com prometheusrules.monitoring.coreos.com`
+
+### Setup
+
+The ServiceMonitor and PrometheusRule are included in `kustomization.yaml` by default. After `kubectl apply -k k8s/`, verify:
+
+```bash
+# Confirm ServiceMonitor created
+kubectl get servicemonitor -A | grep cryptoscreener
+
+# Confirm PrometheusRule created
+kubectl get prometheusrule -A | grep cryptoscreener
+
+# Check ServiceMonitor details
+kubectl describe servicemonitor cryptoscreener
+```
+
+### Verifying Prometheus Discovers the Target
+
+```bash
+# Port-forward to Prometheus
+kubectl port-forward svc/prometheus-operated 9090:9090 -n monitoring
+
+# Check targets (browser or curl)
+# http://localhost:9090/targets — look for "cryptoscreener" target
+```
+
+### Troubleshooting: No Target in Prometheus
+
+1. **Label mismatch**: ServiceMonitor selects by `app.kubernetes.io/name: cryptoscreener` + `app.kubernetes.io/part-of: cryptoscreener-x`. Verify the Service has these labels:
+   ```bash
+   kubectl get svc cryptoscreener -o jsonpath='{.metadata.labels}'
+   ```
+
+2. **Namespace selector**: If Prometheus is configured with `serviceMonitorNamespaceSelector`, ensure the cryptoscreener namespace is included.
+
+3. **RBAC**: Prometheus ServiceAccount needs `get`/`list`/`watch` on `endpoints` and `services` in the cryptoscreener namespace.
+
+4. **Operator not reconciling**: Check operator logs:
+   ```bash
+   kubectl logs -l app.kubernetes.io/name=prometheus-operator -n monitoring
+   ```
+
+### Clusters Without Prometheus Operator
+
+If the cluster does not have Prometheus Operator, comment out the CRD resources in `kustomization.yaml`:
+
+```yaml
+# - servicemonitor.yaml
+# - prometheusrule.yaml
+```
+
+The Deployment already has scrape annotations for annotation-based Prometheus discovery:
+```yaml
+prometheus.io/scrape: "true"
+prometheus.io/port: "9090"
+prometheus.io/path: "/metrics"
+```
+
+For alert rules without Prometheus Operator, load `monitoring/alert_rules.yml` directly into your Prometheus config.
 
 ## Security Notes
 

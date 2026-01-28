@@ -1,0 +1,20 @@
+# DEC-033: ServiceMonitor for Prometheus Operator auto-discovery.
+# Requires: monitoring.coreos.com/v1 CRD (Prometheus Operator).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cryptoscreener
+  labels:
+    app: cryptoscreener
+    app.kubernetes.io/name: cryptoscreener
+    app.kubernetes.io/component: pipeline
+    app.kubernetes.io/part-of: cryptoscreener-x
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cryptoscreener
+      app.kubernetes.io/part-of: cryptoscreener-x
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

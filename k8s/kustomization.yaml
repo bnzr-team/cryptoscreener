@@ -14,3 +14,7 @@ resources:
   # secret.yaml is a TEMPLATE — create secrets out-of-band via kubectl.
   # Uncomment only if you populate secret.yaml with real base64 values:
   # - secret.yaml
+  # DEC-033: Prometheus Operator CRDs (requires monitoring.coreos.com/v1).
+  # Comment out if cluster does not have Prometheus Operator installed.
+  - servicemonitor.yaml
+  - prometheusrule.yaml

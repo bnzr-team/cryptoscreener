@@ -3063,3 +3063,39 @@ python -m scripts.check_soak_thresholds \
 - No Binance live in CI
 - No Prometheus scraping in CI (metrics port disabled by default)
 - No new product features
+
+---
+
+## DEC-033 — Prometheus Operator Integration
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Make cryptoscreener observable out of the box in clusters running Prometheus Operator by adding ServiceMonitor + PrometheusRule CRDs with consistent labels.
+
+### Deliverables
+
+1. **`k8s/servicemonitor.yaml`** — ServiceMonitor selecting cryptoscreener Service, scraping `/metrics` on port `metrics` every 15s
+2. **`k8s/prometheusrule.yaml`** — All 16 alert rules from `monitoring/alert_rules.yml` packaged as PrometheusRule CRD (3 groups: governor, circuit_breaker, websocket)
+3. **K8s label standardization** — Added `app.kubernetes.io/part-of: cryptoscreener-x` to Deployment, Service, and CRD metadata for consistent selector matching
+4. **Kustomize wiring** — Both CRDs added to `kustomization.yaml` (commentable for non-operator clusters)
+5. **Runbook update** — `docs/RUNBOOK_K8S.md` extended with Prometheus Operator setup, verification, and troubleshooting
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| Selector uses `app.kubernetes.io/name` + `app.kubernetes.io/part-of` | Standard K8s labels, survives renames, no fragile `app:` matching |
+| 15s scrape interval | Matches infrastructure alert `for:` windows (1m–10m); lower than default 30s for faster detection |
+| All 16 alerts packaged (not subset) | Rules are already production-ready from DEC-025; no reason to defer |
+| Scrape annotations kept on Deployment | Backward compatibility with annotation-based Prometheus discovery |
+| CRDs in kustomization by default | Comment out for non-operator clusters; operator clusters get zero-config discovery |
+
+### Non-goals
+
+- No Helm chart
+- No Ingress/Grafana dashboards
+- No changes to application metrics semantics
+- No new alert rules (exact copy of DEC-025 `monitoring/alert_rules.yml`)
