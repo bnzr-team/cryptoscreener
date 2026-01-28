@@ -2874,3 +2874,49 @@ Instrument queue depths, event-loop lag, and process RSS; enforce hard limits wi
 - `src/cryptoscreener/connectors/exporter.py` — 6 new pipeline metrics, `_update_pipeline_metrics()`
 - `scripts/run_live.py` — tick drift, RSS, queue depth sampling; SoakSummary extensions; exporter wiring
 - `tests/connectors/test_ws_resilience.py` — `TestBackpressureAcceptance` (6 tests)
+
+## DEC-029 — Deployment Readiness MVP
+
+**Date:** 2026-01-28
+**Status:** Implemented
+**PR:** TBD
+
+### Objective
+
+Make CryptoScreener runnable "prod-like" via Docker + docker-compose with health endpoint, Prometheus scraping, CI smoke test, and ops runbook.
+
+### Deliverables
+
+1. **Health endpoint** — `GET /healthz` on the existing aiohttp metrics server returning JSON: `{"status","uptime_s","ws_connected","last_event_ts"}`
+2. **Dockerfile** — Multi-stage build, non-root user, built-in HEALTHCHECK
+3. **.dockerignore** — Excludes .venv, .git, tests, artifacts, caches
+4. **docker-compose.yml** — cryptoscreener + Prometheus services
+5. **monitoring/prometheus.yml** — Scrape config targeting cryptoscreener:9090
+6. **CI docker smoke** — `.github/workflows/docker_smoke.yml`: build image, start container, curl /healthz + /metrics, verify 6 DEC-028 pipeline metrics
+7. **Ops runbook** — `docs/RUNBOOK_DEPLOYMENT.md`: build, run, verify, config, metrics, troubleshooting
+
+### Design Decisions
+
+- **health_fn callback pattern**: `/healthz` handler accepts an optional `HealthFn = Callable[[], dict[str, Any]]` callback, decoupling pipeline health logic from the HTTP server. When None, returns `{"status":"ok"}`.
+- **Pipeline created before metrics server**: `run_pipeline()` reordered so `LivePipeline` exists before `start_metrics_server()`, enabling `health_fn=pipeline.get_health_info`.
+- **`.[dev]` in Dockerfile**: aiohttp is currently in dev dependencies but required at runtime. Dockerfile installs `.[dev]` until deps are reorganized.
+
+### Non-goals
+
+- No Kubernetes / Helm
+- No Grafana dashboards
+- No new alert rules
+- No ML training artifacts
+- No UI/frontend
+
+### Files Changed
+
+- `src/cryptoscreener/connectors/metrics_server.py` — `/healthz` route, `HealthFn` type alias
+- `scripts/run_live.py` — `get_health_info()` method, reordered startup
+- `Dockerfile` — New: multi-stage, non-root, healthcheck
+- `.dockerignore` — New
+- `docker-compose.yml` — New: cryptoscreener + prometheus
+- `monitoring/prometheus.yml` — New: scrape config
+- `.github/workflows/docker_smoke.yml` — New: CI smoke
+- `docs/RUNBOOK_DEPLOYMENT.md` — New: ops runbook
+- `tests/connectors/test_metrics_server.py` — 4 new healthz tests

@@ -280,6 +280,21 @@ class LivePipeline:
         """Get pipeline metrics."""
         return self._metrics
 
+    def get_health_info(self) -> dict[str, Any]:
+        """DEC-029: Return pipeline health info for /healthz endpoint."""
+        uptime_s = round(time.monotonic() - self._start_monotonic, 1) if self._start_monotonic else 0.0
+        # Check if any shard is connected
+        ws_connected = False
+        if self._stream_manager:
+            cm = self._stream_manager.get_metrics()
+            ws_connected = cm.active_shards > 0
+        return {
+            "status": "ok" if self._running else "stopped",
+            "uptime_s": uptime_s,
+            "ws_connected": ws_connected,
+            "last_event_ts": self._metrics.last_snapshot_ts,
+        }
+
     async def _on_snapshot(self, snapshot: FeatureSnapshot) -> None:
         """
         Handle emitted FeatureSnapshot.
@@ -688,18 +703,24 @@ async def run_pipeline(config: LivePipelineConfig) -> int:
     # DEC-026: Create MetricsExporter + registry for /metrics endpoint
     exporter: MetricsExporter | None = None
     metrics_runner = None
+    registry = None
     if config.metrics_port > 0:
         from prometheus_client.registry import CollectorRegistry
 
         registry = CollectorRegistry()
         exporter = MetricsExporter(registry=registry)
-        metrics_runner = await start_metrics_server(registry, port=config.metrics_port)
 
     pipeline = LivePipeline(
         config=config,
         explainer=explainer,
         metrics_exporter=exporter,
     )
+
+    # DEC-029: Start metrics server after pipeline so we can pass health_fn
+    if registry is not None:
+        metrics_runner = await start_metrics_server(
+            registry, port=config.metrics_port, health_fn=pipeline.get_health_info
+        )
 
     # Setup signal handlers (only sets flags, does not call stop())
     setup_signal_handlers(pipeline)

@@ -9,6 +9,15 @@
 
 ### Added
 
+#### Deployment Readiness MVP (DEC-029)
+- `GET /healthz` endpoint on metrics server returning pipeline health JSON (`status`, `uptime_s`, `ws_connected`, `last_event_ts`)
+- Multi-stage Dockerfile with non-root user and built-in HEALTHCHECK
+- `docker-compose.yml` with cryptoscreener + Prometheus services
+- `monitoring/prometheus.yml` scrape configuration
+- CI docker smoke workflow (`.github/workflows/docker_smoke.yml`)
+- Ops runbook (`docs/RUNBOOK_DEPLOYMENT.md`)
+- 4 new healthz endpoint tests
+
 #### Backpressure, Resource Bounds & Queue-Growth Acceptance (DEC-028, PR#94)
 - Bounded event queue (`maxsize=10,000`) with drop-newest policy on `BinanceStreamManager`
 - Bounded snapshot queue (`maxsize=1,000`) on `FeatureEngine` with drop counter

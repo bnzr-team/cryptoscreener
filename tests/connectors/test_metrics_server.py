@@ -1,7 +1,8 @@
 """
-Smoke tests for Prometheus /metrics HTTP endpoint.
+Smoke tests for Prometheus /metrics and /healthz HTTP endpoints.
 
 DEC-025: Validates GET /metrics returns correct format and content.
+DEC-029: Validates GET /healthz returns pipeline health JSON.
 """
 
 from __future__ import annotations
@@ -106,3 +107,47 @@ class TestMetricsEndpointSmoke:
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/unknown")
             assert resp.status == 404
+
+
+class TestHealthzEndpoint:
+    """DEC-029: GET /healthz returns pipeline health JSON."""
+
+    @pytest.mark.asyncio
+    async def test_healthz_returns_200(self, empty_registry: CollectorRegistry) -> None:
+        """GET /healthz returns HTTP 200."""
+        app = create_metrics_app(empty_registry)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_healthz_default_response(self, empty_registry: CollectorRegistry) -> None:
+        """GET /healthz without health_fn returns minimal JSON."""
+        app = create_metrics_app(empty_registry)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            data = await resp.json()
+            assert data == {"status": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_healthz_with_health_fn(self, empty_registry: CollectorRegistry) -> None:
+        """GET /healthz with health_fn returns custom health info."""
+        def health_fn() -> dict[str, object]:
+            return {"status": "ok", "uptime_s": 42.0, "ws_connected": True, "last_event_ts": 1000}
+
+        app = create_metrics_app(empty_registry, health_fn=health_fn)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            data = await resp.json()
+            assert data["status"] == "ok"
+            assert data["uptime_s"] == 42.0
+            assert data["ws_connected"] is True
+            assert data["last_event_ts"] == 1000
+
+    @pytest.mark.asyncio
+    async def test_healthz_content_type(self, empty_registry: CollectorRegistry) -> None:
+        """GET /healthz returns application/json content type."""
+        app = create_metrics_app(empty_registry)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            assert resp.content_type == "application/json"

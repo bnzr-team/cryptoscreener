@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+rule_files:
+  - alert_rules.yml
+
+scrape_configs:
+  - job_name: cryptoscreener
+    static_configs:
+      - targets: ["cryptoscreener:9090"]
