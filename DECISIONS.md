@@ -3005,3 +3005,61 @@ Provide production-ready Kubernetes manifests for deploying CryptoScreener-X wit
 - `k8s/secret.yaml`
 - `k8s/kustomization.yaml`
 - `docs/RUNBOOK_K8S.md`
+
+---
+
+## DEC-032 — Nightly Soak Regression Gate
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Add a scheduled CI workflow that runs offline soaks against a FakeWSServer, captures summary artifacts, and fails if stability thresholds regress. No Binance live, no outbound network.
+
+### Deliverables
+
+1. **`--ws-url` CLI flag** on `run_live.py` — allows overriding the WebSocket base URL to point at a local FakeWSServer instead of Binance.
+2. **`scripts/run_fake_soak.py`** — Starts a `ContinuousFakeWSServer` and runs the pipeline offline for a configurable duration.
+3. **`scripts/check_soak_thresholds.py`** — Reads soak summary JSON and checks fields against threshold config. Exits 0 (pass) or 1 (fail).
+4. **`monitoring/soak_thresholds.yml`** — Threshold config for baseline and overload soaks.
+5. **`.github/workflows/nightly_soak.yml`** — Scheduled (nightly + workflow_dispatch) CI workflow running baseline + overload soaks, threshold checks, and artifact upload.
+6. **`tests/test_check_soak_thresholds.py`** — Unit tests for threshold checking logic.
+
+### CI Commands
+
+```bash
+# Baseline soak (60s, normal load)
+python -m scripts.run_fake_soak --duration-s 60 --summary-json baseline.json
+
+# Overload soak (60s, slow consumer)
+python -m scripts.run_fake_soak --duration-s 60 --summary-json overload.json \
+  --fault-slow-consumer-ms 50 --send-interval-ms 5 --num-symbols 10
+
+# Check thresholds
+python -m scripts.check_soak_thresholds \
+  --baseline-json baseline.json --overload-json overload.json
+```
+
+### Thresholds
+
+| Metric | Baseline | Overload |
+|---|---|---|
+| `events_dropped` | == 0 | > 0 |
+| `max_event_queue_depth` | <= 2000 | <= 10000 |
+| `max_rss_mb` | <= 200 | <= 300 |
+| `max_tick_drift_ms` | <= 200 | <= 1000 |
+| `max_reconnect_rate_per_min` | <= 6.0 | <= 6.0 |
+
+### Design Decisions
+
+- **Offline-only**: `ContinuousFakeWSServer` sends synthetic aggTrade messages at configurable rate. No outbound network.
+- **`--ws-url` flag**: Minimal wiring — overrides `ConnectorConfig.base_ws_url` at pipeline construction time.
+- **Separate script**: `run_fake_soak.py` manages server lifecycle + pipeline invocation. Avoids modifying product code.
+- **YAML thresholds**: Easy to tune without code changes.
+
+### Non-goals
+
+- No Binance live in CI
+- No Prometheus scraping in CI (metrics port disabled by default)
+- No new product features

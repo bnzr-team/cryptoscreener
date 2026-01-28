@@ -112,6 +112,9 @@ class LivePipelineConfig:
     # DEC-030: Readiness staleness window (seconds)
     readiness_staleness_s: int = 30
 
+    # DEC-032: Override WebSocket base URL (for offline soak with FakeWSServer)
+    ws_url: str | None = None
+
     def __post_init__(self) -> None:
         """DEC-030: Validate config values at construction time."""
         import os
@@ -277,8 +280,11 @@ class LivePipeline:
         self._last_tick_monotonic: float = 0.0  # DEC-028: for tick drift
 
         # Initialize components
+        connector_config = ConnectorConfig()
+        if config.ws_url is not None:
+            connector_config = ConnectorConfig(base_ws_url=config.ws_url)
         self._stream_manager = BinanceStreamManager(
-            config=ConnectorConfig(),
+            config=connector_config,
             on_event=None,  # We'll use async iteration
         )
 
@@ -920,6 +926,12 @@ def main() -> int:
         default=10,
         help="DEC-030: Graceful shutdown timeout in seconds (default: 10)",
     )
+    parser.add_argument(
+        "--ws-url",
+        type=str,
+        default=None,
+        help="DEC-032: Override WebSocket base URL (for offline soak with FakeWSServer)",
+    )
 
     args = parser.parse_args()
 
@@ -945,6 +957,7 @@ def main() -> int:
         summary_json=args.summary_json,
         dry_run=args.dry_run,
         graceful_timeout_s=args.graceful_timeout_s,
+        ws_url=args.ws_url,
     )
 
     logger.info("Starting CryptoScreener Live Pipeline")

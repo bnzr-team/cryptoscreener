@@ -9,6 +9,14 @@
 
 ### Added
 
+#### Nightly Soak Regression Gate (DEC-032)
+- `--ws-url` CLI flag on `run_live.py` for offline soak with FakeWSServer
+- `scripts/run_fake_soak.py`: ContinuousFakeWSServer + pipeline runner (no outbound network)
+- `scripts/check_soak_thresholds.py`: threshold checker for baseline + overload soak summaries
+- `monitoring/soak_thresholds.yml`: configurable thresholds (queue depth, RSS, tick drift, drops)
+- `.github/workflows/nightly_soak.yml`: scheduled nightly + manual dispatch CI workflow
+- 15 unit tests for threshold checking logic
+
 #### Kubernetes Manifests MVP (DEC-031)
 - `k8s/deployment.yaml`: Deployment with liveness (`/healthz`) and readiness (`/readyz`) probes, resource requests/limits, non-root security context, read-only root filesystem
 - `k8s/service.yaml`: ClusterIP Service exposing metrics port 9090
