@@ -3309,3 +3309,90 @@ Three format variants generated: plain text, HTML (for Telegram), markdown (for 
 - No UI/dashboard
 - No new Prometheus metrics (internal delivery/dedupe metrics are dataclass counters for logging, not prom_client exports)
 - No Helm chart updates
+
+---
+
+## DEC-038 — Training Pipeline + Model Artifact Registration
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Produce a real trained model artifact (with calibration) that MLRunner can load deterministically, with versioned registry entry, hashes, and schema/version checks.
+
+### Deliverables
+
+1. **`src/cryptoscreener/training/feature_schema.py`** — Canonical feature ordering matching MLRunner, version hash computation
+2. **`src/cryptoscreener/training/trainer.py`** — TrainingConfig, Trainer class with prepare_data/train/evaluate
+3. **`src/cryptoscreener/training/artifact.py`** — build_model_package() for creating versioned artifact packages
+4. **`scripts/train_model.py`** — CLI entrypoint for training with calibration
+5. **`src/cryptoscreener/model_runner/ml_runner.py`** — Added `from_package()` classmethod for loading training artifacts
+6. **`tests/training/`** — 113 tests covering feature_schema, trainer, artifact, split, and e2e pipeline
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| 8-feature vector matching MLRunner | Critical for train/inference compatibility; defined in FEATURE_ORDER tuple |
+| 4 prediction heads (p_inplay_30s/2m/5m, p_toxic) | Matches PRD probability outputs; uses MultiOutputClassifier wrapper |
+| sklearn MultiOutputClassifier | Simple, well-tested; wraps RandomForest or LogisticRegression |
+| Model version format: `{major}.{minor}.{patch}+{git_sha}+{date}+{feature_hash[:8]}` | Traceable to code, data, and feature schema |
+| Feature hash in version string | Detect feature drift without loading model |
+| SHA256 checksums in checksums.txt | Verify artifact integrity at load time |
+| Time-based split (no shuffle) | Prevent temporal leakage; future data never in training set |
+| Platt calibration post-training | Improve probability estimates; fits on validation set |
+| Deterministic training (fixed seed) | Two runs with same seed produce identical checksums |
+
+### Artifact package structure
+
+```
+models/v1.0.0/
+├── model.pkl              # sklearn MultiOutputClassifier
+├── calibration.json       # Platt calibrators per head (a, b params)
+├── features.json          # Feature schema + hash
+├── schema_version.json    # Package metadata
+├── checksums.txt          # SHA256 hashes (SSOT)
+├── manifest.json          # Machine-readable metadata
+└── training_report.md     # Human-readable metrics report
+```
+
+### Feature schema
+
+```python
+FEATURE_ORDER = (
+    "spread_bps",
+    "mid",
+    "book_imbalance",
+    "flow_imbalance",
+    "natr_14_5m",
+    "impact_bps_q",
+    "regime_vol_binary",
+    "regime_trend_binary",
+)
+```
+
+### MLRunner.from_package() integration
+
+```python
+runner = MLRunner.from_package(Path("models/v1.0.0/"))
+# Validates: features.json matches FEATURE_ORDER
+# Validates: checksums.txt hashes match actual files
+# Loads: model.pkl, calibration.json
+```
+
+### Determinism verification
+
+| Source | Mitigation |
+|---|---|
+| Random state | `np.random.seed(config.seed)` + sklearn random_state |
+| Dictionary ordering | `orjson.OPT_SORT_KEYS` in JSON serialization |
+| Float precision | Round metrics to 4 decimal places |
+| Timestamp | Use fixed model_version string in tests |
+
+### Non-goals
+
+- No RankEvent schema changes
+- No auto-retraining scheduling
+- No new online features
+- No hyperparameter tuning infrastructure

@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from pathlib import Path  # noqa: TC003 - used at runtime in MLRunnerConfig
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cryptoscreener.calibration import (
@@ -776,6 +776,104 @@ class MLRunner(ModelRunner):
             )
 
         return reasons
+
+    @classmethod
+    def from_package(
+        cls,
+        package_dir: Path,
+        strictness: InferenceStrictness = InferenceStrictness.DEV,
+        require_calibration: bool = True,
+        fallback_to_baseline: bool = True,
+    ) -> MLRunner:
+        """Load MLRunner from a training artifact package.
+
+        Loads model, calibration, and validates features.json against expected
+        feature order. Reads checksums.txt and uses hashes for integrity checks.
+
+        Args:
+            package_dir: Path to package directory containing:
+                - model.pkl (required)
+                - calibration.json (optional)
+                - features.json (required)
+                - checksums.txt (required)
+            strictness: Inference strictness level.
+            require_calibration: If True, fail if calibration unavailable.
+            fallback_to_baseline: If True, use baseline runner on failure.
+
+        Returns:
+            Configured MLRunner instance.
+
+        Raises:
+            FileNotFoundError: If package_dir or required files don't exist.
+            FeatureSchemaError: If features.json doesn't match expected schema.
+            ArtifactIntegrityError: If checksums don't match.
+
+        Example:
+            runner = MLRunner.from_package(Path("models/v1.0.0/"))
+            prediction = runner.predict(feature_snapshot)
+        """
+        from cryptoscreener.registry.manifest import parse_checksums_txt
+        from cryptoscreener.training.feature_schema import (
+            FeatureSchemaError,
+            validate_feature_compatibility,
+        )
+
+        package_dir = Path(package_dir)
+
+        if not package_dir.exists():
+            raise FileNotFoundError(f"Package directory not found: {package_dir}")
+
+        # Required files
+        model_path = package_dir / "model.pkl"
+        features_path = package_dir / "features.json"
+        checksums_path = package_dir / "checksums.txt"
+
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        if not features_path.exists():
+            raise FileNotFoundError(f"Features file not found: {features_path}")
+        if not checksums_path.exists():
+            raise FileNotFoundError(f"Checksums file not found: {checksums_path}")
+
+        # Validate feature schema
+        try:
+            validate_feature_compatibility(features_path)
+            logger.info(f"Feature schema validated: {features_path}")
+        except FeatureSchemaError as e:
+            raise FeatureSchemaError(f"Feature schema mismatch in {package_dir}: {e}") from e
+
+        # Load checksums
+        with checksums_path.open() as f:
+            checksums = parse_checksums_txt(f.read())
+
+        # Get hashes
+        model_sha256 = checksums.get("model.pkl")
+        if model_sha256:
+            logger.debug(f"Model checksum: {model_sha256[:16]}...")
+
+        # Optional calibration
+        calibration_path = package_dir / "calibration.json"
+        calibration_sha256: str | None = None
+        if calibration_path.exists():
+            calibration_sha256 = checksums.get("calibration.json")
+            if calibration_sha256:
+                logger.debug(f"Calibration checksum: {calibration_sha256[:16]}...")
+        else:
+            calibration_path = None  # type: ignore[assignment]
+
+        # Create config
+        config = MLRunnerConfig(
+            model_path=model_path,
+            calibration_path=calibration_path,
+            model_sha256=model_sha256,
+            calibration_sha256=calibration_sha256,
+            require_calibration=require_calibration,
+            fallback_to_baseline=fallback_to_baseline,
+            strictness=strictness,
+        )
+
+        logger.info(f"Loading MLRunner from package: {package_dir}")
+        return cls(config)
 
     def predict_batch(self, snapshots: Sequence[FeatureSnapshot]) -> list[PredictionSnapshot]:
         """Generate predictions for multiple snapshots.

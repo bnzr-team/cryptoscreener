@@ -7,8 +7,8 @@
 
 ## Current status
 
-- **Phase:** Pre-live (all offline components built, CI hardened, observability ready, delivery sinks available)
-- **Test count:** 1174+ passing (ruff ✓, mypy ✓, pytest ✓)
+- **Phase:** Pre-live (all offline components built, CI hardened, observability ready, delivery sinks available, training pipeline ready)
+- **Test count:** 1245+ passing (ruff ✓, mypy ✓, pytest ✓)
 - **Next milestone:** DEC-040 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
@@ -154,6 +154,16 @@
 - [x] `tests/delivery/` — 58 tests covering all components
 - [x] `docs/RUNBOOK_DELIVERY.md` — setup, troubleshooting, K8s guidance
 
+### Done — Training Pipeline + Model Artifact Registration (DEC-038)
+
+- [x] `src/cryptoscreener/training/feature_schema.py` — Canonical feature ordering, version hash computation
+- [x] `src/cryptoscreener/training/trainer.py` — TrainingConfig, Trainer class with prepare_data/train/evaluate
+- [x] `src/cryptoscreener/training/artifact.py` — build_model_package() for versioned artifact packages
+- [x] `scripts/train_model.py` — CLI entrypoint for training with calibration
+- [x] `MLRunner.from_package()` — Load trained artifacts with checksum verification
+- [x] `tests/training/` — 113 tests (feature_schema, trainer, artifact, split, e2e pipeline)
+- [x] Determinism verified: same seed produces identical checksums
+
 ### In Progress
 - None
 
@@ -161,7 +171,6 @@
 - None
 
 ## Known issues
-- No trained model artifact in registry (MLRunner falls back to BaselineRunner)
 - No frontend/dashboard UI (RankEvents delivered via notification sinks per DEC-039)
 
 ## Artifact checksums (DEC-037 fixture — real pipeline)

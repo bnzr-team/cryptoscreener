@@ -17,6 +17,22 @@
 
 ### Added
 
+#### Training Pipeline + Model Artifact Registration (DEC-038)
+- `src/cryptoscreener/training/feature_schema.py`: Canonical feature ordering (FEATURE_ORDER), schema version, feature hash computation
+- `src/cryptoscreener/training/trainer.py`: TrainingConfig dataclass, Trainer class with prepare_data/train/evaluate
+- `src/cryptoscreener/training/artifact.py`: build_model_package() for versioned artifact packages, generate_model_version()
+- `scripts/train_model.py`: CLI entrypoint for training with calibration:
+  - `--data PATH` — input labels.parquet
+  - `--output DIR` — artifact output directory
+  - `--seed N` — random seed for reproducibility
+  - `--model-type {random_forest,logistic}` — model type
+  - `--profile {a,b}` — label profile
+- `MLRunner.from_package()`: Load trained artifacts with checksum verification
+- Model version format: `{major}.{minor}.{patch}+{git_sha}+{date}+{feature_hash[:8]}`
+- Artifact package structure: model.pkl, calibration.json, features.json, schema_version.json, checksums.txt, manifest.json, training_report.md
+- 113 new tests (`tests/training/`): feature_schema, trainer, artifact, split, e2e pipeline
+- Determinism: same seed produces identical checksums
+
 #### RankEvent Delivery UX Pack (DEC-039)
 - `src/cryptoscreener/delivery/` package: config, formatter, dedupe, router, sinks
 - Three delivery sinks:
