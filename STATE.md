@@ -8,7 +8,7 @@
 ## Current status
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
-- **Test count:** 1041+ passing (ruff ✓, mypy ✓, pytest ✓)
+- **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
 - **Next milestone:** DEC-029 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
@@ -66,8 +66,12 @@
 - [x] Record→replay bridge (`scripts/run_record.py` — DEC-007)
 - [x] Feature engine, scorer, ranker, alerter
 
+### Done — Observability & Resilience (PR#91–94)
+
+- [x] Backpressure, resource bounds, queue-growth acceptance (DEC-028, PR#94): bounded queues, drop-oldest policy, tick drift/RSS/queue depth instrumentation, 6 Prometheus metrics, runtime soak proof
+
 ### In Progress
-- [ ] Backpressure, resource bounds, queue-growth acceptance (DEC-028): bounded queues, drop policy, tick drift/RSS/queue depth instrumentation
+- None
 
 ### Blocked
 - None
