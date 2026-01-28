@@ -7,6 +7,14 @@
 
 ## Unreleased
 
+### Changed
+
+#### Replay Pipeline Parity (DEC-037)
+- `scripts/run_replay.py`: Replaced `MinimalReplayPipeline` stub with `ReplayPipeline` using real components (FeatureEngine → BaselineRunner → Ranker → Alerter)
+- `tests/fixtures/sample_run/expected_rank_events.jsonl`: Regenerated for real pipeline output
+- `tests/fixtures/sample_run/manifest.json`: Bumped to v2.0.0 with updated checksums and digest
+- `tests/contracts/test_replay_determinism.py`: Updated fixture checksums
+
 ### Added
 
 #### Grafana Dashboards Pack (DEC-036)

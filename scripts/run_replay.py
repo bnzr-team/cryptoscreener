@@ -2,7 +2,7 @@
 """
 Replay harness for CryptoScreener-X.
 
-Replays recorded market events through the pipeline and verifies
+Replays recorded market events through the real pipeline and verifies
 deterministic output by comparing RankEvent digests.
 
 Usage:
@@ -10,7 +10,7 @@ Usage:
 
 The replay harness:
 1. Loads MarketEvents from fixture
-2. Processes them through a minimal pipeline (stub for now)
+2. Processes them through the real pipeline (FeatureEngine → BaselineRunner → Ranker → Alerter)
 3. Emits RankEvents
 4. Computes digest of RankEvent stream
 5. Compares against expected digest (if provided)
@@ -19,24 +19,23 @@ The replay harness:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import orjson
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
+from cryptoscreener.alerting.alerter import Alerter, AlerterConfig
 from cryptoscreener.contracts import (
     MarketEvent,
     RankEvent,
-    RankEventPayload,
-    RankEventType,
     compute_rank_events_digest,
 )
+from cryptoscreener.features.engine import FeatureEngine, FeatureEngineConfig
+from cryptoscreener.model_runner import BaselineRunner, ModelRunnerConfig
+from cryptoscreener.ranker.ranker import Ranker, RankerConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,84 +103,84 @@ def load_expected_rank_events(filepath: Path) -> list[RankEvent]:
     return events
 
 
-class MinimalReplayPipeline:
+class ReplayPipeline:
     """
-    Minimal replay pipeline for testing.
+    Replay pipeline using real components.
 
-    This is a stub implementation that demonstrates the replay harness structure.
-    The actual feature engine, ML inference, and ranker will be implemented later.
+    Mirrors the live pipeline (run_live.py LivePipeline) processing path:
+    FeatureEngine → BaselineRunner → Ranker → Alerter.
     """
 
-    def __init__(self, seed: int = 42) -> None:
-        """Initialize pipeline with deterministic seed."""
-        self.seed = seed
-        self._symbol_state: dict[str, dict[str, float]] = {}
-        self._rank_counter = 0
+    def __init__(self, snapshot_cadence_ms: int = 1000) -> None:
+        """Initialize pipeline with real components."""
+        self._feature_engine = FeatureEngine(
+            config=FeatureEngineConfig(
+                snapshot_cadence_ms=snapshot_cadence_ms,
+                max_symbols=500,
+            )
+        )
+        self._model_runner = BaselineRunner(config=ModelRunnerConfig())
+        self._ranker = Ranker(
+            config=RankerConfig(
+                top_k=20,
+                enter_ms=1500,
+                exit_ms=3000,
+            )
+        )
+        self._alerter = Alerter(
+            config=AlerterConfig(
+                cooldown_ms=120_000,
+                stable_ms=2000,
+                llm_enabled=False,
+            )
+        )
+        self._snapshot_cadence_ms = snapshot_cadence_ms
 
-    def process_event(self, event: MarketEvent) -> Iterator[RankEvent]:
-        """
-        Process a single market event and yield any resulting RankEvents.
+    async def _replay_async(self, events: list[MarketEvent]) -> list[RankEvent]:
+        """Async replay core — processes events through real components."""
+        rank_events: list[RankEvent] = []
+        last_process_ts = 0
 
-        This is a stub that generates deterministic events based on simple rules.
-        Real implementation will use feature engine + ML inference + ranker.
+        for event in events:
+            # Feed event to feature engine (async)
+            await self._feature_engine.process_event(event)
 
-        Args:
-            event: MarketEvent to process.
+            # Check cadence boundary
+            if event.ts - last_process_ts >= self._snapshot_cadence_ms:
+                # Emit snapshots for all tracked symbols
+                snapshots = await self._feature_engine.emit_snapshots(event.ts)
 
-        Yields:
-            RankEvent objects (if any state transitions occur).
-        """
-        symbol = event.symbol
+                # Predict on each snapshot
+                predictions = {}
+                for snapshot in snapshots:
+                    prediction = self._model_runner.predict(snapshot)
+                    predictions[snapshot.symbol] = prediction
 
-        # Initialize state for new symbols
-        if symbol not in self._symbol_state:
-            self._symbol_state[symbol] = {
-                "trade_count": 0,
-                "last_ts": 0,
-                "score": 0.0,
-                "in_top_k": False,
-            }
+                if predictions:
+                    # Ranker pass
+                    new_rank_events = self._ranker.update(predictions, event.ts)
+                    rank_events.extend(new_rank_events)
 
-        state = self._symbol_state[symbol]
+                    # Alerter pass — process each prediction
+                    for symbol, prediction in predictions.items():
+                        state = self._ranker.get_state(symbol)
+                        rank = max(0, state.rank) if state else 0
+                        score = state.score if state else 0.0
+                        alert_events = self._alerter.process_prediction(
+                            prediction=prediction,
+                            ts=event.ts,
+                            rank=rank,
+                            score=score,
+                        )
+                        rank_events.extend(alert_events)
 
-        # Simple deterministic logic for stub
-        if event.type.value == "trade":
-            state["trade_count"] += 1
-            state["last_ts"] = event.ts
+                last_process_ts = event.ts
 
-            # Deterministic score based on trade count (stub logic)
-            base_score = min(0.5 + state["trade_count"] * 0.1, 0.95)
-            # Add symbol-specific offset for determinism
-            symbol_offset = sum(ord(c) for c in symbol) % 100 / 1000
-            state["score"] = round(base_score + symbol_offset, 2)
-
-            # Emit SYMBOL_ENTER after 2 trades if not already in top-k
-            if state["trade_count"] == 2 and not state["in_top_k"]:
-                state["in_top_k"] = True
-                yield RankEvent(
-                    ts=event.ts,
-                    event=RankEventType.SYMBOL_ENTER,
-                    symbol=symbol,
-                    rank=self._rank_counter,
-                    score=state["score"],
-                    payload=RankEventPayload(prediction={"status": "WATCH"}, llm_text=""),
-                )
-                self._rank_counter += 1
-
-            # Emit ALERT_TRADABLE after 4 trades
-            elif state["trade_count"] == 4 and state["in_top_k"]:
-                yield RankEvent(
-                    ts=event.ts,
-                    event=RankEventType.ALERT_TRADABLE,
-                    symbol=symbol,
-                    rank=0,  # Promoted to top
-                    score=min(state["score"] + 0.1, 0.95),
-                    payload=RankEventPayload(prediction={"status": "TRADEABLE"}, llm_text=""),
-                )
+        return rank_events
 
     def replay(self, events: list[MarketEvent]) -> list[RankEvent]:
         """
-        Replay all market events and collect RankEvents.
+        Replay all market events through real pipeline.
 
         Args:
             events: List of MarketEvent objects (should be sorted by ts).
@@ -189,15 +188,13 @@ class MinimalReplayPipeline:
         Returns:
             List of RankEvent objects emitted during replay.
         """
-        rank_events: list[RankEvent] = []
+        rank_events = asyncio.run(self._replay_async(events))
 
-        for event in events:
-            for rank_event in self.process_event(event):
-                rank_events.append(rank_event)
-                logger.debug(
-                    f"RankEvent: {rank_event.event.value} {rank_event.symbol} "
-                    f"rank={rank_event.rank} score={rank_event.score}"
-                )
+        for rank_event in rank_events:
+            logger.debug(
+                f"RankEvent: {rank_event.event.value} {rank_event.symbol} "
+                f"rank={rank_event.rank} score={rank_event.score}"
+            )
 
         logger.info(f"Replay complete: {len(rank_events)} rank events emitted")
         return rank_events
@@ -245,7 +242,7 @@ def run_replay(
 
     # Load and replay
     market_events = load_market_events(market_events_file)
-    pipeline = MinimalReplayPipeline(seed=42)
+    pipeline = ReplayPipeline()
     rank_events = pipeline.replay(market_events)
 
     # Compute digest

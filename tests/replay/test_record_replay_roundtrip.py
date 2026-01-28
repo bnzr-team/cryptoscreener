@@ -17,7 +17,7 @@ from scripts.run_record import (
     run_record,
 )
 from scripts.run_replay import (
-    MinimalReplayPipeline,
+    ReplayPipeline,
     load_market_events,
     run_replay,
 )
@@ -254,12 +254,11 @@ class TestRecordReplayRoundtrip:
             assert len(events1) == len(events2)
 
 
-class TestRecordReplayPipelineEquivalence:
-    """Tests verifying MinimalRecordPipeline == MinimalReplayPipeline."""
+class TestReplayPipelineDeterminism:
+    """Tests verifying ReplayPipeline produces deterministic output."""
 
-    def test_pipelines_produce_same_output(self) -> None:
-        """Test that record and replay pipelines produce identical output."""
-        # Create test events
+    def test_replay_pipeline_deterministic(self) -> None:
+        """Test that ReplayPipeline produces same output on repeated runs."""
         events = [
             MarketEvent(
                 ts=1000 + i * 100,
@@ -272,22 +271,13 @@ class TestRecordReplayPipelineEquivalence:
             for i in range(5)
         ]
 
-        record_pipeline = MinimalRecordPipeline(seed=42)
-        replay_pipeline = MinimalReplayPipeline(seed=42)
+        run1 = ReplayPipeline().replay(events)
+        run2 = ReplayPipeline().replay(events)
 
-        record_events = record_pipeline.record(events)
-        replay_events = replay_pipeline.replay(events)
+        assert compute_rank_events_digest(run1) == compute_rank_events_digest(run2)
 
-        # Must produce identical events
-        assert len(record_events) == len(replay_events)
-
-        record_digest = compute_rank_events_digest(record_events)
-        replay_digest = compute_rank_events_digest(replay_events)
-
-        assert record_digest == replay_digest
-
-    def test_pipelines_handle_multiple_symbols(self) -> None:
-        """Test that both pipelines handle multiple symbols identically."""
+    def test_replay_pipeline_multiple_symbols_deterministic(self) -> None:
+        """Test that ReplayPipeline handles multiple symbols deterministically."""
         events = []
         for i in range(3):
             for symbol in ["BTCUSDT", "ETHUSDT"]:
@@ -302,16 +292,10 @@ class TestRecordReplayPipelineEquivalence:
                     )
                 )
 
-        record_pipeline = MinimalRecordPipeline(seed=42)
-        replay_pipeline = MinimalReplayPipeline(seed=42)
+        run1 = ReplayPipeline().replay(events)
+        run2 = ReplayPipeline().replay(events)
 
-        record_events = record_pipeline.record(events)
-        replay_events = replay_pipeline.replay(events)
-
-        record_digest = compute_rank_events_digest(record_events)
-        replay_digest = compute_rank_events_digest(replay_events)
-
-        assert record_digest == replay_digest
+        assert compute_rank_events_digest(run1) == compute_rank_events_digest(run2)
 
 
 class TestEdgeCases:
