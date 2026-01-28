@@ -152,7 +152,7 @@ kubectl port-forward svc/prometheus-operated 9090:9090 -n monitoring
    kubectl logs -l app.kubernetes.io/name=prometheus-operator -n monitoring
    ```
 
-### Clusters Without Prometheus Operator
+### Clusters Without Prometheus Operator (Plain Prometheus) — DEC-035
 
 If the cluster does not have Prometheus Operator, comment out the CRD resources in `kustomization.yaml`:
 
@@ -161,14 +161,38 @@ If the cluster does not have Prometheus Operator, comment out the CRD resources 
 # - prometheusrule.yaml
 ```
 
-The Deployment already has scrape annotations for annotation-based Prometheus discovery:
+Both the Service and Pod template carry standard scrape annotations:
 ```yaml
 prometheus.io/scrape: "true"
 prometheus.io/port: "9090"
 prometheus.io/path: "/metrics"
 ```
 
-For alert rules without Prometheus Operator, load `monitoring/alert_rules.yml` directly into your Prometheus config.
+Prometheus instances configured with `kubernetes_sd_configs` (role: service or pod) will auto-discover the target via these annotations.
+
+For a complete scrape job example, see `monitoring/prometheus_scrape_k8s_example.yml`. It includes:
+- Kubernetes service discovery with label filtering
+- Annotation-based port and path relabeling
+- A static target fallback for docker-compose
+
+For alert rules without Prometheus Operator, load `monitoring/alert_rules.yml` directly into your Prometheus `rule_files:` config.
+
+### Troubleshooting: Metrics Not Scraped (Plain Prometheus)
+
+1. **Targets empty**: Check that Prometheus has `kubernetes_sd_configs` with role `service` (or `pod`) and the correct namespace. Verify annotations:
+   ```bash
+   kubectl get svc cryptoscreener -o jsonpath='{.metadata.annotations}'
+   ```
+
+2. **Port mismatch**: The annotation says `9090` (string). Ensure your relabeling extracts it correctly. The Service port name is `metrics`, targetPort is also `metrics` (container port 9090).
+
+3. **Metrics endpoint 404**: Verify the path is `/metrics` and the container is actually serving:
+   ```bash
+   kubectl port-forward svc/cryptoscreener 9090:9090
+   curl http://localhost:9090/metrics
+   ```
+
+4. **Relabeling not matching**: If filtering by labels, ensure the Service has `app.kubernetes.io/name: cryptoscreener` and `app.kubernetes.io/part-of: cryptoscreener-x`.
 
 ## Security Notes
 

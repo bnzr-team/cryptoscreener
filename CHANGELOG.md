@@ -9,6 +9,11 @@
 
 ### Added
 
+#### Dual-mode Prometheus Scrape (DEC-035)
+- `k8s/service.yaml`: Added `prometheus.io/scrape`, `prometheus.io/port`, `prometheus.io/path` annotations for plain Prometheus service discovery
+- `monitoring/prometheus_scrape_k8s_example.yml`: Example scrape job with `kubernetes_sd_configs` (role: service), label filtering, and static target fallback
+- `docs/RUNBOOK_K8S.md`: Extended with plain Prometheus setup path, troubleshooting for empty targets, port mismatch, 404, and relabeling issues
+
 #### Secrets Strategy (DEC-034)
 - `k8s/externalsecret.yaml`: ExternalSecret syncing 3 keys (`BINANCE_API_KEY`, `BINANCE_SECRET_KEY`, `ANTHROPIC_API_KEY`) from ESO backend into `cryptoscreener-secrets`
 - `k8s/secretstore.yaml`: SecretStore template with AWS Secrets Manager, HashiCorp Vault, and Kubernetes dev backend examples

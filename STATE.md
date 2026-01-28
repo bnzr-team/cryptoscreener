@@ -9,7 +9,7 @@
 
 - **Phase:** Pre-live (all offline components built, CI hardened, observability ready)
 - **Test count:** 1047+ passing (ruff ✓, mypy ✓, pytest ✓)
-- **Next milestone:** DEC-035 — TBD
+- **Next milestone:** DEC-036 — TBD
 
 ### Done — Infrastructure & CI (PR#43–90)
 
@@ -122,6 +122,12 @@
 - [x] `docs/RUNBOOK_SECRETS.md` — ESO setup, manual secrets, hygiene rules
 - [x] Kustomize wiring (commented out by default for non-ESO clusters)
 - [x] `tests/test_secret_guard.py` — 14 unit tests for secret guard
+
+### Done — Dual-mode Prometheus Scrape (DEC-035)
+
+- [x] `k8s/service.yaml` — Service annotations for plain Prometheus discovery
+- [x] `monitoring/prometheus_scrape_k8s_example.yml` — example scrape job (K8s SD + static fallback)
+- [x] `docs/RUNBOOK_K8S.md` — plain Prometheus setup path + troubleshooting
 
 ### In Progress
 - None

@@ -3138,3 +3138,37 @@ Establish a production-ready secrets workflow using External Secrets Operator (E
 - No secret rotation automation beyond ESO refresh
 - No ClusterSecretStore (single-namespace deployment)
 - No changes to runtime secret consumption (env vars stay the same)
+
+---
+
+## DEC-035 — Dual-mode Prometheus Scrape (Operator + Plain Prometheus)
+
+**Date:** 2026-01-28
+**Status:** Implemented
+
+### Objective
+
+Make metrics scraping work out-of-the-box in both Prometheus Operator clusters (ServiceMonitor, DEC-033) and plain Prometheus clusters (annotation-based service discovery).
+
+### Deliverables
+
+1. **`k8s/service.yaml`** — Added `prometheus.io/scrape`, `prometheus.io/port`, `prometheus.io/path` annotations to Service metadata
+2. **`monitoring/prometheus_scrape_k8s_example.yml`** — Example scrape job with `kubernetes_sd_configs` (role: service), label filtering, annotation relabeling, and static target fallback
+3. **`docs/RUNBOOK_K8S.md`** — Extended with plain Prometheus setup path, troubleshooting (empty targets, port mismatch, 404, relabeling)
+
+### Design decisions
+
+| Decision | Rationale |
+|---|---|
+| Annotations on both Service and Pod template | Service annotations for `kubernetes_sd_configs` role: service; Pod annotations (existing from DEC-031) for role: pod. Covers both discovery modes |
+| Port as string `"9090"` (not named) | Safest for annotation-based relabeling; named ports need extra relabel rules |
+| Example config as separate file (not inline in runbook) | Copy-pasteable, version-controlled, avoids runbook bloat |
+| No changes to ServiceMonitor | Annotations don't affect label-based selector matching; dual-mode coexists cleanly |
+
+### Non-goals
+
+- No changes to exporter metrics names or labels
+- No Prometheus Operator installation manifests
+- No Grafana dashboards (separate DEC)
+- No Helm
+- No runtime code changes
