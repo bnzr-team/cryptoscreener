@@ -105,3 +105,13 @@ class TestConfigValidation:
     def test_readiness_staleness_default(self) -> None:
         config = LivePipelineConfig()
         assert config.readiness_staleness_s == 30
+
+    def test_ws_url_default_none(self) -> None:
+        """DEC-032: --ws-url defaults to None (uses Binance)."""
+        config = LivePipelineConfig()
+        assert config.ws_url is None
+
+    def test_ws_url_override(self) -> None:
+        """DEC-032: --ws-url overrides WebSocket base URL."""
+        config = LivePipelineConfig(ws_url="ws://127.0.0.1:9999")
+        assert config.ws_url == "ws://127.0.0.1:9999"

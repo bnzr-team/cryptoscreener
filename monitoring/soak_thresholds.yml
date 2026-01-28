@@ -16,9 +16,9 @@ baseline:
   max_reconnect_rate_per_min: 6.0
 
 overload:
-  # Under overload, drops may occur (backpressure engaged).
-  # Set to 0 to avoid false failures in short/moderate runs.
-  events_dropped_min: 0
+  # Under overload, drops MUST occur (backpressure engaged).
+  # Overload params (200ms slow consumer, 1ms send, 20 symbols) reliably saturate the queue.
+  events_dropped_min: 1
   # Queue depth should stay at cap, not exceed it
   max_event_queue_depth: 10000
   max_snapshot_queue_depth: 1000

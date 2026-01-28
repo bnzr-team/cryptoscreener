@@ -1,15 +1,20 @@
-name: Nightly Soak
+name: Soak Smoke (PR)
 
 on:
-  schedule:
-    # Run at 03:00 UTC daily
-    - cron: "0 3 * * *"
-  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/run_fake_soak.py"
+      - "scripts/check_soak_thresholds.py"
+      - "scripts/run_live.py"
+      - "monitoring/soak_thresholds.yml"
+      - ".github/workflows/soak_smoke_pr.yml"
+      - ".github/workflows/nightly_soak.yml"
+      - "src/**"
 
 jobs:
-  soak-regression:
+  soak-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -21,12 +26,12 @@ jobs:
       - name: Install dependencies
         run: pip install ".[dev]"
 
-      - name: Baseline soak (5 min)
+      - name: Baseline soak smoke (90s)
         env:
           ALLOW_FAULTS: "1"
         run: |
           python -m scripts.run_fake_soak \
-            --duration-s 300 \
+            --duration-s 90 \
             --summary-json baseline.json \
             --send-interval-ms 10 \
             --num-symbols 5 \
@@ -34,12 +39,12 @@ jobs:
           echo "=== Baseline Summary ==="
           python -m json.tool baseline.json
 
-      - name: Overload soak (3 min, slow consumer)
+      - name: Overload soak smoke (90s, slow consumer)
         env:
           ALLOW_FAULTS: "1"
         run: |
           python -m scripts.run_fake_soak \
-            --duration-s 180 \
+            --duration-s 90 \
             --summary-json overload.json \
             --fault-slow-consumer-ms 200 \
             --send-interval-ms 1 \
@@ -59,8 +64,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-summaries
+          name: soak-smoke-summaries
           path: |
             baseline.json
             overload.json
-          retention-days: 30
+          retention-days: 7

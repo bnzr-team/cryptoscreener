@@ -3045,7 +3045,7 @@ python -m scripts.check_soak_thresholds \
 
 | Metric | Baseline | Overload |
 |---|---|---|
-| `events_dropped` | == 0 | >= 0 |
+| `events_dropped` | == 0 | > 0 (backpressure engaged) |
 | `max_event_queue_depth` | <= 2000 | <= 10000 |
 | `max_rss_mb` | <= 200 | <= 300 |
 | `max_tick_drift_ms` | <= 2000 | <= 1000 |
@@ -3054,7 +3054,7 @@ python -m scripts.check_soak_thresholds \
 ### Design Decisions
 
 - **Offline-only**: `ContinuousFakeWSServer` sends synthetic aggTrade messages at configurable rate. No outbound network.
-- **`--ws-url` flag**: Minimal wiring — overrides `ConnectorConfig.base_ws_url` at pipeline construction time.
+- **`--ws-url` flag**: Opt-in, defaults to `None` (unchanged Binance behavior). When set, overrides `ConnectorConfig.base_ws_url` at pipeline construction time. No effect on existing code paths when absent.
 - **Separate script**: `run_fake_soak.py` manages server lifecycle + pipeline invocation. Avoids modifying product code.
 - **YAML thresholds**: Easy to tune without code changes.
 
