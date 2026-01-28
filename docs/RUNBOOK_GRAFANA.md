@@ -82,26 +82,26 @@ All variables default to "All" and support regex matching.
 
 | Row | Panel | Metric(s) | Type |
 |---|---|---|---|
-| WS Health | Reconnects & Disconnects Rate | `ws_total_reconnect_attempts`, `ws_total_disconnects` | timeseries |
-| WS Health | Ping Timeouts & Subscribe Delays | `ws_total_ping_timeouts`, `ws_total_subscribe_delayed` | timeseries |
+| WS Health | Reconnects & Disconnects Rate | `cryptoscreener_ws_total_reconnect_attempts_total`, `cryptoscreener_ws_total_disconnects_total` | timeseries |
+| WS Health | Ping Timeouts & Subscribe Delays | `cryptoscreener_ws_total_ping_timeouts_total`, `cryptoscreener_ws_total_subscribe_delayed_total` | timeseries |
 | WS Health | 4× stat panels | 5m increase of each WS counter | stat |
-| Circuit Breaker | CB Transitions | `cb_transitions_closed_to_open` | timeseries |
-| Circuit Breaker | CB Last OPEN Duration | `cb_last_open_duration_ms` | timeseries |
-| REST Governor | Queue Depth | `gov_current_queue_depth`, `gov_max_queue_depth` | timeseries |
-| REST Governor | Concurrency | `gov_current_concurrent`, `gov_max_concurrent_requests` | timeseries |
-| REST Governor | Request Rate | `gov_requests_allowed`, `gov_requests_dropped` | timeseries |
+| Circuit Breaker | CB Transitions | `cryptoscreener_cb_transitions_closed_to_open_total` | timeseries |
+| Circuit Breaker | CB Last OPEN Duration | `cryptoscreener_cb_last_open_duration_ms` | timeseries |
+| REST Governor | Queue Depth | `cryptoscreener_gov_current_queue_depth`, `cryptoscreener_gov_max_queue_depth` | timeseries |
+| REST Governor | Concurrency | `cryptoscreener_gov_current_concurrent`, `cryptoscreener_gov_max_concurrent_requests` | timeseries |
+| REST Governor | Request Rate | `cryptoscreener_gov_requests_allowed_total`, `cryptoscreener_gov_requests_dropped_total` | timeseries |
 | REST Governor | Queue Saturation | depth / max_depth | gauge |
 
 ### Backpressure Dashboard
 
 | Row | Panel | Metric(s) | Type |
 |---|---|---|---|
-| Queue Depths | Event Queue Depth | `pipeline_event_queue_depth` | timeseries |
-| Queue Depths | Snapshot Queue Depth | `pipeline_snapshot_queue_depth` | timeseries |
-| Drops | Drop Rate | `pipeline_events_dropped`, `pipeline_snapshots_dropped` | timeseries |
-| Drops | Events Dropped (5m) | `pipeline_events_dropped` increase | stat |
-| Drops | Snapshots Dropped (5m) | `pipeline_snapshots_dropped` increase | stat |
-| Process Health | Tick Drift | `pipeline_tick_drift_ms` | timeseries |
+| Queue Depths | Event Queue Depth | `cryptoscreener_pipeline_event_queue_depth` | timeseries |
+| Queue Depths | Snapshot Queue Depth | `cryptoscreener_pipeline_snapshot_queue_depth` | timeseries |
+| Drops | Drop Rate | `cryptoscreener_pipeline_events_dropped_total`, `cryptoscreener_pipeline_snapshots_dropped_total` | timeseries |
+| Drops | Events Dropped (5m) | `cryptoscreener_pipeline_events_dropped_total` increase | stat |
+| Drops | Snapshots Dropped (5m) | `cryptoscreener_pipeline_snapshots_dropped_total` increase | stat |
+| Process Health | Tick Drift | `cryptoscreener_pipeline_tick_drift_ms` | timeseries |
 | Process Health | Process RSS | `pipeline_rss_mb` | timeseries |
 
 ## Troubleshooting
