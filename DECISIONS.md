@@ -3309,3 +3309,88 @@ Three format variants generated: plain text, HTML (for Telegram), markdown (for 
 - No UI/dashboard
 - No new Prometheus metrics (internal delivery/dedupe metrics are dataclass counters for logging, not prom_client exports)
 - No Helm chart updates
+
+---
+
+## DEC-040 — Trading/VOL Harvesting v2 Scope & Boundary
+
+**Date:** 2026-01-29
+**Status:** Accepted
+
+### Objective
+
+Formalize the scope and boundary between CryptoScreener v1 (read-only detection pipeline) and Trading/VOL Harvesting v2 (execution layer).
+
+### Decision
+
+Trading/VOL Harvesting v2 is a **separate subproject** that:
+- **Consumes** `RankEvent` as its only SSOT input from v1
+- **Does not** modify v1 behavior, metrics, contracts, or internal modules
+- Lives in a dedicated `trading/` package (when code is implemented) and `docs/trading/` for documentation
+
+### Boundary definition
+
+```
+CryptoScreener v1 (READ-ONLY):
+═══════════════════════════════
+Binance WS → Features → Scorer → Ranker → RankEvent
+                                              │
+                                              │ SSOT boundary
+                                              │ RankEvent = public API
+                                              ▼
+trading/ package (v2, this decision):
+═══════════════════════════════════════
+RankEvent → Symbol Selector → Vol Harvester → Order Manager → Binance REST
+```
+
+### Forbidden dependencies (hard enforcement)
+
+v2 code MUST NOT import or depend directly on v1 internal modules:
+- `scoring/` (internal scoring logic)
+- `ranker/` (internal ranking logic)
+- `alerting/` (internal alerting logic)
+- Feature engine internals
+
+**Allowed:**
+- `contracts/events.py` — RankEvent contract (read-only consumption)
+- Public v1 utilities explicitly marked as stable and contract-safe
+
+### Required formal actions (completed via this DEC)
+
+| Action | File | Status |
+|--------|------|--------|
+| DEC for v2 scope | `DECISIONS.md` | ✅ This DEC |
+| Update PRD non-goals | `docs/00_product/PRD.md` | ✅ Updated |
+| Trading endpoints | `docs/02_binance/BINANCE_LIMITS.md` | ✅ Section added |
+| Trading contracts SSOT | `docs/trading/` | ✅ Created |
+| CHANGELOG entry | `CHANGELOG.md` | ✅ Added |
+
+### Consequences
+
+1. v2 documentation lives under `docs/trading/` with its own SSOT files:
+   - `TRADING_DECISIONS.md` (TRD-XXX records)
+   - `TRADING_SPEC.md` (invariants)
+   - `TRADING_STATE.md` (status tracking)
+   - `TRADING_CHANGELOG.md`
+
+2. Any need to change RankEvent schema for v2 purposes triggers a **new root-level DEC** requiring explicit approval
+
+3. Trading endpoints and rate limits are documented in `BINANCE_LIMITS.md` (trading section)
+
+### Acceptance criteria
+
+✅ **Pass** if:
+- v2 only consumes RankEvent and does not require changes to v1 schema/contracts
+- Docs clearly separate v1 vs v2 responsibilities
+- `docs/trading/` exists with SSOT templates
+
+❌ **Fail** (scope violation) if:
+- v2 requires modifying v1 RankEvent schema/fields
+- v2 requires embedding trading logic inside v1 pipeline
+- v2 imports from forbidden v1 internal modules
+
+### Non-goals
+
+- No v1 code changes
+- No new v1 metrics or alerts
+- No execution code in this decision (docs/boundary only)
