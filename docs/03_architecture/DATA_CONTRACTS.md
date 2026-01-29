@@ -133,3 +133,27 @@ Output:
 ```
 
 LLM MUST NOT output numbers different from inputs. It can only rephrase or omit.
+
+---
+
+## 6) Trading Contracts (v2 — separate SSOT)
+
+Trading/VOL Harvesting v2 defines its own contracts in **`docs/trading/`**.
+
+**v2 contracts** (NOT part of v1):
+- `OrderIntent` — order request to OMS
+- `OrderAck` — exchange acknowledgement
+- `FillEvent` — fill notification
+- `PositionSnapshot` — current position state
+- `SessionState` — trading session state machine
+- `RiskBreachEvent` — risk limit violation
+
+**Boundary contract** (v1 → v2):
+- **`RankEvent`** (§4 above) is the ONLY v1 contract consumed by v2
+
+**Key invariants** (v2):
+- All monetary values use `Decimal`, not `float`
+- NATR is fraction (0.025 = 2.5%), NOT percentage
+- Fees are fraction (0.0002 = 0.02%), NOT bps
+
+See `docs/trading/TRADING_SPEC.md` for full v2 contract definitions.

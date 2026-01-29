@@ -1,7 +1,7 @@
 # CHANGELOG
 
 **Project:** In‑Play Predictor (CryptoScreener‑X) — ML + LLM
-**Updated:** 2026-01-28
+**Updated:** 2026-01-29
 
 ---
 
@@ -16,6 +16,20 @@
 - `tests/contracts/test_replay_determinism.py`: Updated fixture checksums
 
 ### Added
+
+#### Trading/VOL Harvesting v2 Docs Scaffold (DEC-040)
+- `docs/trading/` directory with v2 SSOT templates:
+  - `DOCS_INDEX_TRADING.md`: v2 document index and SSOT rules
+  - `01_SCOPE_BOUNDARY_SSOT.md`: v1/v2 boundary definition (RankEvent as only interface)
+  - `TRADING_DECISIONS.md`: TRD-001 (boundary), TRD-002 (LLM limits), TRD-003 (simulator determinism)
+  - `TRADING_SPEC.md`: Invariants, state machine, risk gates
+  - `TRADING_STATE.md`: Milestones M0-M3, status tracking
+  - `TRADING_CHANGELOG.md`: v2 changelog template
+- `DECISIONS.md`: Added DEC-040 (v2 Scope & Boundary) with forbidden dependencies list
+- `docs/00_product/PRD.md`: Updated non-goals to clarify v2 scope
+- `docs/02_binance/BINANCE_LIMITS.md`: Added §6 Trading Endpoints (weights, limits, error codes)
+- `docs/03_architecture/DATA_CONTRACTS.md`: Added §6 Trading Contracts pointer
+- v2 Boundary: v2 consumes `RankEvent` as ONLY SSOT input from v1, no v1 modifications
 
 #### RankEvent Delivery UX Pack (DEC-039)
 - `src/cryptoscreener/delivery/` package: config, formatter, dedupe, router, sinks

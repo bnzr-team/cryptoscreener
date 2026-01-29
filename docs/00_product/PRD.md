@@ -32,9 +32,11 @@ Core concept: **net edge after costs** is the target; the model is forbidden to 
 5. Robustness to API limits, disconnects, volatility spikes, and data quality issues.
 
 ### 1.2 Non‑goals (v1)
-- Fully automatic trading/execution. (We only score + alert; later can integrate trader/bot.)
+- Fully automatic trading/execution. **(v1 is read-only; execution is handled by Trading/VOL Harvesting v2 — see DEC-040 and `docs/trading/`)**
 - Cross‑exchange arbitrage. (Future optional.)
 - Spot markets. (v1 focuses on USD‑M perps.)
+
+> **Note:** Trading/execution layer is a separate subproject (v2) that consumes `RankEvent` as its SSOT boundary. v1 remains read-only detection pipeline. See [DEC-040](../../DECISIONS.md#dec-040--tradingvol-harvesting-v2-scope--boundary) for boundary definition.
 
 ---
 
