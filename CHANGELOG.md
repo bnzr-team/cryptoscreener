@@ -17,6 +17,20 @@
 
 ### Added
 
+#### Trading/VOL Harvesting v2 Docs Pack — Step 1 (DEC-040)
+- `docs/trading/` directory created with SSOT templates:
+  - `DOCS_INDEX_TRADING.md`: v2 document index and SSOT rules
+  - `01_SCOPE_BOUNDARY_SSOT.md`: v1/v2 boundary definition, forbidden dependencies
+  - `TRADING_DECISIONS.md`: v2 decision records (TRD-XXX format)
+  - `TRADING_SPEC.md`: v2 invariants (NATR fraction, fee fraction, Decimal types)
+  - `TRADING_STATE.md`: v2 status tracking and milestones
+  - `TRADING_CHANGELOG.md`: v2 changelog
+- Root SSOT updates:
+  - `DECISIONS.md`: Added DEC-040 formalizing v2 scope and RankEvent boundary
+  - `docs/00_product/PRD.md`: Non-goals updated to clarify trading/execution is v2 scope
+  - `docs/02_binance/BINANCE_LIMITS.md`: Added trading endpoints section (§6)
+  - `docs/03_architecture/DATA_CONTRACTS.md`: Added trading contracts pointer (§6)
+
 #### Training Pipeline + Model Artifact Registration (DEC-038)
 - `src/cryptoscreener/training/feature_schema.py`: Canonical feature ordering (FEATURE_ORDER), schema version, feature hash computation
 - `src/cryptoscreener/training/trainer.py`: TrainingConfig dataclass, Trainer class with prepare_data/train/evaluate

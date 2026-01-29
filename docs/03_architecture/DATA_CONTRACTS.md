@@ -133,3 +133,29 @@ Output:
 ```
 
 LLM MUST NOT output numbers different from inputs. It can only rephrase or omit.
+
+---
+
+## 6) Trading Contracts (v2 — VOL Harvesting)
+
+> **Scope:** Trading/VOL Harvesting v2 is a separate subproject (see DEC-040).
+> Trading contracts are defined in `docs/trading/` and do NOT modify v1 contracts above.
+
+**SSOT location:** `docs/trading/TRADING_SPEC.md` and future `docs/trading/02_CONTRACTS.md`
+
+**Boundary rule:** v2 consumes `RankEvent` (§4 above) as its **only** SSOT input from v1. Trading contracts are internal to v2 and include:
+
+- `OrderIntent` — what we want to place on exchange
+- `OrderAck` — exchange acknowledgment
+- `FillEvent` — execution fill
+- `PositionSnapshot` — current position state
+- `SessionState` — trading session summary
+- `RiskBreachEvent` — risk limit violation
+
+**Key invariants (v2):**
+- Money/quantity fields use `Decimal` (not float)
+- Fees are fractional (e.g., `0.0002` = 0.02%)
+- NATR is a fraction (e.g., `0.025` = 2.5%)
+- All contracts include `schema_version: int` for versioning
+
+**See:** [docs/trading/](../trading/) for full v2 contract specifications.
