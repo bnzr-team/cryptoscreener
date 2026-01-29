@@ -23,6 +23,7 @@ Stop and escalate (new decision required) if any of the below is needed:
 | Doc | Purpose | Status |
 |---|---|---|
 | `01_SCOPE_BOUNDARY_SSOT.md` | v1/v2 boundary, forbidden deps, formal gates | Draft |
+| `03_CONTRACTS.md` | v2 data contracts (SSOT), JSON examples, test plan | Draft |
 | `TRADING_DECISIONS.md` | v2 decisions (TRD-XXX) | Draft |
 | `TRADING_SPEC.md` | invariants/acceptance/spec | Draft |
 | `TRADING_STATE.md` | current status, milestones, known issues | Draft |
