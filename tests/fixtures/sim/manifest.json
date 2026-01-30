@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "created_at": "2026-01-30T12:00:00Z",
+  "description": "Simulation test fixtures for trading simulator",
+  "checksums": {
+    "monotonic_up.jsonl": "575826a271d44cd6fb23e6b7c00951205b05796be8a093e5598c504003163554",
+    "mean_reverting_range.jsonl": "25bcde35b8a2f4e8fe1450b8c11f50aeb2cba3e895fbeb66e6b960fe550980dd",
+    "flash_crash.jsonl": "b6fef501a461435809bd9667a788b084680823bcf310b9a43265ac6550d8faa0",
+    "ws_gap.jsonl": "decb504efa32e6ac3121c72322a346e33c6686683837206a971fcda1027f367f"
+  },
+  "fixtures": {
+    "monotonic_up.jsonl": {
+      "description": "Monotonic upward price movement - test bounded loss",
+      "events": 120,
+      "assertion": "bounded_loss_no_infinite_session"
+    },
+    "mean_reverting_range.jsonl": {
+      "description": "Mean-reverting price oscillation - test profitable MM",
+      "events": 240,
+      "assertion": "net_pnl_positive_round_trips_gt_5"
+    },
+    "flash_crash.jsonl": {
+      "description": "Flash crash scenario - test kill switch",
+      "events": 131,
+      "assertion": "kill_switch_or_bounded_loss"
+    },
+    "ws_gap.jsonl": {
+      "description": "Websocket gap scenario - test stale quote handling",
+      "events": 100,
+      "assertion": "cancel_quotes_during_gap_no_stale_fills"
+    }
+  }
+}
