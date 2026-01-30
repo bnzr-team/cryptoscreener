@@ -1,24 +1,25 @@
 # Trading/VOL Harvesting v2 — STATE
 
-**Status:** Draft  
-**Date:** 2026-01-29  
+**Status:** Draft
+**Date:** 2026-01-30
 
 ## Milestones
-- M0: Docs hardening + SSOT gates (current)
-- M1: Contracts + simulator fixtures
-- M2: Paper mode end-to-end (RankEvent → intents → sim fills → PnL)
+- M0: Docs hardening + SSOT gates ✅
+- M1: Contracts + simulator fixtures ✅
+- M2: Paper mode end-to-end (RankEvent → intents → sim fills → PnL) — in progress
 - M3: Live execution safety layer (separate decision)
 
 ## Done
-- None (docs pack initialized)
+- **DEC-040:** Trading v2 docs pack (SSOT templates)
+- **DEC-041:** Simulator fixtures + ScenarioRunner (4 fixtures, deterministic replay)
+- **DEC-042:** Strategy Interface + Contracts (StrategyDecision, BaselineStrategy)
+- **DEC-043:** Policy Library docs (20 POL rules, Action vocabulary, Risk/Cost model)
 
 ## In progress
-- Docs hardening (split monolith into SSOT docs)
-- Root-level DEC/PRD/BINANCE_LIMITS/DATA_CONTRACTS/CHANGELOG updates (required before Phase 1)
+- **DEC-044:** Policy Engine MVP (next)
 
 ## Blocked
 - None
 
 ## Known issues
-- VOL_HARVESTING_SYSTEM.md is still a monolith; must be split into focused docs
 - Binance trading endpoints limits not yet verified in repo SSOT
