@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180800200,
+  "client_order_id": "coid_reject-test-0001",
+  "order_id": 0,
+  "symbol": "BTCUSDT",
+  "side": "BUY",
+  "order_type": "LIMIT",
+  "status": "REJECTED",
+  "quantity": "0.001",
+  "price": "67890.50",
+  "executed_qty": "0.000",
+  "avg_price": "0.00",
+  "time_in_force": "GTX",
+  "reduce_only": false,
+  "error_code": -2022,
+  "error_msg": "ReduceOnly Order is rejected"
+}

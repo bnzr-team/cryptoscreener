@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180801600,
+  "symbol": "ETHUSDT",
+  "order_id": 1234567891,
+  "trade_id": 9876543211,
+  "client_order_id": "coid_taker-fill-0001",
+  "side": "SELL",
+  "fill_qty": "0.1",
+  "fill_price": "3450.25",
+  "commission": "0.06900",
+  "commission_asset": "USDT",
+  "realized_pnl": "5.50",
+  "is_maker": false,
+  "position_side": "LONG"
+}

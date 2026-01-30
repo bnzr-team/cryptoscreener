@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180900000,
+  "breach_id": "breach_f1e2d3c4-b5a6-7890-1234-567890abcdef",
+  "breach_type": "DAILY_LOSS_LIMIT",
+  "severity": "FATAL",
+  "symbol": null,
+  "threshold": "-100.00",
+  "actual": "-105.50",
+  "action_taken": "KILL_SESSION",
+  "details": "Daily loss limit of $100 exceeded. Session killed."
+}

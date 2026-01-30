@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "created_at": "2026-01-29T12:00:00Z",
+  "description": "Test fixtures for trading v2 contracts",
+  "checksums": {
+    "order_intent_valid.json": "75f75aef3928c4a75cbfc9168ecd0f955c272f3b63c8f459e554f463fa05ba27",
+    "order_ack_valid.json": "653c2b0edbe736c30de746b936aba9289dc09a6b5397325935ee743745de463c",
+    "order_ack_rejected.json": "ab3dfdb66ec6bd8b6f4198a690a7db8f4ffa9f4f762bf7ba0763deda1c155874",
+    "fill_event_maker.json": "b5f7c133f43fd28ea935dfbb0c2861ee5400dbbb4df56d84278db042858490b8",
+    "fill_event_taker.json": "5d219e17ef4007f5afa572a5887a7cb1535e256be515f1063cffc5c38757d09f",
+    "position_snapshot_long.json": "3932d716f5e0470bbe8343af54376f85816c63dcf4c939cba2842b9ad98aeeaa",
+    "position_snapshot_flat.json": "0809185172a695f9eb811a2524981d887a439c5ab9c3d1a417c192f55afa53b0",
+    "session_state_active.json": "d7a0d632f7bc05bae9ae2086463cda99e91a33fe2a07e393233e9bf7912c38dc",
+    "session_state_killed.json": "04ebdb2ec85c8bf0ec5753093a0f02f8b6382f59dc4e87dd60b9622592433e95",
+    "risk_breach_warning.json": "3e0a8b6aba7afb3ed5855f1caa9c723aefc20445175ca98a117d27af31928575",
+    "risk_breach_fatal.json": "296d03ea56130b30d3461fe68f4f5ad2d0141bf0cce01554f469c42c6c845214"
+  },
+  "contracts": {
+    "order_intent_valid.json": "OrderIntent",
+    "order_ack_valid.json": "OrderAck",
+    "order_ack_rejected.json": "OrderAck",
+    "fill_event_maker.json": "FillEvent",
+    "fill_event_taker.json": "FillEvent",
+    "position_snapshot_long.json": "PositionSnapshot",
+    "position_snapshot_flat.json": "PositionSnapshot",
+    "session_state_active.json": "SessionState",
+    "session_state_killed.json": "SessionState",
+    "risk_breach_warning.json": "RiskBreachEvent",
+    "risk_breach_fatal.json": "RiskBreachEvent"
+  }
+}

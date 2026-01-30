@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180801500,
+  "symbol": "BTCUSDT",
+  "order_id": 1234567890,
+  "trade_id": 9876543210,
+  "client_order_id": "coid_a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "side": "BUY",
+  "fill_qty": "0.001",
+  "fill_price": "67890.50",
+  "commission": "0.01358",
+  "commission_asset": "USDT",
+  "realized_pnl": "0.00",
+  "is_maker": true,
+  "position_side": "BOTH"
+}

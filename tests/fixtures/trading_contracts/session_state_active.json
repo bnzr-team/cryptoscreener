@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180803000,
+  "state": "ACTIVE",
+  "prev_state": "READY",
+  "reason": "all_positions_flat_startup_complete",
+  "symbols_active": ["BTCUSDT", "ETHUSDT"],
+  "open_orders_count": 6,
+  "positions_count": 0,
+  "daily_pnl": "0.00",
+  "daily_trades": 0,
+  "risk_utilization": "0.15"
+}

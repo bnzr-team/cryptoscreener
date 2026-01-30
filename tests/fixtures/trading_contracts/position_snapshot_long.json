@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180802000,
+  "symbol": "BTCUSDT",
+  "side": "LONG",
+  "quantity": "0.001",
+  "entry_price": "67890.50",
+  "mark_price": "67920.00",
+  "unrealized_pnl": "0.03",
+  "realized_pnl_session": "0.00",
+  "leverage": 5,
+  "liquidation_price": "54312.40",
+  "margin_type": "ISOLATED"
+}
