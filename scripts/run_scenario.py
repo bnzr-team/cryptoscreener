@@ -139,6 +139,7 @@ def main() -> int:
         max_position=Decimal(args.max_position),
     )
 
+    strategy: BaselineStrategy | PolicyEngineStrategy
     if args.strategy == "baseline":
         strategy = BaselineStrategy(strategy_config)
         print(
