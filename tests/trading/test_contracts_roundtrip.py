@@ -363,12 +363,12 @@ class TestFixtureIntegrity:
             "RiskBreachEvent": RiskBreachEvent,
         }
 
-        for filename, info in manifest["fixtures"].items():
+        for filename, contract_name in manifest["contracts"].items():
             fixture_path = FIXTURES_DIR / filename
             with open(fixture_path) as f:
                 data = json.load(f)
 
-            contract_cls = contract_map[info["contract"]]
+            contract_cls = contract_map[contract_name]
             obj = contract_cls.model_validate(data)
             assert obj is not None
 
@@ -378,8 +378,8 @@ class TestFixtureIntegrity:
         with open(manifest_path) as f:
             manifest = json.load(f)
 
-        for filename, info in manifest["fixtures"].items():
+        for filename, expected_hash in manifest["checksums"].items():
             fixture_path = FIXTURES_DIR / filename
             with open(fixture_path, "rb") as f:
                 actual_hash = hashlib.sha256(f.read()).hexdigest()
-            assert actual_hash == info["sha256"], f"Checksum mismatch for {filename}"
+            assert actual_hash == expected_hash, f"Checksum mismatch for {filename}"
