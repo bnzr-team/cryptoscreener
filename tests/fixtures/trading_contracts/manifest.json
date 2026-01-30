@@ -13,7 +13,9 @@
     "session_state_active.json": "d7a0d632f7bc05bae9ae2086463cda99e91a33fe2a07e393233e9bf7912c38dc",
     "session_state_killed.json": "04ebdb2ec85c8bf0ec5753093a0f02f8b6382f59dc4e87dd60b9622592433e95",
     "risk_breach_warning.json": "3e0a8b6aba7afb3ed5855f1caa9c723aefc20445175ca98a117d27af31928575",
-    "risk_breach_fatal.json": "296d03ea56130b30d3461fe68f4f5ad2d0141bf0cce01554f469c42c6c845214"
+    "risk_breach_fatal.json": "296d03ea56130b30d3461fe68f4f5ad2d0141bf0cce01554f469c42c6c845214",
+    "strategy_decision_with_orders.json": "9db77f114f1d1171294803f9251dc33fb501ca77c02bce4645e21d45eafada58",
+    "strategy_decision_no_orders.json": "455eba7d25cd3fd82b5d8ef5c07ee8f924e327b0fcd626531dd1181d645a4fed"
   },
   "contracts": {
     "order_intent_valid.json": "OrderIntent",
@@ -26,6 +28,8 @@
     "session_state_active.json": "SessionState",
     "session_state_killed.json": "SessionState",
     "risk_breach_warning.json": "RiskBreachEvent",
-    "risk_breach_fatal.json": "RiskBreachEvent"
+    "risk_breach_fatal.json": "RiskBreachEvent",
+    "strategy_decision_with_orders.json": "StrategyDecision",
+    "strategy_decision_no_orders.json": "StrategyDecision"
   }
 }

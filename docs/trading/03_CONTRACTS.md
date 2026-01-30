@@ -388,11 +388,94 @@ action_taken: "NONE" | "PAUSE_SYMBOL" | "PAUSE_SESSION" | "KILL_SESSION" | "FLAT
 
 ---
 
-## 8) Roundtrip & Determinism Test Plan
+## 8) StrategyDecision
+
+**Purpose:** Journaled output from strategy `on_tick()` for replay and audit.
+**Producer:** Strategy via ScenarioRunner
+**Consumer:** Journal, Replay verifier, Audit log
+
+### Context
+
+The StrategyDecision contract records:
+1. The context snapshot at decision time (market state, position)
+2. The list of orders the strategy wants to place
+3. Timing information for replay verification
+
+This enables deterministic replay verification and debugging.
+
+### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | `str` | Yes | `"1.0.0"` |
+| `session_id` | `str` | Yes | Trading session ID |
+| `ts` | `int` | Yes | Tick timestamp (ms) |
+| `tick_seq` | `int` | Yes | Tick sequence number (0-indexed) |
+| `bid` | `str` | Yes | Best bid at decision time (Decimal as string) |
+| `ask` | `str` | Yes | Best ask at decision time (Decimal as string) |
+| `mid` | `str` | Yes | Mid price at decision time (Decimal as string) |
+| `last_trade_price` | `str` | Yes | Last trade price (Decimal as string) |
+| `position_qty` | `str` | Yes | Signed position quantity (Decimal as string) |
+| `position_side` | `str` | Yes | `"LONG"`, `"SHORT"`, `"FLAT"` |
+| `unrealized_pnl` | `str` | Yes | Unrealized PnL (Decimal as string) |
+| `realized_pnl` | `str` | Yes | Realized PnL (Decimal as string) |
+| `pending_order_count` | `int` | Yes | Pending orders before decision |
+| `orders` | `list[StrategyDecisionOrder]` | Yes | Orders to place (may be empty) |
+| `symbol` | `str` | Yes | Trading symbol |
+
+### StrategyDecisionOrder Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | `str` | Yes | `"1.0.0"` |
+| `session_id` | `str` | Yes | Trading session ID |
+| `side` | `str` | Yes | `"BUY"` or `"SELL"` |
+| `price` | `str` | Yes | Limit price (Decimal as string) |
+| `quantity` | `str` | Yes | Order quantity (Decimal as string) |
+| `reason` | `str` | No | Human-readable reason |
+
+### Dedupe Key
+
+`(session_id, tick_seq)` — one decision per tick.
+
+### JSON Example
+
+```json
+{
+  "schema_version": "1.0.0",
+  "session_id": "sim_abc123def456",
+  "ts": 1706140800500,
+  "tick_seq": 42,
+  "bid": "42000.00",
+  "ask": "42001.00",
+  "mid": "42000.50",
+  "last_trade_price": "42000.25",
+  "position_qty": "0.001",
+  "position_side": "LONG",
+  "unrealized_pnl": "0.50",
+  "realized_pnl": "2.30",
+  "pending_order_count": 0,
+  "orders": [
+    {
+      "schema_version": "1.0.0",
+      "session_id": "sim_abc123def456",
+      "side": "SELL",
+      "price": "42004.20",
+      "quantity": "0.001",
+      "reason": "close_long"
+    }
+  ],
+  "symbol": "BTCUSDT"
+}
+```
+
+---
+
+## 9) Roundtrip & Determinism Test Plan
 
 This section describes the test strategy to be implemented in the next step (code implementation).
 
-### 8.1 Test Files to Create
+### 9.1 Test Files to Create
 
 | File | Purpose |
 |------|---------|
@@ -401,7 +484,7 @@ This section describes the test strategy to be implemented in the next step (cod
 | `tests/trading/test_contracts_validation.py` | Schema validation tests |
 | `tests/trading/test_fill_dedupe.py` | FillEvent dedupe logic tests |
 
-### 8.2 Roundtrip Tests (`test_contracts_roundtrip.py`)
+### 9.2 Roundtrip Tests (`test_contracts_roundtrip.py`)
 
 For each contract:
 
@@ -431,7 +514,7 @@ def test_{contract}_decimal_precision():
     assert restored.price == Decimal("67890.123456789")
 ```
 
-### 8.3 Validation Tests (`test_contracts_validation.py`)
+### 9.3 Validation Tests (`test_contracts_validation.py`)
 
 ```python
 def test_{contract}_enum_validation():
@@ -445,7 +528,7 @@ def test_{contract}_required_fields():
         OrderIntent()  # Missing all required fields
 ```
 
-### 8.4 Dedupe Tests (`test_fill_dedupe.py`)
+### 9.4 Dedupe Tests (`test_fill_dedupe.py`)
 
 ```python
 def test_fill_dedupe_key():
@@ -471,7 +554,7 @@ def test_fill_dedupe_suppression():
     assert processor.process(fill2) == False  # Duplicate: suppressed
 ```
 
-### 8.5 Fixtures Strategy
+### 9.5 Fixtures Strategy
 
 ```
 tests/fixtures/trading_contracts/
@@ -506,7 +589,7 @@ tests/fixtures/trading_contracts/
 }
 ```
 
-### 8.6 Determinism Verification
+### 9.6 Determinism Verification
 
 ```python
 def test_roundtrip_determinism():
@@ -521,7 +604,7 @@ def test_roundtrip_determinism():
            hashlib.sha256(json2.encode()).hexdigest()
 ```
 
-### 8.7 CI Integration
+### 9.7 CI Integration
 
 - Add `tests/trading/` to pytest collection
 - Trigger on changes to `src/cryptoscreener/trading/contracts/`
@@ -529,7 +612,7 @@ def test_roundtrip_determinism():
 
 ---
 
-## 9) Migration Notes
+## 10) Migration Notes
 
 ### From Float to Decimal
 

@@ -3394,3 +3394,89 @@ v2 code MUST NOT import or depend directly on v1 internal modules:
 - No v1 code changes
 - No new v1 metrics or alerts
 - No execution code in this decision (docs/boundary only)
+
+---
+
+## DEC-041 — Trading v2 Simulator MVP
+
+**Date:** 2026-01-30
+
+**Decision:** Implement a deterministic offline simulator for Trading/VOL v2 that validates PnL behavior on fixed fixtures before live execution.
+
+**Scope:**
+
+| Component | Status |
+|-----------|--------|
+| SimConfig (symbol, fees, max_loss, stale_ms) | ✅ Implemented |
+| CROSS fill model (optimistic fills at limit price) | ✅ Implemented |
+| SimArtifacts (fills, orders, positions, metrics, SHA256) | ✅ Implemented |
+| Market event processing (trade, book) | ✅ Implemented |
+| Kill switch on max_session_loss | ✅ Implemented |
+| Stale quote handling | ✅ Implemented |
+| 4 deterministic fixtures | ✅ Generated |
+
+**Key Design:**
+
+1. **CROSS Fill Model:** BUY fills when `trade_price <= limit_price`, SELL fills when `trade_price >= limit_price`
+2. **Deterministic Session ID:** `MD5(symbol + first_event_ts)[:12]` for reproducibility
+3. **SHA256 Artifact Hash:** Computed over canonical JSON (sorted keys) for replay verification
+
+**Alternatives considered:**
+
+1. TOUCH fill model (fill at first touch) — deferred to Phase 2
+2. Probabilistic fill model — rejected for Phase 1, need determinism first
+3. Real-time simulator — rejected, offline first for validation
+
+**Impact:**
+
+- `src/cryptoscreener/trading/sim/` package with Simulator, SimConfig, SimArtifacts
+- `scripts/run_sim.py` CLI for running simulations
+- `tests/fixtures/sim/` with 4 fixtures + manifest
+- Tests verify determinism (same input → same SHA256)
+
+---
+
+## DEC-042 — Trading v2 Strategy Interface + Scenario Runner
+
+**Date:** 2026-01-30
+
+**Decision:** Create a strategy plugin interface and scenario runner that journals strategy decisions for replay verification and audit.
+
+**Scope:**
+
+| Component | Status |
+|-----------|--------|
+| Strategy Protocol (on_tick → list[OrderIntent]) | ✅ Implemented |
+| StrategyContext (read-only market/position state) | ✅ Implemented |
+| BaselineStrategy (extracted from simple_mm_strategy) | ✅ Implemented |
+| StrategyDecision contract (journaled output) | ✅ Implemented |
+| ScenarioRunner (strategy + simulator integration) | ✅ Implemented |
+| Combined deterministic digest | ✅ Implemented |
+
+**Key Design:**
+
+1. **Strategy Protocol:** Minimal interface `on_tick(ctx: StrategyContext) -> list[OrderIntent]`
+2. **StrategyContext:** Frozen dataclass with read-only market and position state
+3. **StrategyDecision:** Journaled output capturing context snapshot + orders for replay
+4. **Combined Digest:** `SHA256(decisions_sha256 + artifacts_sha256)` for full scenario verification
+
+**Files Created:**
+
+- `src/cryptoscreener/trading/strategy/` package (base.py, baseline.py)
+- `src/cryptoscreener/trading/contracts/strategy_decision.py`
+- `src/cryptoscreener/trading/sim/runner.py`
+- `scripts/run_scenario.py` CLI
+- `tests/trading/test_strategy_decision_roundtrip.py`
+- `tests/trading/test_scenario_runner_determinism.py`
+
+**Alternatives considered:**
+
+1. Strategy returns StrategyDecision directly — rejected, too coupled
+2. Strategy modifies simulator state — rejected, breaks encapsulation
+3. No journaling — rejected, need audit trail for debugging
+
+**Impact:**
+
+- Strategy logic decoupled from simulator for testability
+- Full audit trail of strategy decisions for debugging
+- Combined digest enables replay verification across strategy + simulation

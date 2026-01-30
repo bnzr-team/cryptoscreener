@@ -16,6 +16,10 @@ from cryptoscreener.trading.contracts.order_intent import OrderIntent
 from cryptoscreener.trading.contracts.position_snapshot import PositionSnapshot
 from cryptoscreener.trading.contracts.risk_breach_event import RiskBreachEvent
 from cryptoscreener.trading.contracts.session_state import SessionState
+from cryptoscreener.trading.contracts.strategy_decision import (
+    StrategyDecision,
+    StrategyDecisionOrder,
+)
 from cryptoscreener.trading.contracts.types import (
     BreachSeverity,
     BreachType,
@@ -47,5 +51,7 @@ __all__ = [
     "RiskBreachEvent",
     "SessionState",
     "SessionStateEnum",
+    "StrategyDecision",
+    "StrategyDecisionOrder",
     "TimeInForce",
 ]
