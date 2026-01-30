@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sim_abc123def456",
+  "ts": 1706140800500,
+  "tick_seq": 42,
+  "bid": "42000.00",
+  "ask": "42001.00",
+  "mid": "42000.50",
+  "last_trade_price": "42000.25",
+  "position_qty": "0.001",
+  "position_side": "LONG",
+  "unrealized_pnl": "0.50",
+  "realized_pnl": "2.30",
+  "pending_order_count": 0,
+  "orders": [
+    {
+      "schema_version": "1.0.0",
+      "session_id": "sim_abc123def456",
+      "side": "SELL",
+      "price": "42004.20",
+      "quantity": "0.001",
+      "reason": "close_long"
+    }
+  ],
+  "symbol": "BTCUSDT"
+}

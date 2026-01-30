@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sim_abc123def456",
+  "ts": 1706140800000,
+  "tick_seq": 0,
+  "bid": "42000.00",
+  "ask": "42001.00",
+  "mid": "42000.50",
+  "last_trade_price": "0",
+  "position_qty": "0",
+  "position_side": "FLAT",
+  "unrealized_pnl": "0",
+  "realized_pnl": "0",
+  "pending_order_count": 0,
+  "orders": [],
+  "symbol": "BTCUSDT"
+}

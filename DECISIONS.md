@@ -3394,3 +3394,120 @@ v2 code MUST NOT import or depend directly on v1 internal modules:
 - No v1 code changes
 - No new v1 metrics or alerts
 - No execution code in this decision (docs/boundary only)
+
+---
+
+## DEC-041 — Trading v2 Simulator MVP
+
+**Date:** 2026-01-30
+
+**Decision:** Implement a deterministic offline simulator for Trading/VOL v2 that validates PnL behavior on fixed fixtures before live execution.
+
+**Scope:**
+
+| Component | Status |
+|-----------|--------|
+| SimConfig (symbol, fees, max_loss, stale_ms) | ✅ Implemented |
+| CROSS fill model (optimistic fills at limit price) | ✅ Implemented |
+| SimArtifacts (fills, orders, positions, metrics, SHA256) | ✅ Implemented |
+| Market event processing (trade, book) | ✅ Implemented |
+| Kill switch on max_session_loss | ✅ Implemented |
+| Stale quote handling | ✅ Implemented |
+| 4 deterministic fixtures | ✅ Generated |
+
+**Key Design:**
+
+1. **CROSS Fill Model:** BUY fills when `trade_price <= limit_price`, SELL fills when `trade_price >= limit_price`
+2. **Deterministic Session ID:** `MD5(symbol + first_event_ts)[:12]` for reproducibility
+3. **SHA256 Artifact Hash:** Computed over canonical JSON (sorted keys) for replay verification
+
+**Alternatives considered:**
+
+1. TOUCH fill model (fill at first touch) — deferred to Phase 2
+2. Probabilistic fill model — rejected for Phase 1, need determinism first
+3. Real-time simulator — rejected, offline first for validation
+
+**Impact:**
+
+- `src/cryptoscreener/trading/sim/` package with Simulator, SimConfig, SimArtifacts
+- `scripts/run_sim.py` CLI for running simulations
+- `tests/fixtures/sim/` with 4 fixtures + manifest
+- Tests verify determinism (same input → same SHA256)
+
+---
+
+## DEC-042 — Trading v2 Strategy Interface + Scenario Runner
+
+**Date:** 2026-01-30
+
+**Decision:** Create a strategy plugin interface and scenario runner that journals strategy decisions for replay verification and audit.
+
+**Scope:**
+
+| Component | Status |
+|-----------|--------|
+| Strategy Protocol (on_tick → list[StrategyOrder]) | ✅ Implemented |
+| StrategyContext (read-only market/position state) | ✅ Implemented |
+| BaselineStrategy (extracted from simple_mm_strategy) | ✅ Implemented |
+| StrategyDecision contract (journaled output) | ✅ Implemented |
+| ScenarioRunner (strategy + simulator integration) | ✅ Implemented |
+| Combined deterministic digest | ✅ Implemented |
+
+**Key Design:**
+
+1. **Strategy Protocol:** Minimal interface `on_tick(ctx: StrategyContext) -> list[StrategyOrder]`
+2. **StrategyContext:** Frozen dataclass with read-only market and position state
+3. **StrategyDecision:** Journaled output capturing context snapshot + orders for replay
+4. **Combined Digest:** `SHA256(decisions_sha256 + artifacts_sha256)` for full scenario verification
+
+**StrategyOrder vs OrderIntent (SSOT Rationale):**
+
+`StrategyOrder` and `OrderIntent` are intentionally separate:
+
+| Struct | Purpose | Fields | Lives in |
+|--------|---------|--------|----------|
+| `StrategyOrder` | Strategy output (what to do) | side, price, qty, reason | `strategy/base.py` |
+| `OrderIntent` | Order submission (full context) | + session_id, schema_version | `contracts/` |
+
+Rationale:
+- **Separation of concerns:** Strategy should only specify WHAT (side, price, qty), not HOW it's identified
+- **No session_id in strategy:** Strategies don't know about sessions; runner injects session_id during conversion
+- **Lightweight frozen dataclass:** No Pydantic overhead in hot path
+- **Deterministic conversion:** `StrategyOrder → StrategyDecisionOrder` is 1:1 field mapping with session_id injection
+
+Conversion path:
+```
+Strategy.on_tick() → list[StrategyOrder]
+    ↓ runner._create_decision()
+StrategyDecision.orders: list[StrategyDecisionOrder]  (session_id injected)
+```
+
+**Reason field validation:**
+- `reason` is for human-readable text only (e.g., "close_long", "enter_short")
+- MUST NOT contain digits (prevents embedding numeric data in free-text)
+- Max 64 chars (keeps it concise)
+- Enforced at both `StrategyOrder` and `StrategyDecisionOrder` level
+
+**Files Created:**
+
+- `src/cryptoscreener/trading/strategy/` package (base.py, baseline.py)
+- `src/cryptoscreener/trading/contracts/strategy_decision.py`
+- `src/cryptoscreener/trading/sim/runner.py`
+- `scripts/run_scenario.py` CLI
+- `tests/trading/test_strategy_decision_roundtrip.py`
+- `tests/trading/test_scenario_runner_determinism.py`
+- `tests/trading/test_strategy_order_validation.py`
+
+**Alternatives considered:**
+
+1. Strategy returns OrderIntent directly — rejected, requires strategy to know session_id
+2. Strategy returns StrategyDecision directly — rejected, too coupled
+3. Strategy modifies simulator state — rejected, breaks encapsulation
+4. No journaling — rejected, need audit trail for debugging
+5. No reason validation — rejected, prevents SSOT drift (numeric data in free-text)
+
+**Impact:**
+
+- Strategy logic decoupled from simulator for testability
+- Full audit trail of strategy decisions for debugging
+- Combined digest enables replay verification across strategy + simulation

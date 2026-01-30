@@ -32,6 +32,7 @@ from cryptoscreener.trading.contracts import (
     RiskBreachEvent,
     SessionState,
     SessionStateEnum,
+    StrategyDecision,
     TimeInForce,
 )
 
@@ -360,6 +361,7 @@ class TestFixtureIntegrity:
             "PositionSnapshot": PositionSnapshot,
             "SessionState": SessionState,
             "RiskBreachEvent": RiskBreachEvent,
+            "StrategyDecision": StrategyDecision,
         }
 
         for filename, contract_name in manifest["contracts"].items():
