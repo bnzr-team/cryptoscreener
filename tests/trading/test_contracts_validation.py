@@ -15,12 +15,21 @@ import pytest
 from pydantic import ValidationError
 
 from cryptoscreener.trading.contracts import (
+    BreachSeverity,
+    BreachType,
     FillEvent,
     OrderAck,
     OrderIntent,
+    OrderPriority,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PositionSide,
     PositionSnapshot,
+    RiskAction,
     RiskBreachEvent,
     SessionState,
+    TimeInForce,
 )
 
 
@@ -35,13 +44,13 @@ class TestOrderIntentValidation:
                 ts=1738180800000,
                 client_order_id="coid_test_001",
                 symbol="BTCUSDT",
-                side="INVALID",  # Invalid
-                order_type="LIMIT",
+                side="INVALID",  # type: ignore[arg-type]
+                order_type=OrderType.LIMIT,
                 quantity=Decimal("0.001"),
                 price=Decimal("67890.50"),
-                time_in_force="GTX",
+                time_in_force=TimeInForce.GTX,
                 reduce_only=False,
-                priority="NORMAL",
+                priority=OrderPriority.NORMAL,
             )
         assert "side" in str(exc_info.value)
 
@@ -53,13 +62,13 @@ class TestOrderIntentValidation:
                 ts=1738180800000,
                 client_order_id="coid_test_001",
                 symbol="BTCUSDT",
-                side="BUY",
-                order_type="INVALID",  # Invalid
+                side=OrderSide.BUY,
+                order_type="INVALID",  # type: ignore[arg-type]
                 quantity=Decimal("0.001"),
                 price=Decimal("67890.50"),
-                time_in_force="GTX",
+                time_in_force=TimeInForce.GTX,
                 reduce_only=False,
-                priority="NORMAL",
+                priority=OrderPriority.NORMAL,
             )
         assert "order_type" in str(exc_info.value)
 
@@ -75,13 +84,13 @@ class TestOrderIntentValidation:
                 ts=1738180800000,
                 client_order_id="coid_test_001",
                 symbol="BTCUSDT",
-                side="BUY",
-                order_type="LIMIT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
                 quantity=Decimal("0.001"),
                 price=Decimal("67890.50"),
-                time_in_force="GTX",
+                time_in_force=TimeInForce.GTX,
                 reduce_only=False,
-                priority="NORMAL",
+                priority=OrderPriority.NORMAL,
             )  # type: ignore[call-arg]
         assert "session_id" in str(exc_info.value)
 
@@ -93,15 +102,15 @@ class TestOrderIntentValidation:
                 ts=1738180800000,
                 client_order_id="coid_test_001",
                 symbol="BTCUSDT",
-                side="BUY",
-                order_type="LIMIT",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
                 quantity=Decimal("0.001"),
                 price=Decimal("67890.50"),
-                time_in_force="GTX",
+                time_in_force=TimeInForce.GTX,
                 reduce_only=False,
-                priority="NORMAL",
-                extra_field="should_fail",  # Extra field
-            )  # type: ignore[call-arg]
+                priority=OrderPriority.NORMAL,
+                extra_field="should_fail",  # type: ignore[call-arg]
+            )
         assert "extra_field" in str(exc_info.value)
 
 
@@ -117,14 +126,14 @@ class TestOrderAckValidation:
                 client_order_id="coid_test_001",
                 order_id=1234567890,
                 symbol="BTCUSDT",
-                side="BUY",
-                order_type="LIMIT",
-                status="INVALID",  # Invalid
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                status="INVALID",  # type: ignore[arg-type]
                 quantity=Decimal("0.001"),
                 price=Decimal("67890.50"),
                 executed_qty=Decimal("0.000"),
                 avg_price=Decimal("0.00"),
-                time_in_force="GTX",
+                time_in_force=TimeInForce.GTX,
                 reduce_only=False,
             )
         assert "status" in str(exc_info.value)
@@ -138,14 +147,14 @@ class TestOrderAckValidation:
                 client_order_id="coid_test_001",
                 # order_id missing
                 symbol="BTCUSDT",
-                side="BUY",
-                order_type="LIMIT",
-                status="NEW",
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                status=OrderStatus.NEW,
                 quantity=Decimal("0.001"),
                 price=Decimal("67890.50"),
                 executed_qty=Decimal("0.000"),
                 avg_price=Decimal("0.00"),
-                time_in_force="GTX",
+                time_in_force=TimeInForce.GTX,
                 reduce_only=False,
             )  # type: ignore[call-arg]
         assert "order_id" in str(exc_info.value)
@@ -164,14 +173,14 @@ class TestFillEventValidation:
                 order_id=1234567890,
                 trade_id=9876543210,
                 client_order_id="coid_test_001",
-                side="BUY",
+                side=OrderSide.BUY,
                 fill_qty=Decimal("0.001"),
                 fill_price=Decimal("67890.50"),
                 commission=Decimal("0.01358"),
                 commission_asset="USDT",
                 realized_pnl=Decimal("0.00"),
                 is_maker=True,
-                position_side="INVALID",  # Invalid
+                position_side="INVALID",  # type: ignore[arg-type]
             )
         assert "position_side" in str(exc_info.value)
 
@@ -185,14 +194,14 @@ class TestFillEventValidation:
                 order_id=1234567890,
                 # trade_id missing
                 client_order_id="coid_test_001",
-                side="BUY",
+                side=OrderSide.BUY,
                 fill_qty=Decimal("0.001"),
                 fill_price=Decimal("67890.50"),
                 commission=Decimal("0.01358"),
                 commission_asset="USDT",
                 realized_pnl=Decimal("0.00"),
                 is_maker=True,
-                position_side="BOTH",
+                position_side=PositionSide.BOTH,
             )  # type: ignore[call-arg]
         assert "trade_id" in str(exc_info.value)
 
@@ -207,7 +216,7 @@ class TestPositionSnapshotValidation:
                 session_id="sess_test_001",
                 ts=1738180802000,
                 symbol="BTCUSDT",
-                side="LONG",
+                side=PositionSide.LONG,
                 quantity=Decimal("0.001"),
                 entry_price=Decimal("67890.50"),
                 mark_price=Decimal("67920.00"),
@@ -215,7 +224,7 @@ class TestPositionSnapshotValidation:
                 realized_pnl_session=Decimal("0.00"),
                 leverage=5,
                 liquidation_price=Decimal("54312.40"),
-                margin_type="INVALID",  # Invalid
+                margin_type="INVALID",  # type: ignore[arg-type]
             )
         assert "margin_type" in str(exc_info.value)
 
@@ -229,7 +238,7 @@ class TestSessionStateValidation:
             SessionState(
                 session_id="sess_test_001",
                 ts=1738180803000,
-                state="INVALID",  # Invalid
+                state="INVALID",  # type: ignore[arg-type]
                 symbols_active=["BTCUSDT"],
                 open_orders_count=0,
                 positions_count=0,
@@ -250,11 +259,11 @@ class TestRiskBreachEventValidation:
                 session_id="sess_test_001",
                 ts=1738180900000,
                 breach_id="breach_test_001",
-                breach_type="DAILY_LOSS_LIMIT",
-                severity="INVALID",  # Invalid
+                breach_type=BreachType.DAILY_LOSS_LIMIT,
+                severity="INVALID",  # type: ignore[arg-type]
                 threshold=Decimal("-100.00"),
                 actual=Decimal("-105.50"),
-                action_taken="PAUSE_SESSION",
+                action_taken=RiskAction.PAUSE_SESSION,
             )
         assert "severity" in str(exc_info.value)
 
@@ -265,11 +274,11 @@ class TestRiskBreachEventValidation:
                 session_id="sess_test_001",
                 ts=1738180900000,
                 breach_id="breach_test_001",
-                breach_type="INVALID",  # Invalid
-                severity="CRITICAL",
+                breach_type="INVALID",  # type: ignore[arg-type]
+                severity=BreachSeverity.CRITICAL,
                 threshold=Decimal("-100.00"),
                 actual=Decimal("-105.50"),
-                action_taken="PAUSE_SESSION",
+                action_taken=RiskAction.PAUSE_SESSION,
             )
         assert "breach_type" in str(exc_info.value)
 
@@ -280,11 +289,11 @@ class TestRiskBreachEventValidation:
                 session_id="sess_test_001",
                 ts=1738180900000,
                 breach_id="breach_test_001",
-                breach_type="DAILY_LOSS_LIMIT",
-                severity="CRITICAL",
+                breach_type=BreachType.DAILY_LOSS_LIMIT,
+                severity=BreachSeverity.CRITICAL,
                 threshold=Decimal("-100.00"),
                 actual=Decimal("-105.50"),
-                action_taken="INVALID",  # Invalid
+                action_taken="INVALID",  # type: ignore[arg-type]
             )
         assert "action_taken" in str(exc_info.value)
 
@@ -299,13 +308,13 @@ class TestDecimalParsing:
             ts=1738180800000,
             client_order_id="coid_test_001",
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="LIMIT",
-            quantity="0.001",  # String input
-            price="67890.50",  # String input
-            time_in_force="GTX",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity="0.001",  # type: ignore[arg-type]
+            price="67890.50",  # type: ignore[arg-type]
+            time_in_force=TimeInForce.GTX,
             reduce_only=False,
-            priority="NORMAL",
+            priority=OrderPriority.NORMAL,
         )
         assert isinstance(intent.quantity, Decimal)
         assert isinstance(intent.price, Decimal)
@@ -319,12 +328,12 @@ class TestDecimalParsing:
             ts=1738180800000,
             client_order_id="coid_test_001",
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="MARKET",
-            quantity=1,  # Int input
-            time_in_force="IOC",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=1,  # type: ignore[arg-type]
+            time_in_force=TimeInForce.IOC,
             reduce_only=False,
-            priority="NORMAL",
+            priority=OrderPriority.NORMAL,
         )
         assert isinstance(intent.quantity, Decimal)
         assert intent.quantity == Decimal("1")
@@ -336,11 +345,11 @@ class TestDecimalParsing:
             ts=1738180800000,
             client_order_id="coid_test_001",
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="MARKET",
-            quantity=0.001,  # Float input
-            time_in_force="IOC",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=0.001,  # type: ignore[arg-type]
+            time_in_force=TimeInForce.IOC,
             reduce_only=False,
-            priority="NORMAL",
+            priority=OrderPriority.NORMAL,
         )
         assert isinstance(intent.quantity, Decimal)

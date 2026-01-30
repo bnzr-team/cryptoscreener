@@ -13,14 +13,26 @@ import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from cryptoscreener.trading.contracts import (
+    BreachSeverity,
+    BreachType,
     FillEvent,
+    MarginType,
     OrderAck,
     OrderIntent,
+    OrderPriority,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PositionSide,
     PositionSnapshot,
+    RiskAction,
     RiskBreachEvent,
     SessionState,
+    SessionStateEnum,
+    TimeInForce,
 )
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "trading_contracts"
@@ -36,13 +48,13 @@ class TestOrderIntentRoundtrip:
             ts=1738180800000,
             client_order_id="coid_test_001",
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="LIMIT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
             quantity=Decimal("0.001"),
             price=Decimal("67890.50"),
-            time_in_force="GTX",
+            time_in_force=TimeInForce.GTX,
             reduce_only=False,
-            priority="NORMAL",
+            priority=OrderPriority.NORMAL,
         )
         json_str = original.model_dump_json()
         restored = OrderIntent.model_validate_json(json_str)
@@ -55,13 +67,13 @@ class TestOrderIntentRoundtrip:
             ts=1738180800000,
             client_order_id="coid_test_002",
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="LIMIT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
             quantity=Decimal("0.123456789"),
             price=Decimal("67890.123456789"),
-            time_in_force="GTX",
+            time_in_force=TimeInForce.GTX,
             reduce_only=False,
-            priority="NORMAL",
+            priority=OrderPriority.NORMAL,
         )
         json_str = original.model_dump_json()
         restored = OrderIntent.model_validate_json(json_str)
@@ -75,7 +87,7 @@ class TestOrderIntentRoundtrip:
             data = json.load(f)
         obj = OrderIntent.model_validate(data)
         assert obj.symbol == "BTCUSDT"
-        assert obj.side.value == "BUY"
+        assert obj.side == OrderSide.BUY
 
     def test_determinism(self) -> None:
         """Two serializations produce identical output."""
@@ -84,19 +96,20 @@ class TestOrderIntentRoundtrip:
             ts=1738180800000,
             client_order_id="coid_test_003",
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="LIMIT",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
             quantity=Decimal("0.001"),
             price=Decimal("67890.50"),
-            time_in_force="GTX",
+            time_in_force=TimeInForce.GTX,
             reduce_only=False,
-            priority="NORMAL",
+            priority=OrderPriority.NORMAL,
         )
         json1 = obj.model_dump_json()
         json2 = obj.model_dump_json()
         assert json1 == json2
         assert (
-            hashlib.sha256(json1.encode()).hexdigest() == hashlib.sha256(json2.encode()).hexdigest()
+            hashlib.sha256(json1.encode()).hexdigest()
+            == hashlib.sha256(json2.encode()).hexdigest()
         )
 
 
@@ -111,14 +124,14 @@ class TestOrderAckRoundtrip:
             client_order_id="coid_test_001",
             order_id=1234567890,
             symbol="BTCUSDT",
-            side="BUY",
-            order_type="LIMIT",
-            status="NEW",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.NEW,
             quantity=Decimal("0.001"),
             price=Decimal("67890.50"),
             executed_qty=Decimal("0.000"),
             avg_price=Decimal("0.00"),
-            time_in_force="GTX",
+            time_in_force=TimeInForce.GTX,
             reduce_only=False,
         )
         json_str = original.model_dump_json()
@@ -131,7 +144,7 @@ class TestOrderAckRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = OrderAck.model_validate(data)
-        assert obj.status.value == "NEW"
+        assert obj.status == OrderStatus.NEW
         assert obj.error_code is None
 
     def test_load_from_fixture_rejected(self) -> None:
@@ -140,7 +153,7 @@ class TestOrderAckRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = OrderAck.model_validate(data)
-        assert obj.status.value == "REJECTED"
+        assert obj.status == OrderStatus.REJECTED
         assert obj.error_code == -2022
         assert obj.is_rejected
 
@@ -157,14 +170,14 @@ class TestFillEventRoundtrip:
             order_id=1234567890,
             trade_id=9876543210,
             client_order_id="coid_test_001",
-            side="BUY",
+            side=OrderSide.BUY,
             fill_qty=Decimal("0.001"),
             fill_price=Decimal("67890.50"),
             commission=Decimal("0.01358"),
             commission_asset="USDT",
             realized_pnl=Decimal("0.00"),
             is_maker=True,
-            position_side="BOTH",
+            position_side=PositionSide.BOTH,
         )
         json_str = original.model_dump_json()
         restored = FillEvent.model_validate_json(json_str)
@@ -197,14 +210,14 @@ class TestFillEventRoundtrip:
             order_id=1234567890,
             trade_id=9876543210,
             client_order_id="coid_test_001",
-            side="BUY",
+            side=OrderSide.BUY,
             fill_qty=Decimal("0.001"),
             fill_price=Decimal("67890.50"),
             commission=Decimal("0.01358"),
             commission_asset="USDT",
             realized_pnl=Decimal("0.00"),
             is_maker=True,
-            position_side="BOTH",
+            position_side=PositionSide.BOTH,
         )
         assert fill.notional == Decimal("67.89050")
 
@@ -218,7 +231,7 @@ class TestPositionSnapshotRoundtrip:
             session_id="sess_test_001",
             ts=1738180802000,
             symbol="BTCUSDT",
-            side="LONG",
+            side=PositionSide.LONG,
             quantity=Decimal("0.001"),
             entry_price=Decimal("67890.50"),
             mark_price=Decimal("67920.00"),
@@ -226,7 +239,7 @@ class TestPositionSnapshotRoundtrip:
             realized_pnl_session=Decimal("0.00"),
             leverage=5,
             liquidation_price=Decimal("54312.40"),
-            margin_type="ISOLATED",
+            margin_type=MarginType.ISOLATED,
         )
         json_str = original.model_dump_json()
         restored = PositionSnapshot.model_validate_json(json_str)
@@ -238,7 +251,7 @@ class TestPositionSnapshotRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = PositionSnapshot.model_validate(data)
-        assert obj.side.value == "LONG"
+        assert obj.side == PositionSide.LONG
         assert obj.leverage == 5
 
     def test_load_from_fixture_flat(self) -> None:
@@ -247,7 +260,7 @@ class TestPositionSnapshotRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = PositionSnapshot.model_validate(data)
-        assert obj.side.value == "FLAT"
+        assert obj.side == PositionSide.FLAT
         assert obj.is_flat
 
 
@@ -259,8 +272,8 @@ class TestSessionStateRoundtrip:
         original = SessionState(
             session_id="sess_test_001",
             ts=1738180803000,
-            state="ACTIVE",
-            prev_state="READY",
+            state=SessionStateEnum.ACTIVE,
+            prev_state=SessionStateEnum.READY,
             reason="startup_complete",
             symbols_active=["BTCUSDT", "ETHUSDT"],
             open_orders_count=6,
@@ -279,7 +292,7 @@ class TestSessionStateRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = SessionState.model_validate(data)
-        assert obj.state.value == "ACTIVE"
+        assert obj.state == SessionStateEnum.ACTIVE
         assert obj.is_active
 
     def test_load_from_fixture_killed(self) -> None:
@@ -288,7 +301,7 @@ class TestSessionStateRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = SessionState.model_validate(data)
-        assert obj.state.value == "KILLED"
+        assert obj.state == SessionStateEnum.KILLED
         assert obj.is_stopped
 
 
@@ -301,11 +314,11 @@ class TestRiskBreachEventRoundtrip:
             session_id="sess_test_001",
             ts=1738180900000,
             breach_id="breach_test_001",
-            breach_type="DAILY_LOSS_LIMIT",
-            severity="CRITICAL",
+            breach_type=BreachType.DAILY_LOSS_LIMIT,
+            severity=BreachSeverity.CRITICAL,
             threshold=Decimal("-100.00"),
             actual=Decimal("-105.50"),
-            action_taken="PAUSE_SESSION",
+            action_taken=RiskAction.PAUSE_SESSION,
             details="Daily loss limit exceeded.",
         )
         json_str = original.model_dump_json()
@@ -318,7 +331,7 @@ class TestRiskBreachEventRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = RiskBreachEvent.model_validate(data)
-        assert obj.severity.value == "WARNING"
+        assert obj.severity == BreachSeverity.WARNING
         assert not obj.is_fatal
 
     def test_load_from_fixture_fatal(self) -> None:
@@ -327,7 +340,7 @@ class TestRiskBreachEventRoundtrip:
         with open(fixture_path) as f:
             data = json.load(f)
         obj = RiskBreachEvent.model_validate(data)
-        assert obj.severity.value == "FATAL"
+        assert obj.severity == BreachSeverity.FATAL
         assert obj.is_fatal
         assert obj.requires_action
 
@@ -341,7 +354,7 @@ class TestFixtureIntegrity:
         with open(manifest_path) as f:
             manifest = json.load(f)
 
-        contract_map = {
+        contract_map: dict[str, Any] = {
             "OrderIntent": OrderIntent,
             "OrderAck": OrderAck,
             "FillEvent": FillEvent,
