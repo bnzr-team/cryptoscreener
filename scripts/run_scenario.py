@@ -84,6 +84,13 @@ def main() -> int:
         default="0.01",
         help="Maximum position size (default: 0.01)",
     )
+    parser.add_argument(
+        "--strategy",
+        type=str,
+        choices=["baseline", "policy"],
+        default="baseline",
+        help="Strategy type: baseline (simple MM) or policy (with policy engine)",
+    )
 
     args = parser.parse_args()
 
@@ -106,8 +113,10 @@ def main() -> int:
     print(f"  Loaded {len(events)} events")
 
     # Import after arg parsing to fail fast on bad args
+    from cryptoscreener.trading.policy import PolicyParams
+    from cryptoscreener.trading.policy.providers import FixturePolicyInputsProvider
     from cryptoscreener.trading.sim import ScenarioRunner, SimConfig, write_scenario_outputs
-    from cryptoscreener.trading.strategy import BaselineStrategy
+    from cryptoscreener.trading.strategy import BaselineStrategy, PolicyEngineStrategy
     from cryptoscreener.trading.strategy.baseline import BaselineStrategyConfig
 
     # Create config
@@ -129,11 +138,32 @@ def main() -> int:
         order_qty=Decimal(args.order_qty),
         max_position=Decimal(args.max_position),
     )
-    strategy = BaselineStrategy(strategy_config)
-    print(
-        f"Strategy: spread_bps={strategy_config.spread_bps}, "
-        f"order_qty={strategy_config.order_qty}"
-    )
+
+    strategy: BaselineStrategy | PolicyEngineStrategy
+    if args.strategy == "baseline":
+        strategy = BaselineStrategy(strategy_config)
+        print(
+            f"Strategy: baseline, spread_bps={strategy_config.spread_bps}, "
+            f"order_qty={strategy_config.order_qty}"
+        )
+    else:
+        # Policy strategy with fixture-based inputs
+        fixture_name = args.events.stem  # e.g., "mean_reverting_range"
+        inputs_provider = FixturePolicyInputsProvider(fixture_name)
+        policy_params = PolicyParams(
+            max_session_loss=Decimal(args.max_loss),
+            stale_quote_ms=args.stale_ms,
+        )
+        strategy = PolicyEngineStrategy(
+            inputs_provider,
+            base_config=strategy_config,
+            policy_params=policy_params,
+        )
+        print(
+            f"Strategy: policy (fixture={fixture_name}), "
+            f"spread_bps={strategy_config.spread_bps}, "
+            f"order_qty={strategy_config.order_qty}"
+        )
 
     # Run scenario
     print("Running scenario...")

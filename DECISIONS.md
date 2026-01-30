@@ -3580,3 +3580,116 @@ Every policy rule (POL-XXX) in `05_ML_POLICY_LIBRARY.md` follows:
 - Provides testable acceptance criteria per fixture
 - Enables A/B comparison of strategy variants (DEC-045)
 - Documents risk constraints explicitly for audit
+
+## DEC-044 — Trading v2 PolicyEngine MVP + ScenarioRunner Integration
+
+**Date:** 2026-01-30
+
+**Decision:** Implement a deterministic `PolicyEngine` that evaluates DEC-043 `POL-*` rules and integrates with `ScenarioRunner` to enable A/B comparison of BaselineStrategy vs PolicyEngineStrategy.
+
+**Objective:** Create a working policy evaluation system that translates ML inputs into trading action patterns, with full determinism and replay capability.
+
+**Module Structure:**
+
+```
+src/cryptoscreener/trading/policy/
+    __init__.py           # Public exports
+    context.py            # PolicyContext (derived from StrategyContext)
+    inputs.py             # PolicyInputs, PolicyInputsProvider protocol
+    params.py             # PolicyParams (named config from DEC-043)
+    output.py             # PolicyOutput, PolicyPattern enum
+    engine.py             # PolicyEngine.evaluate()
+    providers/
+        __init__.py
+        constant.py       # ConstantPolicyInputsProvider
+        fixture.py        # FixturePolicyInputsProvider
+
+src/cryptoscreener/trading/strategy/
+    policy_strategy.py    # PolicyEngineStrategy wrapper
+```
+
+**Key Contracts:**
+
+| Contract | Purpose |
+|----------|---------|
+| `PolicyContext` | Read-only snapshot: ts, book_age_ms, position, PnL |
+| `PolicyInputs` | ML outputs: p_inplay_2m, p_toxic, regime_vol, regime_trend |
+| `PolicyParams` | Named thresholds: inplay_exit_prob, toxicity_widen_threshold, max_session_loss |
+| `PolicyOutput` | Patterns active, param_overrides, force_close, kill, reason_codes |
+| `PolicyPattern` | Enum: EMIT_ORDERS, SUPPRESS_ENTRY, SUPPRESS_ALL, MODIFY_PARAMS, FORCE_CLOSE |
+
+**MVP Rules Implemented:**
+
+| Rule | Pattern | Trigger |
+|------|---------|---------|
+| POL-002 | SUPPRESS_ENTRY | p_inplay_2m < inplay_exit_prob |
+| POL-004 | MODIFY_PARAMS | p_toxic >= toxicity_widen_threshold |
+| POL-005 | SUPPRESS_ALL | p_toxic >= toxicity_disable_threshold |
+| POL-012 | SUPPRESS_ALL | abs(position_qty) >= inventory_hard_limit |
+| POL-013 | SUPPRESS_ALL | book_age_ms > stale_quote_ms |
+| POL-019 | FORCE_CLOSE + kill | total_pnl < -max_session_loss |
+
+**PolicyEngineStrategy Wrapper:**
+
+Flow:
+1. Get PolicyInputs from provider (fixture-based stub for determinism)
+2. Evaluate PolicyEngine to produce PolicyOutput
+3. Handle FORCE_CLOSE / kill scenarios (emit close order, set killed flag)
+4. Get orders from BaselineStrategy
+5. Apply filters: SUPPRESS_ENTRY filters entry orders, SUPPRESS_ALL blocks all
+6. Apply modifiers: MODIFY_PARAMS adjusts spread via spread_mult
+
+**Design Decisions:**
+
+1. **Fixture-based constant stubs:** Each fixture maps to fixed PolicyInputs values, ensuring full determinism without ML model artifacts.
+
+2. **Wrapper pattern:** PolicyEngineStrategy wraps BaselineStrategy rather than modifying it, enabling clean A/B comparison.
+
+3. **Priority evaluation:** Rules evaluated in priority order (kill > hard_limit > stale > toxic > low_inplay). Higher priority rules can short-circuit.
+
+4. **No digits in reason codes:** Per DEC-042, all reason_codes are text-only (e.g., `kill_max_loss`, `toxic_widen`, `low_inplay_pause`).
+
+5. **Reason codes SSOT:** Baseline strategy reason codes (`enter_long`, `enter_short`, `close_long`, `close_short`) are defined in `docs/trading/04_STRATEGY_CATALOG.md`. Policy rule reason codes (`kill_max_loss`, `toxic_widen`, `low_inplay_pause`, etc.) are defined in `docs/trading/05_ML_POLICY_LIBRARY.md`. Both are subject to the no-digits constraint.
+
+**CLI Integration:**
+
+```bash
+python scripts/run_scenario.py \
+  --events tests/fixtures/sim/mean_reverting_range.jsonl \
+  --strategy policy \
+  --out /tmp/policy_run
+```
+
+Flag `--strategy baseline|policy` selects strategy type.
+
+**Test Coverage:**
+
+| Category | Tests | Purpose |
+|----------|-------|---------|
+| Engine rules | 26 | POL-002, POL-004, POL-005, POL-012, POL-013, POL-019 |
+| Providers | 7 | Constant + Fixture providers |
+| Strategy | 20 | Wrapper patterns, reason codes |
+| Determinism | 21 | SHA256 stability, A/B comparison |
+| **Total** | **74** | |
+
+**Verification:**
+
+1. **Determinism:** Two runs with same fixture → identical combined_sha256
+2. **A/B Different:** Baseline vs Policy on monotonic_up/flash_crash → different digests
+3. **A/B Same:** Neutral fixtures (mean_reverting, ws_gap) → same behavior when no rules trigger
+4. **No digits:** `grep -E '[0-9]' reason_codes` returns empty for all decisions
+
+**Non-goals (hard):**
+
+- No live Binance execution
+- No new simulator fixtures
+- No ML training / model artifacts
+- No changes to v1 contracts/modules
+- No new Prometheus metrics
+
+**Impact:**
+
+- Enables fixture-driven policy testing per 07_SIM_EXPECTATIONS.md
+- Provides A/B comparison capability for strategy evaluation
+- Establishes pattern for future policy rule additions
+- Ready for DEC-045: Additional policy rules, dynamic inputs

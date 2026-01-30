@@ -2,6 +2,20 @@
 
 ## Unreleased
 ### Added
+- **DEC-044:** PolicyEngine MVP + ScenarioRunner Integration
+  - `src/cryptoscreener/trading/policy/`: Policy evaluation module
+    - `PolicyContext`: Read-only snapshot from StrategyContext
+    - `PolicyInputs`: ML outputs (p_inplay_2m, p_toxic, regime_vol, regime_trend)
+    - `PolicyParams`: Named thresholds from DEC-043 config
+    - `PolicyOutput`: Patterns active, param_overrides, force_close, kill, reason_codes
+    - `PolicyEngine.evaluate()`: Priority-based rule evaluation
+  - `src/cryptoscreener/trading/policy/providers/`: Input providers
+    - `ConstantPolicyInputsProvider`: For testing with fixed inputs
+    - `FixturePolicyInputsProvider`: Maps fixtures to deterministic ML inputs
+  - `src/cryptoscreener/trading/strategy/policy_strategy.py`: PolicyEngineStrategy wrapper
+  - MVP rules: POL-002, POL-004, POL-005, POL-012, POL-013, POL-019
+  - `scripts/run_scenario.py --strategy baseline|policy`: A/B comparison CLI
+  - 74 new tests (engine, providers, strategy, determinism)
 - **DEC-043:** Policy Library docs (SSOT)
   - `04_STRATEGY_CATALOG.md`: 6 strategy modes (grid, skew, unwind, toxic_avoid, pause, kill)
   - `05_ML_POLICY_LIBRARY.md`: 20 policy rules (POL-001 to POL-020) with config-first design

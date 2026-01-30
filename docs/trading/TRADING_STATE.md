@@ -14,9 +14,10 @@
 - **DEC-041:** Simulator fixtures + ScenarioRunner (4 fixtures, deterministic replay)
 - **DEC-042:** Strategy Interface + Contracts (StrategyDecision, BaselineStrategy)
 - **DEC-043:** Policy Library docs (20 POL rules, Action vocabulary, Risk/Cost model)
+- **DEC-044:** PolicyEngine MVP (6 rules, A/B comparison, 74 tests)
 
 ## In progress
-- **DEC-044:** Policy Engine MVP (next)
+- None
 
 ## Blocked
 - None
