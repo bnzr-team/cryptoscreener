@@ -8,9 +8,11 @@ This module provides the strategy abstraction layer for DEC-042:
 
 from cryptoscreener.trading.strategy.base import Strategy, StrategyContext, StrategyOrder
 from cryptoscreener.trading.strategy.baseline import BaselineStrategy
+from cryptoscreener.trading.strategy.policy_strategy import PolicyEngineStrategy
 
 __all__ = [
     "BaselineStrategy",
+    "PolicyEngineStrategy",
     "Strategy",
     "StrategyContext",
     "StrategyOrder",
