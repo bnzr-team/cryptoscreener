@@ -3511,3 +3511,72 @@ StrategyDecision.orders: list[StrategyDecisionOrder]  (session_id injected)
 - Strategy logic decoupled from simulator for testability
 - Full audit trail of strategy decisions for debugging
 - Combined digest enables replay verification across strategy + simulation
+
+---
+
+## DEC-043 — Trading v2 Policy Library + Strategy Catalog + Risk/Cost Model (Docs-only)
+
+**Date:** 2026-01-30
+
+**Decision:** Create comprehensive SSOT documentation for ML-metrics → trading actions mapping, strategy modes, risk constraints, and simulator expectations. Docs-only, no code changes.
+
+**Objective:** Define implementation-ready specifications for a deterministic policy engine that translates ML signals into `StrategyDecision` outputs.
+
+**Deliverables:**
+
+| Doc | Purpose |
+|-----|---------|
+| `04_STRATEGY_CATALOG.md` | 6 strategy modes (grid, skew, unwind, toxic_avoid, pause, kill) |
+| `05_ML_POLICY_LIBRARY.md` | 20 policy rules (POL-001 to POL-020) with standard format |
+| `06_RISK_COST_MODEL.md` | Fee, slippage, latency, inventory, kill switch parameters |
+| `07_SIM_EXPECTATIONS.md` | KPI expectations per fixture, policy regression matrix |
+
+**Rule Format Standard:**
+
+Every policy rule (POL-XXX) in `05_ML_POLICY_LIBRARY.md` follows:
+- **Rule ID:** Stable identifier (POL-XXX)
+- **Intent:** One-line description
+- **Inputs:** ML metrics/signals consumed
+- **Preconditions:** Boolean conditions using named parameters (no magic numbers)
+- **Action:** Mapping to StrategyDecision behavior
+- **Hysteresis:** Enter/exit thresholds (named parameters)
+- **Cooldown:** Time-based constraints (named parameters)
+- **Risk Gates:** Ties to 06_RISK_COST_MODEL.md
+- **Sim Impact:** Which fixtures should exercise this rule
+
+**SSOT Constraints:**
+
+1. **Config-First:** All numeric thresholds are named parameters in config (e.g., `toxicity_widen_threshold`, `max_session_loss`). No magic numbers in rule prose.
+
+2. **No Digits in Free-Text:** Per DEC-042, `reason` fields must not contain digits. Policy rules define `reason_code` enums like `toxic_widen`, `kill_max_loss`, `stale_pause`.
+
+3. **Deterministic:** Same ML inputs + config → same StrategyDecision output. Reproducible via `ScenarioRunner`.
+
+4. **Composable:** Rules can be evaluated independently and combined by priority order.
+
+**Policy Coverage (20 rules):**
+
+| Section | Rules | Purpose |
+|---------|-------|---------|
+| In-Play Detection | POL-001, POL-002, POL-003 | Enable/disable trading on volatility |
+| Toxicity Avoidance | POL-004, POL-005, POL-006 | Spread widen, disable, unwind |
+| Trend/Skew | POL-007, POL-008, POL-009 | Directional bias, inventory balance |
+| Unwind/Risk-Off | POL-010, POL-011, POL-012 | Soft limit, PnL drawdown, hard limit |
+| Staleness Safety | POL-013, POL-014, POL-015 | Book pause, trade caution, WS grace |
+| Rate Limit Safety | POL-016, POL-017, POL-018 | Throttle, cooldown, churn prevention |
+| Kill Switch | POL-019, POL-020 | Max loss, max drawdown |
+
+**Non-goals (hard):**
+
+- No code changes in DEC-043
+- No new simulator fixtures (may propose, don't add)
+- No Binance execution wiring
+- No ML training changes
+- No changes to v1 logic
+
+**Impact:**
+
+- Establishes SSOT for policy engine implementation (DEC-044)
+- Provides testable acceptance criteria per fixture
+- Enables A/B comparison of strategy variants (DEC-045)
+- Documents risk constraints explicitly for audit
