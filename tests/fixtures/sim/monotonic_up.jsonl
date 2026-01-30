@@ -1,0 +1,120 @@
+{"payload": {"m": false, "price": "42000.0", "qty": "0.1"}, "recv_ts": 1706140800005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140800000, "type": "trade"}
+{"payload": {"ask": "42005.17", "ask_qty": "100.0", "bid": "42003.17", "bid_qty": "100.0"}, "recv_ts": 1706140800505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140800500, "type": "book"}
+{"payload": {"m": false, "price": "42008.34", "qty": "0.1"}, "recv_ts": 1706140801005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140801000, "type": "trade"}
+{"payload": {"ask": "42013.51", "ask_qty": "100.0", "bid": "42011.51", "bid_qty": "100.0"}, "recv_ts": 1706140801505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140801500, "type": "book"}
+{"payload": {"m": false, "price": "42016.68", "qty": "0.1"}, "recv_ts": 1706140802005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140802000, "type": "trade"}
+{"payload": {"ask": "42021.85", "ask_qty": "100.0", "bid": "42019.85", "bid_qty": "100.0"}, "recv_ts": 1706140802505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140802500, "type": "book"}
+{"payload": {"m": false, "price": "42025.02", "qty": "0.1"}, "recv_ts": 1706140803005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140803000, "type": "trade"}
+{"payload": {"ask": "42030.189999999999998", "ask_qty": "100.0", "bid": "42028.189999999999998", "bid_qty": "100.0"}, "recv_ts": 1706140803505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140803500, "type": "book"}
+{"payload": {"m": false, "price": "42033.36", "qty": "0.1"}, "recv_ts": 1706140804005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140804000, "type": "trade"}
+{"payload": {"ask": "42038.53", "ask_qty": "100.0", "bid": "42036.53", "bid_qty": "100.0"}, "recv_ts": 1706140804505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140804500, "type": "book"}
+{"payload": {"m": false, "price": "42041.7", "qty": "0.1"}, "recv_ts": 1706140805005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140805000, "type": "trade"}
+{"payload": {"ask": "42046.87", "ask_qty": "100.0", "bid": "42044.87", "bid_qty": "100.0"}, "recv_ts": 1706140805505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140805500, "type": "book"}
+{"payload": {"m": false, "price": "42050.04", "qty": "0.1"}, "recv_ts": 1706140806005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140806000, "type": "trade"}
+{"payload": {"ask": "42055.21", "ask_qty": "100.0", "bid": "42053.21", "bid_qty": "100.0"}, "recv_ts": 1706140806505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140806500, "type": "book"}
+{"payload": {"m": false, "price": "42058.379999999999995", "qty": "0.1"}, "recv_ts": 1706140807005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140807000, "type": "trade"}
+{"payload": {"ask": "42063.55", "ask_qty": "100.0", "bid": "42061.55", "bid_qty": "100.0"}, "recv_ts": 1706140807505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140807500, "type": "book"}
+{"payload": {"m": false, "price": "42066.72", "qty": "0.1"}, "recv_ts": 1706140808005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140808000, "type": "trade"}
+{"payload": {"ask": "42071.89", "ask_qty": "100.0", "bid": "42069.89", "bid_qty": "100.0"}, "recv_ts": 1706140808505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140808500, "type": "book"}
+{"payload": {"m": false, "price": "42075.06", "qty": "0.1"}, "recv_ts": 1706140809005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140809000, "type": "trade"}
+{"payload": {"ask": "42080.23", "ask_qty": "100.0", "bid": "42078.23", "bid_qty": "100.0"}, "recv_ts": 1706140809505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140809500, "type": "book"}
+{"payload": {"m": false, "price": "42083.4", "qty": "0.1"}, "recv_ts": 1706140810005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140810000, "type": "trade"}
+{"payload": {"ask": "42088.57", "ask_qty": "100.0", "bid": "42086.57", "bid_qty": "100.0"}, "recv_ts": 1706140810505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140810500, "type": "book"}
+{"payload": {"m": false, "price": "42091.74", "qty": "0.1"}, "recv_ts": 1706140811005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140811000, "type": "trade"}
+{"payload": {"ask": "42096.91", "ask_qty": "100.0", "bid": "42094.91", "bid_qty": "100.0"}, "recv_ts": 1706140811505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140811500, "type": "book"}
+{"payload": {"m": false, "price": "42100.08", "qty": "0.1"}, "recv_ts": 1706140812005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140812000, "type": "trade"}
+{"payload": {"ask": "42105.25", "ask_qty": "100.0", "bid": "42103.25", "bid_qty": "100.0"}, "recv_ts": 1706140812505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140812500, "type": "book"}
+{"payload": {"m": false, "price": "42108.42", "qty": "0.1"}, "recv_ts": 1706140813005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140813000, "type": "trade"}
+{"payload": {"ask": "42113.59", "ask_qty": "100.0", "bid": "42111.59", "bid_qty": "100.0"}, "recv_ts": 1706140813505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140813500, "type": "book"}
+{"payload": {"m": false, "price": "42116.75999999999999", "qty": "0.1"}, "recv_ts": 1706140814005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140814000, "type": "trade"}
+{"payload": {"ask": "42121.92999999999999", "ask_qty": "100.0", "bid": "42119.92999999999999", "bid_qty": "100.0"}, "recv_ts": 1706140814505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140814500, "type": "book"}
+{"payload": {"m": false, "price": "42125.1", "qty": "0.1"}, "recv_ts": 1706140815005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140815000, "type": "trade"}
+{"payload": {"ask": "42130.27", "ask_qty": "100.0", "bid": "42128.27", "bid_qty": "100.0"}, "recv_ts": 1706140815505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140815500, "type": "book"}
+{"payload": {"m": false, "price": "42133.44", "qty": "0.1"}, "recv_ts": 1706140816005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140816000, "type": "trade"}
+{"payload": {"ask": "42138.60999999999999", "ask_qty": "100.0", "bid": "42136.60999999999999", "bid_qty": "100.0"}, "recv_ts": 1706140816505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140816500, "type": "book"}
+{"payload": {"m": false, "price": "42141.78", "qty": "0.1"}, "recv_ts": 1706140817005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140817000, "type": "trade"}
+{"payload": {"ask": "42146.95", "ask_qty": "100.0", "bid": "42144.95", "bid_qty": "100.0"}, "recv_ts": 1706140817505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140817500, "type": "book"}
+{"payload": {"m": false, "price": "42150.12", "qty": "0.1"}, "recv_ts": 1706140818005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140818000, "type": "trade"}
+{"payload": {"ask": "42155.29", "ask_qty": "100.0", "bid": "42153.29", "bid_qty": "100.0"}, "recv_ts": 1706140818505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140818500, "type": "book"}
+{"payload": {"m": false, "price": "42158.46", "qty": "0.1"}, "recv_ts": 1706140819005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140819000, "type": "trade"}
+{"payload": {"ask": "42163.63", "ask_qty": "100.0", "bid": "42161.63", "bid_qty": "100.0"}, "recv_ts": 1706140819505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140819500, "type": "book"}
+{"payload": {"m": false, "price": "42166.8", "qty": "0.1"}, "recv_ts": 1706140820005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140820000, "type": "trade"}
+{"payload": {"ask": "42171.97", "ask_qty": "100.0", "bid": "42169.97", "bid_qty": "100.0"}, "recv_ts": 1706140820505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140820500, "type": "book"}
+{"payload": {"m": false, "price": "42175.14", "qty": "0.1"}, "recv_ts": 1706140821005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140821000, "type": "trade"}
+{"payload": {"ask": "42180.31", "ask_qty": "100.0", "bid": "42178.31", "bid_qty": "100.0"}, "recv_ts": 1706140821505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140821500, "type": "book"}
+{"payload": {"m": false, "price": "42183.48", "qty": "0.1"}, "recv_ts": 1706140822005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140822000, "type": "trade"}
+{"payload": {"ask": "42188.65", "ask_qty": "100.0", "bid": "42186.65", "bid_qty": "100.0"}, "recv_ts": 1706140822505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140822500, "type": "book"}
+{"payload": {"m": false, "price": "42191.82", "qty": "0.1"}, "recv_ts": 1706140823005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140823000, "type": "trade"}
+{"payload": {"ask": "42196.99", "ask_qty": "100.0", "bid": "42194.99", "bid_qty": "100.0"}, "recv_ts": 1706140823505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140823500, "type": "book"}
+{"payload": {"m": false, "price": "42200.16", "qty": "0.1"}, "recv_ts": 1706140824005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140824000, "type": "trade"}
+{"payload": {"ask": "42205.32999999999998", "ask_qty": "100.0", "bid": "42203.32999999999998", "bid_qty": "100.0"}, "recv_ts": 1706140824505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140824500, "type": "book"}
+{"payload": {"m": false, "price": "42208.5", "qty": "0.1"}, "recv_ts": 1706140825005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140825000, "type": "trade"}
+{"payload": {"ask": "42213.67", "ask_qty": "100.0", "bid": "42211.67", "bid_qty": "100.0"}, "recv_ts": 1706140825505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140825500, "type": "book"}
+{"payload": {"m": false, "price": "42216.84", "qty": "0.1"}, "recv_ts": 1706140826005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140826000, "type": "trade"}
+{"payload": {"ask": "42222.01", "ask_qty": "100.0", "bid": "42220.01", "bid_qty": "100.0"}, "recv_ts": 1706140826505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140826500, "type": "book"}
+{"payload": {"m": false, "price": "42225.18", "qty": "0.1"}, "recv_ts": 1706140827005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140827000, "type": "trade"}
+{"payload": {"ask": "42230.35", "ask_qty": "100.0", "bid": "42228.35", "bid_qty": "100.0"}, "recv_ts": 1706140827505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140827500, "type": "book"}
+{"payload": {"m": false, "price": "42233.51999999999998", "qty": "0.1"}, "recv_ts": 1706140828005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140828000, "type": "trade"}
+{"payload": {"ask": "42238.69", "ask_qty": "100.0", "bid": "42236.69", "bid_qty": "100.0"}, "recv_ts": 1706140828505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140828500, "type": "book"}
+{"payload": {"m": false, "price": "42241.85999999999999", "qty": "0.1"}, "recv_ts": 1706140829005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140829000, "type": "trade"}
+{"payload": {"ask": "42247.03", "ask_qty": "100.0", "bid": "42245.03", "bid_qty": "100.0"}, "recv_ts": 1706140829505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140829500, "type": "book"}
+{"payload": {"m": false, "price": "42250.2", "qty": "0.1"}, "recv_ts": 1706140830005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140830000, "type": "trade"}
+{"payload": {"ask": "42255.37", "ask_qty": "100.0", "bid": "42253.37", "bid_qty": "100.0"}, "recv_ts": 1706140830505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140830500, "type": "book"}
+{"payload": {"m": false, "price": "42258.54", "qty": "0.1"}, "recv_ts": 1706140831005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140831000, "type": "trade"}
+{"payload": {"ask": "42263.71", "ask_qty": "100.0", "bid": "42261.71", "bid_qty": "100.0"}, "recv_ts": 1706140831505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140831500, "type": "book"}
+{"payload": {"m": false, "price": "42266.88", "qty": "0.1"}, "recv_ts": 1706140832005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140832000, "type": "trade"}
+{"payload": {"ask": "42272.05", "ask_qty": "100.0", "bid": "42270.05", "bid_qty": "100.0"}, "recv_ts": 1706140832505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140832500, "type": "book"}
+{"payload": {"m": false, "price": "42275.21999999999997", "qty": "0.1"}, "recv_ts": 1706140833005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140833000, "type": "trade"}
+{"payload": {"ask": "42280.39", "ask_qty": "100.0", "bid": "42278.39", "bid_qty": "100.0"}, "recv_ts": 1706140833505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140833500, "type": "book"}
+{"payload": {"m": false, "price": "42283.56", "qty": "0.1"}, "recv_ts": 1706140834005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140834000, "type": "trade"}
+{"payload": {"ask": "42288.73", "ask_qty": "100.0", "bid": "42286.73", "bid_qty": "100.0"}, "recv_ts": 1706140834505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140834500, "type": "book"}
+{"payload": {"m": false, "price": "42291.9", "qty": "0.1"}, "recv_ts": 1706140835005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140835000, "type": "trade"}
+{"payload": {"ask": "42297.07", "ask_qty": "100.0", "bid": "42295.07", "bid_qty": "100.0"}, "recv_ts": 1706140835505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140835500, "type": "book"}
+{"payload": {"m": false, "price": "42300.24", "qty": "0.1"}, "recv_ts": 1706140836005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140836000, "type": "trade"}
+{"payload": {"ask": "42305.40999999999997", "ask_qty": "100.0", "bid": "42303.40999999999997", "bid_qty": "100.0"}, "recv_ts": 1706140836505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140836500, "type": "book"}
+{"payload": {"m": false, "price": "42308.58", "qty": "0.1"}, "recv_ts": 1706140837005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140837000, "type": "trade"}
+{"payload": {"ask": "42313.75", "ask_qty": "100.0", "bid": "42311.75", "bid_qty": "100.0"}, "recv_ts": 1706140837505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140837500, "type": "book"}
+{"payload": {"m": false, "price": "42316.92", "qty": "0.1"}, "recv_ts": 1706140838005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140838000, "type": "trade"}
+{"payload": {"ask": "42322.09", "ask_qty": "100.0", "bid": "42320.09", "bid_qty": "100.0"}, "recv_ts": 1706140838505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140838500, "type": "book"}
+{"payload": {"m": false, "price": "42325.26", "qty": "0.1"}, "recv_ts": 1706140839005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140839000, "type": "trade"}
+{"payload": {"ask": "42330.43", "ask_qty": "100.0", "bid": "42328.43", "bid_qty": "100.0"}, "recv_ts": 1706140839505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140839500, "type": "book"}
+{"payload": {"m": false, "price": "42333.6", "qty": "0.1"}, "recv_ts": 1706140840005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140840000, "type": "trade"}
+{"payload": {"ask": "42338.77", "ask_qty": "100.0", "bid": "42336.77", "bid_qty": "100.0"}, "recv_ts": 1706140840505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140840500, "type": "book"}
+{"payload": {"m": false, "price": "42341.94", "qty": "0.1"}, "recv_ts": 1706140841005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140841000, "type": "trade"}
+{"payload": {"ask": "42347.11", "ask_qty": "100.0", "bid": "42345.11", "bid_qty": "100.0"}, "recv_ts": 1706140841505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140841500, "type": "book"}
+{"payload": {"m": false, "price": "42350.28", "qty": "0.1"}, "recv_ts": 1706140842005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140842000, "type": "trade"}
+{"payload": {"ask": "42355.45", "ask_qty": "100.0", "bid": "42353.45", "bid_qty": "100.0"}, "recv_ts": 1706140842505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140842500, "type": "book"}
+{"payload": {"m": false, "price": "42358.62", "qty": "0.1"}, "recv_ts": 1706140843005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140843000, "type": "trade"}
+{"payload": {"ask": "42363.79", "ask_qty": "100.0", "bid": "42361.79", "bid_qty": "100.0"}, "recv_ts": 1706140843505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140843500, "type": "book"}
+{"payload": {"m": false, "price": "42366.96", "qty": "0.1"}, "recv_ts": 1706140844005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140844000, "type": "trade"}
+{"payload": {"ask": "42372.13", "ask_qty": "100.0", "bid": "42370.13", "bid_qty": "100.0"}, "recv_ts": 1706140844505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140844500, "type": "book"}
+{"payload": {"m": false, "price": "42375.3", "qty": "0.1"}, "recv_ts": 1706140845005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140845000, "type": "trade"}
+{"payload": {"ask": "42380.46999999999997", "ask_qty": "100.0", "bid": "42378.46999999999997", "bid_qty": "100.0"}, "recv_ts": 1706140845505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140845500, "type": "book"}
+{"payload": {"m": false, "price": "42383.64", "qty": "0.1"}, "recv_ts": 1706140846005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140846000, "type": "trade"}
+{"payload": {"ask": "42388.81", "ask_qty": "100.0", "bid": "42386.81", "bid_qty": "100.0"}, "recv_ts": 1706140846505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140846500, "type": "book"}
+{"payload": {"m": false, "price": "42391.98", "qty": "0.1"}, "recv_ts": 1706140847005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140847000, "type": "trade"}
+{"payload": {"ask": "42397.15", "ask_qty": "100.0", "bid": "42395.15", "bid_qty": "100.0"}, "recv_ts": 1706140847505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140847500, "type": "book"}
+{"payload": {"m": false, "price": "42400.32", "qty": "0.1"}, "recv_ts": 1706140848005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140848000, "type": "trade"}
+{"payload": {"ask": "42405.49", "ask_qty": "100.0", "bid": "42403.49", "bid_qty": "100.0"}, "recv_ts": 1706140848505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140848500, "type": "book"}
+{"payload": {"m": false, "price": "42408.65999999999997", "qty": "0.1"}, "recv_ts": 1706140849005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140849000, "type": "trade"}
+{"payload": {"ask": "42413.83", "ask_qty": "100.0", "bid": "42411.83", "bid_qty": "100.0"}, "recv_ts": 1706140849505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140849500, "type": "book"}
+{"payload": {"m": false, "price": "42417.0", "qty": "0.1"}, "recv_ts": 1706140850005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140850000, "type": "trade"}
+{"payload": {"ask": "42422.17", "ask_qty": "100.0", "bid": "42420.17", "bid_qty": "100.0"}, "recv_ts": 1706140850505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140850500, "type": "book"}
+{"payload": {"m": false, "price": "42425.34", "qty": "0.1"}, "recv_ts": 1706140851005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140851000, "type": "trade"}
+{"payload": {"ask": "42430.51", "ask_qty": "100.0", "bid": "42428.51", "bid_qty": "100.0"}, "recv_ts": 1706140851505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140851500, "type": "book"}
+{"payload": {"m": false, "price": "42433.68", "qty": "0.1"}, "recv_ts": 1706140852005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140852000, "type": "trade"}
+{"payload": {"ask": "42438.84999999999997", "ask_qty": "100.0", "bid": "42436.84999999999997", "bid_qty": "100.0"}, "recv_ts": 1706140852505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140852500, "type": "book"}
+{"payload": {"m": false, "price": "42442.02", "qty": "0.1"}, "recv_ts": 1706140853005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140853000, "type": "trade"}
+{"payload": {"ask": "42447.19", "ask_qty": "100.0", "bid": "42445.19", "bid_qty": "100.0"}, "recv_ts": 1706140853505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140853500, "type": "book"}
+{"payload": {"m": false, "price": "42450.36", "qty": "0.1"}, "recv_ts": 1706140854005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140854000, "type": "trade"}
+{"payload": {"ask": "42455.53", "ask_qty": "100.0", "bid": "42453.53", "bid_qty": "100.0"}, "recv_ts": 1706140854505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140854500, "type": "book"}
+{"payload": {"m": false, "price": "42458.7", "qty": "0.1"}, "recv_ts": 1706140855005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140855000, "type": "trade"}
+{"payload": {"ask": "42463.87", "ask_qty": "100.0", "bid": "42461.87", "bid_qty": "100.0"}, "recv_ts": 1706140855505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140855500, "type": "book"}
+{"payload": {"m": false, "price": "42467.03999999999996", "qty": "0.1"}, "recv_ts": 1706140856005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140856000, "type": "trade"}
+{"payload": {"ask": "42472.21", "ask_qty": "100.0", "bid": "42470.21", "bid_qty": "100.0"}, "recv_ts": 1706140856505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140856500, "type": "book"}
+{"payload": {"m": false, "price": "42475.38", "qty": "0.1"}, "recv_ts": 1706140857005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140857000, "type": "trade"}
+{"payload": {"ask": "42480.55", "ask_qty": "100.0", "bid": "42478.55", "bid_qty": "100.0"}, "recv_ts": 1706140857505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140857500, "type": "book"}
+{"payload": {"m": false, "price": "42483.71999999999997", "qty": "0.1"}, "recv_ts": 1706140858005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140858000, "type": "trade"}
+{"payload": {"ask": "42488.89", "ask_qty": "100.0", "bid": "42486.89", "bid_qty": "100.0"}, "recv_ts": 1706140858505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140858500, "type": "book"}
+{"payload": {"m": false, "price": "42492.06", "qty": "0.1"}, "recv_ts": 1706140859005, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140859000, "type": "trade"}
+{"payload": {"ask": "42497.23", "ask_qty": "100.0", "bid": "42495.23", "bid_qty": "100.0"}, "recv_ts": 1706140859505, "source": "sim_fixture", "symbol": "BTCUSDT", "ts": 1706140859500, "type": "book"}
