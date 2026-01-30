@@ -108,8 +108,7 @@ class TestOrderIntentRoundtrip:
         json2 = obj.model_dump_json()
         assert json1 == json2
         assert (
-            hashlib.sha256(json1.encode()).hexdigest()
-            == hashlib.sha256(json2.encode()).hexdigest()
+            hashlib.sha256(json1.encode()).hexdigest() == hashlib.sha256(json2.encode()).hexdigest()
         )
 
 
