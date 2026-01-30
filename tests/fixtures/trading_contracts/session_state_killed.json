@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180900000,
+  "state": "KILLED",
+  "prev_state": "ACTIVE",
+  "reason": "manual_kill_command",
+  "symbols_active": [],
+  "open_orders_count": 0,
+  "positions_count": 0,
+  "daily_pnl": "-45.25",
+  "daily_trades": 12,
+  "risk_utilization": "0.00"
+}

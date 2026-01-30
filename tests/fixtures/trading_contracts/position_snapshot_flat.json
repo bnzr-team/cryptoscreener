@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180802500,
+  "symbol": "ETHUSDT",
+  "side": "FLAT",
+  "quantity": "0.000",
+  "entry_price": "0.00",
+  "mark_price": "3450.25",
+  "unrealized_pnl": "0.00",
+  "realized_pnl_session": "12.75",
+  "leverage": 10,
+  "liquidation_price": "0.00",
+  "margin_type": "CROSS"
+}

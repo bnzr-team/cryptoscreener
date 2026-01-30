@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180850000,
+  "breach_id": "breach_warn-0001",
+  "breach_type": "POSITION_SIZE_LIMIT",
+  "severity": "WARNING",
+  "symbol": "BTCUSDT",
+  "threshold": "0.005",
+  "actual": "0.004",
+  "action_taken": "NONE",
+  "details": "Position size approaching limit (80% utilized)"
+}

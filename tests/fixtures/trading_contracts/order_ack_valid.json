@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "session_id": "sess_20260129_001",
+  "ts": 1738180800123,
+  "client_order_id": "coid_a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "order_id": 1234567890,
+  "symbol": "BTCUSDT",
+  "side": "BUY",
+  "order_type": "LIMIT",
+  "status": "NEW",
+  "quantity": "0.001",
+  "price": "67890.50",
+  "executed_qty": "0.000",
+  "avg_price": "0.00",
+  "time_in_force": "GTX",
+  "reduce_only": false,
+  "error_code": null,
+  "error_msg": null
+}
