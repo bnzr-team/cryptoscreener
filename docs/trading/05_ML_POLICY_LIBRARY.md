@@ -25,12 +25,29 @@ Rule ID:        POL-XXX (stable identifier)
 Intent:         One-line description
 Inputs:         List of metrics/signals consumed
 Preconditions:  Boolean conditions using parameter names
-Action:         Mapping to StrategyDecision behavior
+Action:         Mapping to StrategyDecision output (see Action Vocabulary)
 Hysteresis:     Enter/exit thresholds (named parameters)
 Cooldown:       Time-based constraints (named parameters)
 Risk Gates:     Ties to 06_RISK_COST_MODEL.md params
 Sim Impact:     Which fixtures should demonstrate this rule
 ```
+
+### Action Vocabulary
+
+The Action section MUST use one of these formal patterns:
+
+| Pattern | StrategyDecision Output | Description |
+|---------|------------------------|-------------|
+| `EMIT_ORDERS` | `orders = [StrategyDecisionOrder(...)]` | Place order(s) with specified params |
+| `SUPPRESS_ENTRY` | `orders = []` (entry blocked) | Block new entry orders, allow exits |
+| `SUPPRESS_ALL` | `orders = []` (all blocked) | Block all order emission |
+| `MODIFY_PARAMS` | Affects computed order prices/qty | Adjust spread, skew, etc. before order calc |
+| `FORCE_CLOSE` | `orders = [StrategyDecisionOrder(close)]` | Emit aggressive close order |
+
+Each Action MUST specify:
+1. **Pattern:** One of the above
+2. **Orders:** What orders are emitted (side, price formula, qty formula)
+3. **Reason:** The `reason` field value (text-only, no digits)
 
 ---
 
@@ -143,9 +160,10 @@ p_inplay_{inplay_horizon} < inplay_exit_prob
 ```
 
 **Action:**
-- Disable new entry orders
-- Keep exit orders for existing position
-- Reason: `low_inplay_pause`
+- **Pattern:** `SUPPRESS_ENTRY`
+- **Orders:** Block `StrategyDecisionOrder` where `side` would increase position
+- **Exits:** Allow orders that reduce `|position_qty|`
+- **Reason:** `low_inplay_pause`
 
 **Hysteresis:**
 - Uses `inplay_exit_prob` (lower than enter for hysteresis)
@@ -206,8 +224,12 @@ p_toxic >= toxicity_widen_threshold
 ```
 
 **Action:**
-- Multiply `spread_bps` by `toxic_spread_mult`
-- Reason: `toxic_widen`
+- **Pattern:** `MODIFY_PARAMS`
+- **Param change:** `effective_spread = spread_bps * toxic_spread_mult`
+- **Orders:** `StrategyDecisionOrder` prices computed as:
+  - `bid_price = mid * (1 - effective_spread / 10000)`
+  - `ask_price = mid * (1 + effective_spread / 10000)`
+- **Reason:** `toxic_widen`
 
 **Hysteresis:**
 - Enter: `p_toxic >= toxicity_widen_threshold`
@@ -235,9 +257,10 @@ p_toxic >= toxicity_disable_threshold
 ```
 
 **Action:**
-- Cancel all outstanding orders
-- Emit NOOP (no new orders)
-- Reason: `toxic_disable`
+- **Pattern:** `SUPPRESS_ALL`
+- **Orders:** `orders = []` (empty list, no orders emitted)
+- **Outstanding:** Runner cancels pending orders (cancel signal)
+- **Reason:** `toxic_disable`
 
 **Hysteresis:**
 - Enter: `p_toxic >= toxicity_disable_threshold`
@@ -453,9 +476,10 @@ abs(position_qty) >= inventory_hard_limit
 ```
 
 **Action:**
-- Cancel all entry orders immediately
-- Only allow close orders
-- Reason: `hard_limit_block`
+- **Pattern:** `SUPPRESS_ALL` for entries + `EMIT_ORDERS` for close
+- **Entry orders:** Block all `StrategyDecisionOrder` that would increase `|position_qty|`
+- **Close orders:** Emit `StrategyDecisionOrder(side=opposite(position_side), price=aggressive, qty=position_qty)`
+- **Reason:** `hard_limit_block`
 
 **Hysteresis:** None (hard constraint)
 
@@ -663,11 +687,11 @@ orders_placed_window > max_orders_per_window
 ```
 
 **Action:**
-- KILL_SWITCH activated
-- Cancel all orders
-- Close position at market
-- Halt all trading for session
-- Reason: `kill_max_loss`
+- **Pattern:** `FORCE_CLOSE` + session termination
+- **Step 1:** Cancel all pending orders (runner-level)
+- **Step 2:** `StrategyDecisionOrder(side=opposite(position_side), price=market, qty=abs(position_qty))`
+- **Step 3:** Set `SessionState.status = KILLED`
+- **Reason:** `kill_max_loss`
 
 **Hysteresis:** None (irreversible for session)
 
