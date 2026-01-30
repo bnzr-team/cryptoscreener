@@ -6,6 +6,7 @@ See DEC-042 for design rationale.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
@@ -36,6 +37,15 @@ class StrategyOrder:
             raise ValueError(f"quantity must be positive, got {self.quantity}")
         if self.price <= 0:
             raise ValueError(f"price must be positive, got {self.price}")
+        if re.search(r"\d", self.reason):
+            raise ValueError(
+                f"reason must not contain numbers (got '{self.reason}'). "
+                "Numeric data belongs in typed fields."
+            )
+        if len(self.reason) > 64:
+            raise ValueError(
+                f"reason must be <= 64 chars (got {len(self.reason)})"
+            )
 
 
 @dataclass(frozen=True)

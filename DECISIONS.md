@@ -3446,7 +3446,7 @@ v2 code MUST NOT import or depend directly on v1 internal modules:
 
 | Component | Status |
 |-----------|--------|
-| Strategy Protocol (on_tick → list[OrderIntent]) | ✅ Implemented |
+| Strategy Protocol (on_tick → list[StrategyOrder]) | ✅ Implemented |
 | StrategyContext (read-only market/position state) | ✅ Implemented |
 | BaselineStrategy (extracted from simple_mm_strategy) | ✅ Implemented |
 | StrategyDecision contract (journaled output) | ✅ Implemented |
@@ -3455,10 +3455,38 @@ v2 code MUST NOT import or depend directly on v1 internal modules:
 
 **Key Design:**
 
-1. **Strategy Protocol:** Minimal interface `on_tick(ctx: StrategyContext) -> list[OrderIntent]`
+1. **Strategy Protocol:** Minimal interface `on_tick(ctx: StrategyContext) -> list[StrategyOrder]`
 2. **StrategyContext:** Frozen dataclass with read-only market and position state
 3. **StrategyDecision:** Journaled output capturing context snapshot + orders for replay
 4. **Combined Digest:** `SHA256(decisions_sha256 + artifacts_sha256)` for full scenario verification
+
+**StrategyOrder vs OrderIntent (SSOT Rationale):**
+
+`StrategyOrder` and `OrderIntent` are intentionally separate:
+
+| Struct | Purpose | Fields | Lives in |
+|--------|---------|--------|----------|
+| `StrategyOrder` | Strategy output (what to do) | side, price, qty, reason | `strategy/base.py` |
+| `OrderIntent` | Order submission (full context) | + session_id, schema_version | `contracts/` |
+
+Rationale:
+- **Separation of concerns:** Strategy should only specify WHAT (side, price, qty), not HOW it's identified
+- **No session_id in strategy:** Strategies don't know about sessions; runner injects session_id during conversion
+- **Lightweight frozen dataclass:** No Pydantic overhead in hot path
+- **Deterministic conversion:** `StrategyOrder → StrategyDecisionOrder` is 1:1 field mapping with session_id injection
+
+Conversion path:
+```
+Strategy.on_tick() → list[StrategyOrder]
+    ↓ runner._create_decision()
+StrategyDecision.orders: list[StrategyDecisionOrder]  (session_id injected)
+```
+
+**Reason field validation:**
+- `reason` is for human-readable text only (e.g., "close_long", "enter_short")
+- MUST NOT contain digits (prevents embedding numeric data in free-text)
+- Max 64 chars (keeps it concise)
+- Enforced at both `StrategyOrder` and `StrategyDecisionOrder` level
 
 **Files Created:**
 
@@ -3468,12 +3496,15 @@ v2 code MUST NOT import or depend directly on v1 internal modules:
 - `scripts/run_scenario.py` CLI
 - `tests/trading/test_strategy_decision_roundtrip.py`
 - `tests/trading/test_scenario_runner_determinism.py`
+- `tests/trading/test_strategy_order_validation.py`
 
 **Alternatives considered:**
 
-1. Strategy returns StrategyDecision directly — rejected, too coupled
-2. Strategy modifies simulator state — rejected, breaks encapsulation
-3. No journaling — rejected, need audit trail for debugging
+1. Strategy returns OrderIntent directly — rejected, requires strategy to know session_id
+2. Strategy returns StrategyDecision directly — rejected, too coupled
+3. Strategy modifies simulator state — rejected, breaks encapsulation
+4. No journaling — rejected, need audit trail for debugging
+5. No reason validation — rejected, prevents SSOT drift (numeric data in free-text)
 
 **Impact:**
 

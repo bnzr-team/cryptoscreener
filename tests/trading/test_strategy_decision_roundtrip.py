@@ -330,3 +330,73 @@ class TestStrategyDecisionProperties:
             symbol="BTCUSDT",
         )
         assert decision_with.has_orders
+
+
+class TestReasonValidation:
+    """Test reason field validation (no numbers constraint)."""
+
+    def test_reason_rejects_digits(self) -> None:
+        """Reason field rejects strings containing digits."""
+        with pytest.raises(ValidationError, match="reason must not contain numbers"):
+            StrategyDecisionOrder(
+                session_id="sim_test123",
+                side=OrderSide.BUY,
+                price=Decimal("42000"),
+                quantity=Decimal("0.001"),
+                reason="entry at 0.5%",  # Contains digit
+            )
+
+    def test_reason_rejects_embedded_numbers(self) -> None:
+        """Reason field rejects any embedded numeric data."""
+        with pytest.raises(ValidationError, match="reason must not contain numbers"):
+            StrategyDecisionOrder(
+                session_id="sim_test123",
+                side=OrderSide.SELL,
+                price=Decimal("42000"),
+                quantity=Decimal("0.001"),
+                reason="tp_level_3",  # Contains digit
+            )
+
+    def test_reason_accepts_text_only(self) -> None:
+        """Reason field accepts pure text."""
+        order = StrategyDecisionOrder(
+            session_id="sim_test123",
+            side=OrderSide.BUY,
+            price=Decimal("42000"),
+            quantity=Decimal("0.001"),
+            reason="close_long",
+        )
+        assert order.reason == "close_long"
+
+    def test_reason_accepts_empty(self) -> None:
+        """Reason field accepts empty string."""
+        order = StrategyDecisionOrder(
+            session_id="sim_test123",
+            side=OrderSide.BUY,
+            price=Decimal("42000"),
+            quantity=Decimal("0.001"),
+            reason="",
+        )
+        assert order.reason == ""
+
+    def test_reason_rejects_too_long(self) -> None:
+        """Reason field rejects strings > 64 chars."""
+        with pytest.raises(ValidationError, match="reason must be <= 64 chars"):
+            StrategyDecisionOrder(
+                session_id="sim_test123",
+                side=OrderSide.BUY,
+                price=Decimal("42000"),
+                quantity=Decimal("0.001"),
+                reason="a" * 65,
+            )
+
+    def test_reason_accepts_max_length(self) -> None:
+        """Reason field accepts 64-char string."""
+        order = StrategyDecisionOrder(
+            session_id="sim_test123",
+            side=OrderSide.BUY,
+            price=Decimal("42000"),
+            quantity=Decimal("0.001"),
+            reason="a" * 64,
+        )
+        assert len(order.reason) == 64

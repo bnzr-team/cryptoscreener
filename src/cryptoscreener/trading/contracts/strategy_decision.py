@@ -7,6 +7,7 @@ Consumer: Journal, Replay verifier, Audit log
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal  # noqa: TC003 - used at runtime in validators
 from typing import Annotated
 
@@ -38,6 +39,27 @@ class StrategyDecisionOrder(TradingContractBase):
     def parse_decimals(cls, v: object) -> Decimal:
         """Parse decimal fields."""
         return parse_decimal(v)
+
+    @field_validator("reason", mode="after")
+    @classmethod
+    def validate_reason_no_numbers(cls, v: str) -> str:
+        """Validate reason contains no numeric data.
+
+        The reason field is for human-readable explanations only.
+        Numeric data (prices, quantities, percentages) must be in
+        dedicated typed fields to ensure determinism and schema integrity.
+        """
+        if re.search(r"\d", v):
+            raise ValueError(
+                f"reason must not contain numbers (got '{v}'). "
+                "Numeric data belongs in typed fields, not free-text."
+            )
+        if len(v) > 64:
+            raise ValueError(
+                f"reason must be <= 64 chars (got {len(v)}). "
+                "Keep reasons concise."
+            )
+        return v
 
 
 class StrategyDecision(TradingContractBase):
